@@ -1,0 +1,228 @@
+/* css/mobile.css — 세로 폰 게임 화면 (A-1 소유). 아래 3개 전역 규칙은 데스크톱 렌더를 기존과 같게 유지하므로 지우지 말 것 */
+.raise-slider-row { display: contents; }
+.raise-step { display: none; }
+.m-rotate { display: none; }
+
+/* ── 루트 글자 크기 노브: rem 기반 크기를 작은 폰에서 일괄 축소 ── */
+@media (max-width: 360px) { html { font-size: 15px; } }
+@media (max-width: 330px) { html { font-size: 14px; } }
+
+/* ── 세로 폰 (ui/mobile-ui.js의 MQ와 같은 문자열) ── */
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  :root {
+    /* 타원 폭: 화면 폭과 높이 둘 다로 제한 (412→300x390, 360→248x322, 320→208x270) */
+    --oval-w: min(calc(100vw - 112px), calc((100dvh - 356px) / 1.3), 300px);
+    --seat-w: 92px; --seat-font: .72rem;
+    --card-w: 32px; --card-h: 45px; --card-font: .8rem;
+    --hero-card-w: 46px; --hero-card-h: 64px; --hero-card-font: 1.05rem;
+    --tap: 44px; --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* 100dvh: 주소창이 접히고 펴져도 화면 높이에 맞춤 (dvh 미지원 브라우저는 vh 유지) */
+  body, .screen, .history-container, .curriculum-container, .scenario-container { height: 100vh; height: 100dvh; }
+  body { overscroll-behavior: none; }
+  #screen-game { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding-top: env(safe-area-inset-top, 0px); }
+
+  /* ── 테이블: 상단 세로 타원 ── */
+  .table-area { flex: 0 0 auto; display: flex; justify-content: center; padding: 44px 0; overflow: visible; }
+  .poker-table {
+    width: var(--oval-w); height: auto; aspect-ratio: 10 / 13; border-radius: 50%; border-width: 8px;
+    margin: 0; transform: none; box-shadow: 0 0 0 3px #6b3f10, 0 10px 30px rgba(0,0,0,.8);
+  }
+  .table-felt { gap: 4px; }
+  .pot-display { font-size: .95rem; }
+  .pot-display-wrap { padding: 2px 8px; gap: 6px; }
+  .board-cards { gap: 4px; min-height: var(--card-h); }
+  .hand-info { font-size: .7rem; }
+  .pot-odds-ring { width: 40px; height: 40px; }
+
+  /* 좌석: data-slot(ui/table.js) 기반 타원 둘레 배치, 중심 앵커.
+     좌우 좌석은 타원 바깥쪽(4%/96%)과 위아래(17%/81%)로 벌려 가운데 띠(팟·보드)를 비워 둠 */
+  .poker-table .seat {
+    width: var(--seat-w); font-size: var(--seat-font); padding: 4px 8px 4px 4px;
+    top: auto; left: auto; right: auto; bottom: auto; transform: translate(-50%, -50%);
+    display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; column-gap: 4px;
+  }
+  .poker-table .seat > * { flex: 0 0 100%; min-width: 0; }
+  .poker-table .seat[data-slot="0"] { left: 50%; top: 96%; width: calc(var(--hero-card-w) * 2 + 22px); } /* 히어로 */
+  .poker-table .seat[data-slot="1"] { left: 96%; top: 81%; }   /* 우하 */
+  .poker-table .seat[data-slot="2"] { left: 96%; top: 17%; }   /* 우상 */
+  /* 상단: 윗변 고정(화면 위로 잘리지 않게) */
+  .poker-table .seat[data-slot="3"] { left: 50%; top: 0; transform: translate(-50%, -36px); }
+  .poker-table .seat[data-slot="4"] { left: 4%;  top: 17%; }   /* 좌상 */
+  .poker-table .seat[data-slot="5"] { left: 4%;  top: 81%; }   /* 좌하 */
+  .poker-table .seat:empty { display: none; }                   /* 헤즈업 빈 좌석 */
+  /* 좌석 내용 압축: 이름 1줄, 성향 HUD 1줄, 포지션+스택 한 줄 */
+  /* 이름은 작은 폰(루트 15/14px)에서도 11px 아래로 줄이지 않음(판독성 기준) */
+  .poker-table .seat-name { font-size: max(11px, 1em); margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .poker-table .seat-name small { font-size: .85em; }
+  .poker-table .seat .seat-pos, .poker-table .seat .seat-stack { flex: 0 0 auto; }
+  .poker-table .seat-pos { font-size: .9em; }
+  .seat-cards { margin-top: 3px; min-height: var(--card-h); gap: 3px; }
+  .seat-stack-bar { right: 3px; top: 6px; bottom: 6px; width: 3px; }
+  /* HUD: 성향 칩이 있으면 칩만, 없으면 첫 줄만 (전체 설명은 탭 팁) */
+  .poker-table .seat-hud {
+    display: flex; flex-direction: column; align-items: center; max-height: 13px; overflow: hidden;
+    white-space: nowrap; font-size: .58rem; line-height: 13px; margin: 1px -6px 1px -2px;
+  }
+  .poker-table .seat-hud .seat-style-chip { order: -1; margin-top: 0; line-height: 11px; }
+  /* 빌런 벳: 좌석 오른쪽 위 배지(좌석 높이 고정) */
+  .poker-table .seat:not(.hero) .seat-bet {
+    position: absolute; top: -8px; right: -4px; z-index: 3; width: auto; font-size: .62rem; font-weight: 700; line-height: 1.45;
+    background: #2b1010; border: 1px solid var(--red); border-radius: 8px; padding: 0 5px; white-space: nowrap;
+  }
+  /* 액션 말풍선 */
+  .seat-action { font-size: .66rem; line-height: 1.35; padding: 2px 5px; }
+  /* 빌런 말풍선은 자기 카드 칸(뒷면)을 덮음 — 좌석 높이가 늘지 않아 옆 좌석·팟·보드와 안 겹침 */
+  .poker-table .seat:not(.hero) .seat-action {
+    position: absolute; left: 4px; right: 8px; bottom: 4px; margin: 0; z-index: 4;
+    height: calc(var(--card-h) - 2px); display: flex; flex-direction: column; justify-content: center;
+    background: rgba(0,0,0,.86); overflow: hidden;
+  }
+  .poker-table .seat:not(.hero) .seat-action br { display: none; }
+  .poker-table .seat:not(.hero) .seat-action span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 쇼다운으로 카드가 공개되면 말풍선을 치워 카드가 보이게 */
+  .poker-table .seat:not(.hero):has(.seat-cards .card:not(.back)) .seat-action { display: none; }
+  /* 히어로 말풍선은 위(펠트 쪽)로 — 아래 도크 침범 방지 */
+  .seat[data-slot="0"] .seat-action {
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    width: max-content; max-width: 200px; margin: 0 0 4px; z-index: 7;
+  }
+
+  /* 카드 */
+  .seat .card, .board-cards .card {
+    width: var(--card-w); height: var(--card-h); font-size: var(--card-font); border-radius: 4px;
+  }
+  .seat[data-slot="0"] .card { width: var(--hero-card-w); height: var(--hero-card-h); font-size: var(--hero-card-font); }
+
+  #result-banner { padding: 12px 22px; max-width: 86vw; }
+  #equity-toggle { display: none; }   /* 도크 탭이 대신함 */
+
+  /* ── 학습 도크 #m-dock (ui/mobile-ui.js가 .table-area 바로 뒤에 삽입) ── */
+  .m-dock { flex: 0 0 auto; background: #0d1117; border-top: 1px solid var(--hud-border); display: flex; flex-direction: column; }
+  /* 상단부 높이 상한: 테이블+탭 바+액션바를 뺀 남은 높이(최소 120px, 최대 38dvh) — 탭 바가 액션바 뒤로 숨지 않게, 넘치면 내부 스크롤 */
+  .m-dock-top {
+    display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 0; overflow-y: auto;
+    max-height: 38dvh; max-height: clamp(120px, calc(100dvh - var(--oval-w) * 1.3 - 315px - var(--safe-b)), 38dvh);
+  }
+  .m-dock-top > * { flex-shrink: 0; }
+  .m-dock-top.is-empty { display: none; }
+  .m-dock-tabs { display: flex; gap: 4px; padding: 4px 8px; }
+  .m-dock-tabs button {
+    flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 4px; background: #161b22; border: 1px solid var(--hud-border);
+    color: var(--text-dim); border-radius: 8px; font-size: .82rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+  }
+  .m-dock-tabs button.on { color: var(--gold); border-color: var(--gold); }
+  .m-dock-tabs button[hidden] { display: none; }
+  .m-dock-tabs .m-dock-handle { flex: 0 0 44px; font-size: 1rem; }
+  .m-dock-body { max-height: 34dvh; overflow-y: auto; padding: 0 10px 8px; }
+  .m-dock.m-collapsed .m-dock-body { display: none; }
+  .m-dock[data-tab="chart"] .m-dock-body { max-height: none; }   /* 13x13 차트는 잘리지 않게 통째로 */
+  /* 재배치된 패널의 absolute 좌표·폭 무력화 */
+  .m-dock-body > * { position: static !important; width: 100% !important; max-width: none !important; margin: 0 0 8px; }
+  /* 탭 필터: 앱이 정한 style.display는 그대로 두고 비활성 탭만 숨김 */
+  .m-dock[data-tab="coach"]  .m-dock-body > :not(#equity-overlay) { display: none !important; }
+  .m-dock[data-tab="chart"]  .m-dock-body > :not(#gto-chart)      { display: none !important; }
+  .m-dock[data-tab="think"]  .m-dock-body > :not(#thinking-feed)  { display: none !important; }
+  .m-dock[data-tab="review"] .m-dock-body > :not(#gto-commentary) { display: none !important; }
+  /* 패널 내부 */
+  .m-dock #equity-overlay { border: none; background: transparent; padding: 0; gap: 8px; overflow: visible; }
+  .m-dock .equity-bar-wrap { min-width: 0; }
+  .m-dock .coaching-text { max-width: none; }
+  .m-dock .beginner-explain { flex: none; }
+  .m-dock #beginner-explain-body { overflow: visible; }
+  .m-dock #gto-chart { padding: 6px; }
+  .m-dock .gto-cell { font-size: clamp(9px, 2.3vw, 11px); }   /* 판독성 기준 9px 이상 (320 폭 셀 약 22px에 3글자) */
+  .m-dock .gto-chart-legend { font-size: .72rem; }
+  .m-dock #gto-commentary { flex-direction: column !important; padding: 8px 4px; border-top: none; gap: 8px; }
+  .m-dock .gto-reason-panel { width: 100%; border-left: none; border-top: 1px solid rgba(212,175,55,.3); padding: 8px 0 0; }
+  .m-dock .hand-result-layout { gap: 10px; }
+  .m-dock .hand-result-signal { min-width: 40px; }
+  .m-dock .thinking-replay-body { max-height: 28dvh; }
+  .m-dock #thinking-feed { max-height: none; font-size: .8rem; }
+  .m-dock .thinking-line { padding: 4px 0; }
+  .m-dock-top #thinking-panel { width: 100%; margin: 0; }
+  .m-dock .thinking-chip { min-height: 36px; padding: 6px 12px; font-size: .8rem; }
+  .m-dock .thinking-row { gap: 6px; margin: 4px 0; }
+  .m-dock .thinking-step { flex: 0 0 100%; min-width: 0; font-size: .76rem; color: var(--text-dim); }   /* 단계 이름은 한 줄, 칩은 그 아래 */
+  #thinking-panel.m-collapsed .thinking-row { display: none; }
+  #thinking-panel .thinking-panel-title { min-height: 32px; display: flex; align-items: center; cursor: pointer; margin-bottom: 0; }
+  #thinking-panel .thinking-panel-title::after { content: ' ▴'; margin-left: 4px; }
+  #thinking-panel.m-collapsed .thinking-panel-title::after { content: ' ▾'; }
+  .m-dock .coach-pre .cp-opt { min-height: var(--tap); font-size: .85rem; }
+  .m-dock .coach-pre .cp-grid { gap: 6px; }
+  .m-dock .cp-hint { min-height: var(--tap); font-size: .9rem; }
+  .m-dock .last-verdict { font-size: .88rem; }
+
+  /* ── 액션바: 하단 고정 그리드 ── */
+  .action-bar {
+    position: sticky; bottom: 0; z-index: 40; margin-top: auto; max-width: none; width: 100%;
+    display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 6px; row-gap: 0;
+    grid-template-areas: "preset preset preset" "slider slider slider" "presets presets presets" "fold call raise";
+    padding: 8px 10px calc(8px + var(--safe-b));
+  }
+  .raise-controls, #raise-slider-section { display: contents; }   /* 인라인 display:none이면 숨김 그대로 */
+  #gto-preset-row { grid-area: preset; margin-bottom: 6px; }
+  .gto-preset-btn { min-height: 44px; }
+  .gto-reason-toggle { width: 44px; height: 44px; }
+  .raise-slider-row { grid-area: slider; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .raise-step {
+    display: inline-flex; flex: 0 0 44px; width: 44px; height: 44px; align-items: center; justify-content: center; font-size: 1.3rem;
+    background: #21262d; color: var(--text); border: 1px solid var(--hud-border); border-radius: 8px; cursor: pointer;
+  }
+  #raise-slider { flex: 1; width: auto; min-width: 0; height: 44px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; }
+  #raise-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #30363d; }
+  #raise-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 28px; height: 28px; margin-top: -11px; border-radius: 50%;
+    background: var(--gold); border: 2px solid #0d1117; box-shadow: 0 0 0 1px var(--gold);
+  }
+  #raise-slider::-moz-range-track { height: 6px; border-radius: 3px; background: #30363d; }
+  #raise-slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--gold); border: 2px solid #0d1117; }
+  .raise-bottom-row { grid-area: presets; display: flex; gap: 6px; align-items: stretch; margin-bottom: 6px; }
+  .raise-presets { flex: 1; min-width: 0; display: flex; gap: 4px; }
+  .raise-presets button { flex: 1 1 0; min-width: 40px; min-height: 44px; font-size: .82rem; padding: 0 2px; white-space: nowrap; border-radius: 6px; }
+  .raise-amount-wrap { margin-left: 0; gap: 4px; }
+  .raise-amount-input { width: 64px; height: 44px; font-size: 16px; padding: 0 4px; }
+  .raise-pct { min-width: 0; font-size: .7rem; width: 3.6em; white-space: normal; line-height: 1.2; }
+  #btn-fold { grid-area: fold; } #btn-call { grid-area: call; } #btn-raise { grid-area: raise; }
+  .action-btn { min-height: 52px; font-size: 1.05rem; padding: 0 8px; }
+
+  /* ── 결과바: 2열 (인라인 display:flex 유지, wrap) — [다음 핸드] / [같은 핸드][1문제] / [히스토리][세션 종료] ── */
+  #result-actions-bar {
+    position: sticky; bottom: 0; z-index: 40; margin-top: auto; max-width: none;
+    flex-wrap: wrap; gap: 8px; padding: 8px 10px calc(8px + var(--safe-b));
+  }
+  #result-actions-bar .action-btn { flex: 1 1 45%; min-height: 48px; white-space: nowrap; font-size: .95rem; }
+  #result-actions-bar #btn-next-round { flex-basis: 100%; }
+}
+
+@media (max-width: 360px) {
+  :root { --seat-w: 80px; --card-w: 28px; --card-h: 40px; --hero-card-w: 42px; --hero-card-h: 58px; }
+  /* 위쪽 좌우 좌석을 더 올리고 팟 링을 줄여 가운데 띠(팟·보드)에 여유 확보 */
+  .poker-table .seat[data-slot="2"], .poker-table .seat[data-slot="4"] { top: 14%; }
+  .pot-odds-ring { width: 32px; height: 32px; }
+  .pot-odds-ring::after { inset: 5px; }
+  .pot-display { font-size: .85rem; }
+  .poker-table .seat .seat-action span:not(.hero-light-dot) { display: none; }   /* 말투 문구 생략, 액션 라벨만(히어로 신호등 점은 유지) */
+  .seat-action br { display: none; }
+  .raise-pct { display: none; }
+}
+@media (max-width: 330px) {
+  :root { --seat-w: 72px; --seat-font: .66rem; --card-w: 26px; --card-h: 36px; --hero-card-w: 38px; --hero-card-h: 54px; }
+  /* 이름 11px 하한으로 좌석이 약 3px 높아진 만큼 위쪽 좌우 좌석을 더 올려 팟 표시와 띄움 */
+  .poker-table .seat[data-slot="2"], .poker-table .seat[data-slot="4"] { top: 13%; }
+}
+
+/* ── 가로로 눕힌 폰: 게임 화면에만 "세로로 돌려 주세요" (#m-rotate는 index.html 정적 마크업) ── */
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  /* 데스크톱 배치의 오른쪽 좌석(SB)이 화면 밖으로 나가 브라우저가 페이지 전체를 축소하던 문제(915x412에서 954px) 차단 */
+  #screen-game { overflow-x: hidden; }
+  #screen-game.active .m-rotate {
+    display: flex; position: fixed; inset: 0; z-index: 600; background: rgba(10,14,20,.96);
+    flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 1.2rem; color: var(--text);
+  }
+  html.allow-landscape .m-rotate, html.allow-landscape #screen-game.active .m-rotate { display: none; }
+  html.allow-landscape #screen-game { overflow-y: auto; }
+  html.allow-landscape .table-area { zoom: .6; flex: 0 0 auto; padding: 72px 20px 76px; }   /* 간이 배치(best-effort): 위아래로 튀어나온 좌석까지 보이게 */
+  html.allow-landscape .action-bar { padding: 6px 10px; }
+}

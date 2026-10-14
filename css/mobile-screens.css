@@ -1,0 +1,97 @@
+/* css/mobile-screens.css — 세로 폰 기타 화면 (A-2 소유)
+   메뉴, 빌런 선택, 핸드 리뷰(목록 → 상세 2단계), 드릴, 세션 요약, 커리큘럼/퀴즈.
+   데스크톱 무영향: 전역 규칙은 아래 .history-list-back 숨김 1개뿐이고 나머지는 전부 세로 폰 미디어쿼리 안.
+   미디어쿼리 문자열은 css/mobile.css, ui/mobile-ui.js(MQ)와 같게 유지할 것.
+   --safe-b는 css/mobile.css가 정의(없으면 env 값으로 대체). */
+
+/* 전역: 핸드 리뷰 상세의 "↩ 목록" 버튼은 세로 폰에서만 보임 (ui/history.js가 항상 렌더) */
+.history-list-back { display: none; }
+
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+
+  /* ── 메뉴 ─────────────────────────────────────── */
+  #screen-menu { overflow-y: auto; overscroll-behavior: contain; }
+  .menu-container { padding: 24px 16px calc(24px + var(--safe-b, env(safe-area-inset-bottom, 0px))); gap: 12px; }
+  .game-title { font-size: clamp(1.6rem, 9vw, 3rem); letter-spacing: 2px; margin-bottom: 16px; text-align: center; white-space: nowrap; }
+  #screen-menu .menu-btn { width: min(280px, calc(100vw - 32px)); min-height: 52px; padding: 12px 16px; }
+
+  /* ── 빌런 선택: 세로 1열, 설명(.opt-help, touch.js가 title에서 생성) 본문 노출 ── */
+  #screen-villain-select { overflow-y: auto; overscroll-behavior: contain; align-items: flex-start; }
+  .villain-select-container { width: 100%; max-width: 480px; padding: 20px 16px calc(24px + var(--safe-b, env(safe-area-inset-bottom, 0px))); }
+  .villain-select-container h2 { font-size: 1.5rem; margin-bottom: 16px; }
+  .villain-options { flex-direction: column; gap: 10px; margin-bottom: 16px; }
+  .villain-opt { min-width: 0; width: 100%; padding: 14px 16px; text-align: left; gap: 4px; }
+  .villain-opt .opt-help { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+  .coach-level-row { margin: 0 0 12px; text-align: left; }
+  .coach-level-row select, #thinking-reveal { display: block; width: 100%; font-size: 16px; min-height: 44px; margin: 6px 0 0; padding: 6px 8px; }
+  .thinking-toggle-box { max-width: none; margin: 0 0 16px; }
+  .thinking-toggle-box label { display: flex; align-items: center; gap: 8px; min-height: 44px; line-height: 1.4; }
+  .thinking-toggle-box input[type=checkbox] { flex: 0 0 auto; width: 22px; height: 22px; }
+  #screen-villain-select .menu-btn { width: 100%; min-height: 48px; }
+
+  /* ── 핸드 리뷰: 목록 → 상세 2단계 (ui/history.js가 .history-body.detail-open 토글) ── */
+  .history-topbar { padding: 8px 12px; }
+  .history-topbar .menu-btn { width: auto; min-height: 44px; padding: 8px 16px; font-size: 1rem; }
+  .history-mistakes, .history-detail { word-break: keep-all; overflow-wrap: anywhere; }
+  .history-mistakes { padding: 8px 12px; }
+  .hm-list { max-height: 30vh; max-height: 30dvh; }
+  /* 실수 한 줄: [스트리트][손실bb ··· 🔁 연습] / 다음 줄에 내용 전폭 */
+  .hm-row { flex-wrap: wrap; gap: 2px 10px; padding: 4px 0; }
+  .hm-delta { margin-left: auto; }
+  .hm-practice-btn { padding: 4px 10px; }
+  .hm-action { order: 1; flex: 1 1 100%; }
+  .hm-why { margin: 0 0 4px; }
+  .history-body { flex-direction: column; }
+  .history-sidebar { width: 100%; border-right: none; flex: 1 1 auto; min-height: 0; }
+  .history-detail { display: none; padding: 12px 14px calc(16px + var(--safe-b, env(safe-area-inset-bottom, 0px))); }
+  .history-body.detail-open .history-sidebar { display: none; }
+  .history-body.detail-open .history-detail { display: block; flex: 1 1 auto; min-height: 0; }
+  .history-body.detail-open .history-list-back { display: inline-flex; align-items: center; min-height: 44px; width: auto; margin-bottom: 10px; padding: 8px 16px; font-size: 1rem; }
+  /* 상세를 보는 동안에는 상단 "↩ 메뉴로"와 최근 실수 패널을 접어 뒤로 버튼을 "↩ 목록" 하나로
+     (:has 미지원 브라우저는 그대로 보임 — 동작에는 지장 없음) */
+  .history-container:has(.history-body.detail-open) .history-topbar,
+  .history-container:has(.history-body.detail-open) .history-mistakes { display: none; }
+  .history-session-header { min-height: 48px; justify-content: center; }
+  .history-hand-item { min-height: 44px; font-size: .9rem; }
+  .history-detail-header { gap: 6px 12px; }
+  .hdh-date { order: 1; margin-left: 0; width: 100%; }
+  .history-street-block { padding: 10px 12px; }
+  .history-practice-btn { width: 100%; min-height: 48px; }
+
+  /* ── 드릴 ─────────────────────────────────────── */
+  .drill-container { padding: 8px 12px calc(24px + var(--safe-b, env(safe-area-inset-bottom, 0px))); }
+  .drill-topbar .menu-btn { min-height: 44px; }
+  .drill-tile { padding: 14px; }
+  .drill-choice { min-height: 52px; font-size: 1rem; }
+  .drill-next { width: 100%; min-height: 48px; }
+  .fb-line { word-break: keep-all; overflow-wrap: anywhere; }
+  .res-btns .menu-btn { min-height: 48px; padding: 10px 12px; }
+  .drill-quick { top: 8px; max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; }
+
+  /* ── 세션 요약 (원래 overflow 없음 → 긴 요약이 잘림) ── */
+  #screen-session-summary { overflow-y: auto; overscroll-behavior: contain; }
+  #screen-session-summary > div { padding: 20px 14px calc(20px + var(--safe-b, env(safe-area-inset-bottom, 0px))) !important; word-break: keep-all; overflow-wrap: anywhere; }
+  #screen-session-summary .menu-btn { width: 100%; min-height: 44px; }
+
+  /* ── 커리큘럼 ──────────────────────────────────── */
+  .curriculum-container { width: 100%; }
+  .session-nav { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; }
+  .session-section { padding: 14px; word-break: keep-all; overflow-wrap: anywhere; }
+  .session-title { font-size: 1.2rem; }
+  .session-actions { gap: 8px; padding: 10px 12px calc(10px + var(--safe-b, env(safe-area-inset-bottom, 0px))); }
+  .session-actions .menu-btn { width: auto; flex: 1 1 45%; min-height: 48px; padding: 10px 12px; font-size: 1rem; }
+
+  /* ── 시나리오/퀴즈 (quiz.js 인라인 margin-left·font-size 덮기) ── */
+  .scenario-container { width: 100%; padding: 14px 14px calc(14px + var(--safe-b, env(safe-area-inset-bottom, 0px))); word-break: keep-all; overflow-wrap: anywhere; }
+  /* 제출 후 정답(피드백)을 채점 버튼보다 먼저 읽도록 순서만 바꿈 */
+  #scenario-feedback { order: 1; }
+  #scenario-choices { order: 2; }
+  #scenario-next { order: 3; }
+  #scenario-choices .menu-btn, #scenario-board .menu-btn, #scenario-next { width: 100%; min-height: 48px; margin: 8px 0 0 !important; }
+  #quiz-ans { font-size: 16px !important; }
+}
+
+/* 좁은 폰(≤360): 드릴 카드 축소 */
+@media (max-width: 360px) {
+  .card.drill-card { width: 56px; height: 80px; }
+}

@@ -1,0 +1,29 @@
+.card {
+  width: 44px;
+  height: 62px;
+  background: #fff;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: default;
+  position: relative;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  transition: transform 0.15s, box-shadow 0.15s;
+  transform-style: preserve-3d;
+  user-select: none;
+}
+.card:hover { transform: translateY(-4px); box-shadow: 0 6px 16px rgba(0,0,0,0.5); }
+.card.red  { color: #c00; }
+.card.black { color: #000; }
+.card.hero-card { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
+.card.back {
+  background: linear-gradient(135deg, #1a3a8a 25%, #0d2060 25%);
+  background-size: 8px 8px;
+  color: transparent;
+}
+.card.folded { opacity: 0; pointer-events: none; }
+.card.hidden { background: #1e3a7a; color: transparent; }

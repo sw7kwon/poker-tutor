@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>포커 튜터</title>
+<meta name="theme-color" content="#0a0e14">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/main.css">
+<link rel="stylesheet" href="css/table.css">
+<link rel="stylesheet" href="css/cards.css">
+<link rel="stylesheet" href="css/hud.css">
+<link rel="stylesheet" href="css/animations.css">
+<link rel="stylesheet" href="css/history.css">
+<link rel="stylesheet" href="css/thinking.css">
+<link rel="stylesheet" href="css/mobile.css">
+<link rel="stylesheet" href="css/mobile-screens.css">
+<link rel="stylesheet" href="css/touch.css">
+<link rel="stylesheet" href="css/pwa.css">
+</head>
+<body>
+
+<!-- 메뉴 -->
+<div id="screen-menu" class="screen active">
+  <div class="menu-container">
+    <h1 class="game-title">♠ POKER TUTOR</h1>
+    <button class="menu-btn" onclick="App.startGame()">🃏 게임 모드</button>
+    <button class="menu-btn" onclick="App.startScenario()">✏️ 시나리오 모드</button>
+    <button class="menu-btn" onclick="App.startCurriculum()">📚 커리큘럼</button>
+    <button class="menu-btn" onclick="App.showHistory()">📜 핸드 리뷰</button>
+    <button class="menu-btn" onclick="DrillUI.openHub()">⚡ 드릴 훈련</button>
+    <button class="menu-btn" onclick="BackupUI.open()">💾 기록 백업/복원</button>
+  </div>
+</div>
+
+<!-- 빌런 선택 -->
+<div id="screen-villain-select" class="screen">
+  <div class="villain-select-container">
+    <h2>빌런 구성 선택</h2>
+    <div class="villain-options">
+      <button class="villain-opt" onclick="App.selectVillains('headsup-tag')"
+        title="TAG(타이트-어그레시브): 좋은 핸드만 골라서 강하게 치는 정석 스타일. 1:1이라 포지션·레인지 기본기 연습에 좋아요">
+        <span class="opt-title">헤즈업 TAG</span>
+        <span class="opt-desc">Mike (TAG) vs 히어로</span>
+      </button>
+      <button class="villain-opt" onclick="App.selectVillains('sixmax')"
+        title="TAG=정석형 / LAG(루즈-어그레시브)=많이 참여하고 공격적 / Fish=아무 핸드나 콜 / Nit=극도로 타이트(레이즈=진짜 강함). 실전 6인 테이블 감각 연습">
+        <span class="opt-title">6인 풀링</span>
+        <span class="opt-desc">TAG×2 / LAG / Fish / Nit (상대 5명)</span>
+      </button>
+      <button class="villain-opt" onclick="App.selectVillains('mixed')"
+        title="상대 스타일이 숨겨져 있어요 — 플레이를 관찰해 타입(TAG/LAG/Fish/Nit)을 추리하는 핸드리딩 연습">
+        <span class="opt-title">Mixed 은닉</span>
+        <span class="opt-desc">Alex (타입 미공개)</span>
+      </button>
+      <button class="villain-opt gto-mirror-opt" onclick="App.selectVillains('gto-mirror')"
+        title="같은 카드를 3회 반복: 1회 혼자 → 2회 힌트 보며 → 3회 측정. 정답과 내 플레이의 EV 차이를 신호등으로 복기">
+        <span class="opt-title">🎯 GTO 미러</span>
+        <span class="opt-desc">정답 해설 + 따라하기 모드</span>
+      </button>
+    </div>
+    <div class="coach-level-row">코칭 보조: <select id="coach-level-select" onchange="CoachUI.setLevel(this.value)"><option value="auto">자동(추천)</option><option value="0">L0 풀코칭(정답 항상 보기)</option><option value="1">L1 먼저 판단</option><option value="2">L2 예측(승률도 직접)</option><option value="3">L3 실전</option></select></div>
+    <!-- WP8 띵킹 프로세스 모드 토글 (ThinkingUI.init이 바인딩) -->
+    <div class="thinking-toggle-box">
+      <label><input type="checkbox" id="thinking-toggle"> 💭 띵킹 프로세스 모드(투머치포커식 속마음 중계)</label>
+      <div id="thinking-reveal-wrap">공개 방식:
+        <select id="thinking-reveal">
+          <option value="live">실시간 공개 (상대 속마음이 바로 보임, 학습용)</option>
+          <option value="end">핸드 끝나고 공개 (공정 플레이)</option>
+        </select>
+      </div>
+    </div>
+    <button class="menu-btn secondary" onclick="App.showMenu()">뒤로</button>
+  </div>
+</div>
+
+<!-- 게임 테이블 -->
+<div id="screen-game" class="screen" style="flex-direction:column;">
+  <!-- 가로 폰 안내 (mobile.css가 가로 폰에서만 표시) -->
+  <div id="m-rotate" class="m-rotate"><div>📱 세로로 돌려 주세요</div><button class="menu-btn secondary" onclick="document.documentElement.classList.add('allow-landscape')">그래도 계속</button></div>
+  <!-- 테이블 -->
+  <div class="table-area">
+    <div class="poker-table">
+      <div class="table-felt">
+        <div class="pot-display-wrap">
+          <div class="pot-display">POT: <span id="pot-amount">0</span>bb</div>
+          <div class="pot-odds-ring" id="pot-odds-ring" style="display:none">
+            <span class="pot-odds-pct-label" id="pot-odds-pct">0%</span>
+          </div>
+        </div>
+        <div class="board-cards" id="board-cards"></div>
+        <div class="hand-info" id="hand-info">Hand #1</div>
+      </div>
+      <div class="seat seat-utg" id="seat-UTG"></div>
+      <div class="seat seat-hj"  id="seat-HJ"></div>
+      <div class="seat seat-co"  id="seat-CO"></div>
+      <div class="seat seat-btn" id="seat-BTN"></div>
+      <div class="seat seat-sb"  id="seat-SB"></div>
+      <div class="seat seat-bb"  id="seat-BB"></div>
+    </div>
+    <!-- 핸드 결과 배너 (테이블 위 오버레이) -->
+    <div id="result-banner" class="result-banner" style="display:none">
+      <div id="result-banner-title" class="result-banner-title"></div>
+      <div id="result-banner-sub" class="result-banner-sub"></div>
+    </div>
+    <!-- 에쿼티 토글 버튼 (우상단) -->
+    <button class="equity-toggle-btn" id="equity-toggle" onclick="App.toggleEquity()">📊 에쿼티</button>
+    <!-- 에쿼티 패널 (기본 숨김) -->
+    <div class="equity-panel" id="equity-overlay" style="display:none">
+      <div id="last-verdict" class="last-verdict" style="display:none"></div>
+      <div id="coach-reminder" class="coach-reminder" style="display:none"></div>
+      <div id="coach-pre" class="coach-pre" style="display:none"></div>
+      <div class="equity-bar-wrap">
+        <div class="equity-label">에쿼티</div>
+        <div class="equity-bar"><div class="equity-fill" id="equity-fill" style="width:0%"></div></div>
+        <div class="equity-value" id="equity-value">—</div>
+      </div>
+      <table class="ev-table" id="ev-table">
+        <thead><tr><th>액션</th><th>EV(bb)</th></tr></thead>
+        <tbody id="ev-rows"></tbody>
+      </table>
+      <div class="coaching-text" id="coaching-text"></div>
+      <div class="gto-hint" id="gto-hint" style="display:none"></div>
+      <div class="practice-trend" id="practice-trend" style="display:none"></div>
+      <div class="beginner-explain" id="beginner-explain">
+        <div id="beginner-explain-body"></div>
+        <div class="beginner-glossary">
+          <div>📖 에쿼티 = 지금 이 핸드가 이길 확률</div>
+          <div>📖 EV = 그 선택으로 평균 몇 bb를 따는가</div>
+          <div>📖 팟 오즈 = 콜 금액 ÷ (팟+콜) — 콜에 필요한 최소 승률</div>
+        </div>
+      </div>
+    </div>
+    <!-- GTO 레인지 차트 (13x13, GTO 모드 전용) -->
+    <div id="gto-chart" class="gto-chart panel-closed" style="display:none"></div>
+    <!-- WP8 띵킹 피드 (테이블 좌상단 오버레이, 최근 4줄) -->
+    <div id="thinking-feed" style="display:none"></div>
+  </div>
+  <!-- WP8 히어로 3단계 속마음 칩 (액션바 위) -->
+  <div id="thinking-panel" style="display:none"></div>
+  <!-- 액션 바 (테이블 바로 아래) -->
+  <div class="action-bar" id="action-bar">
+    <button class="action-btn fold-btn" id="btn-fold" onclick="App.heroAction('fold')">폴드</button>
+    <button class="action-btn call-btn" id="btn-call" onclick="App.heroAction('call')">콜</button>
+    <div class="raise-controls">
+      <div id="gto-preset-row" class="gto-preset-row" style="display:none">
+        <button id="gto-preset-btn" class="gto-preset-btn" onclick="App.applyGTOPreset()">🎯 GTO 정답 세팅</button>
+        <button id="gto-reason-toggle" class="gto-reason-toggle" onclick="App.toggleGTOReason()">▶</button>
+      </div>
+      <div id="raise-slider-section">
+      <div class="raise-slider-row">
+        <button type="button" class="raise-step" onclick="App.stepRaise(-1)" aria-label="1bb 내리기">−</button>
+        <input type="range" id="raise-slider" min="0" max="100" value="50" oninput="App.updateRaiseSlider()">
+        <button type="button" class="raise-step" onclick="App.stepRaise(1)" aria-label="1bb 올리기">+</button>
+      </div>
+      <div class="raise-bottom-row">
+        <div class="raise-presets">
+          <button onclick="App.setRaisePreset(0.33)">1/3팟</button>
+          <button onclick="App.setRaisePreset(0.5)">1/2팟</button>
+          <button onclick="App.setRaisePreset(0.67)">2/3팟</button>
+          <button onclick="App.setRaisePreset(1.0)">팟</button>
+          <button onclick="App.setRaisePreset(999)">올인</button>
+        </div>
+        <div class="raise-amount-wrap">
+          <input type="number" id="raise-amount" class="raise-amount-input" inputmode="decimal" step="0.5" min="0" oninput="App.syncRaiseFromInput()">
+          <span class="raise-unit">bb</span>
+          <span id="raise-stack-pct" class="raise-pct"></span>
+        </div>
+      </div>
+      </div><!-- /raise-slider-section -->
+    </div>
+    <button class="action-btn raise-btn" id="btn-raise" onclick="App.heroAction('raise')">레이즈</button>
+  </div>
+  <!-- GTO 미러 해설 / 핸드 총평 패널 -->
+  <div id="gto-commentary" class="gto-commentary-panel" style="display:none"></div>
+  <!-- 핸드 종료 액션 버튼 -->
+  <div id="result-actions-bar" class="result-actions-bar" style="display:none">
+    <button class="action-btn call-btn" id="btn-next-round" onclick="App.nextRound()">▶ 다음 핸드</button>
+    <button class="action-btn" id="btn-practice-same" onclick="App.practiceSame()">🔁 같은 핸드 다시</button>
+    <button class="action-btn" id="btn-quick-drill" onclick="DrillUI.quickOne()">⚡ 1문제</button>
+    <button class="action-btn" id="btn-history" onclick="App.showHistory()">📜 히스토리</button>
+    <button class="action-btn fold-btn" id="btn-session-end" onclick="App.showSessionSummary()">세션 종료</button>
+  </div>
+</div>
+
+<!-- 세션 요약 -->
+<div id="screen-session-summary" class="screen">
+  <div style="max-width:480px;margin:auto;padding:1.5rem;display:flex;flex-direction:column;min-height:100%">
+    <h2 style="text-align:center;color:#e6edf3;margin-bottom:0.5rem">📊 세션 요약</h2>
+    <div id="summary-stats" style="text-align:center;color:#8b949e;font-size:0.9rem;margin-bottom:1.2rem"></div>
+    <div id="summary-hands" style="flex:1"></div>
+    <button class="menu-btn" style="margin-top:1.5rem" onclick="App.showMenu()">↩ 메뉴로</button>
+  </div>
+</div>
+
+<!-- 커리큘럼 -->
+<div id="screen-curriculum" class="screen">
+  <div class="curriculum-container">
+    <div class="session-nav" id="session-nav"></div>
+    <div class="session-content" id="session-content"></div>
+    <div class="session-actions" id="session-actions"></div>
+  </div>
+</div>
+
+<!-- 시나리오 -->
+<div id="screen-scenario" class="screen">
+  <div class="scenario-container">
+    <div class="scenario-board" id="scenario-board"></div>
+    <div class="scenario-choices" id="scenario-choices"></div>
+    <div class="scenario-feedback" id="scenario-feedback" style="display:none"></div>
+    <button class="menu-btn" id="scenario-next" style="display:none" onclick="App.nextScenario()">다음 문제</button>
+  </div>
+</div>
+
+<div id="screen-drill" class="screen"><div class="drill-container"><div class="drill-topbar"><span id="drill-title"></span><span id="drill-progress"></span><span id="drill-streak"></span><button class="menu-btn secondary" onclick="DrillUI.exit()">↩</button></div><div id="drill-hub"></div><div id="drill-stage" style="display:none"><div id="drill-prompt"></div><div id="drill-cards"></div><div id="drill-choices"></div><div id="drill-feedback"></div></div><div id="drill-result" style="display:none"></div></div></div>
+
+<!-- 핸드 리뷰 -->
+<div id="screen-history" class="screen">
+  <div class="history-container">
+    <div class="history-topbar">
+      <button class="menu-btn secondary" id="history-back-btn" onclick="HistoryUI.back()">↩ 메뉴로</button>
+    </div>
+    <div class="history-mistakes" id="history-mistakes"></div>
+    <div class="history-body">
+      <div class="history-sidebar" id="history-sidebar"></div>
+      <div class="history-detail" id="history-detail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 데이터 -->
+<script src="data/equity-preflop.js"></script>
+<!-- 엔진 -->
+<script src="engine/deck.js"></script>
+<script src="engine/hand-eval.js"></script>
+<script src="engine/range.js"></script>
+  <script src="engine/gto.js"></script>
+<script src="engine/equity.js"></script>
+<script src="engine/ev.js"></script>
+<script src="engine/game-state.js"></script>
+<!-- AI -->
+<script src="ai/villain-profiles.js"></script>
+<script src="ai/villain.js"></script>
+<script src="ai/villain-tracker.js"></script>
+<!-- 포스트플랍 가이드 (villain.js의 _handStrength/_isBoardWet 의존 — AI 뒤에 로드) -->
+<script src="engine/postflop-guide.js"></script>
+<script src="engine/postflop-tables.js"></script>
+<script src="engine/coach.js"></script>
+<!-- WP8 띵킹 프로세스 (villain.js·postflop-guide.js 의존) -->
+<script src="engine/thinking.js"></script>
+<!-- UI -->
+<script src="ui/table.js"></script>
+<script src="ui/hud.js"></script>
+<script src="ui/action-bar.js"></script>
+<script src="ui/animator.js"></script>
+<script src="ui/coach-ui.js"></script>
+<!-- 커리큘럼 -->
+<script src="data/curriculum.js"></script>
+<script src="curriculum/session.js"></script>
+<script src="curriculum/quiz.js"></script>
+<script src="drills/drill-core.js"></script>
+<script src="drills/preflop-drill.js"></script>
+<script src="drills/math-drill.js"></script>
+<script src="drills/drill-ui.js"></script>
+<!-- 스토리지 -->
+<script src="storage.js"></script>
+<script src="ui/backup-ui.js"></script>
+<!-- 핸드 리뷰 -->
+<script src="ui/history.js"></script>
+<!-- GTO 레인지 차트 -->
+<script src="ui/gto-chart.js"></script>
+<!-- WP8 띵킹 프로세스 UI -->
+<script src="ui/thinking-ui.js"></script>
+<script src="ui/mobile-ui.js"></script>
+<script src="ui/touch.js"></script>
+<!-- 앱 -->
+<script src="app.js"></script>
+<script src="pwa.js"></script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+.gto-report { padding: 16px; background: #0d1117; border-radius: 8px; }
+.gto-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 0.85rem; }
+.gto-street { color: var(--text-dim); width: 50px; }
+.gto-bar-bg { flex: 1; height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
+.gto-bar-fill { height: 100%; border-radius: 4px; }
+.gto-signal { font-size: 1rem; }
+.decisions-review { padding: 12px; max-height: 200px; overflow-y: auto; }
+.decision-row { padding: 8px 0; border-bottom: 1px solid var(--hud-border); font-size: 0.85rem; }
+.decision-row .delta-neg { color: var(--red); }
+.decision-row .delta-pos { color: var(--green); }
+
+/* ── 8차 WP3: 인게임 코칭 UI ── */
+.equity-panel { overflow-y: auto; }
+.last-verdict {
+  border-left: 4px solid #8b949e;
+  background: rgba(139,148,158,0.08);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  flex-shrink: 0;
+}
+.last-verdict .lv-line1 { font-weight: 700; }
+.last-verdict .lv-line2 { color: var(--text); }
+.last-verdict .lv-extra,
+.last-verdict .lv-pred { color: var(--text-dim); font-size: 0.8rem; }
+.last-verdict.lv-green  { border-left-color: #52b75e; }
+.last-verdict.lv-green .lv-line1 { color: #52b75e; }
+.last-verdict.lv-yellow { border-left-color: #e3b341; }
+.last-verdict.lv-yellow .lv-line1 { color: #e3b341; }
+.last-verdict.lv-red    { border-left-color: #f85149; }
+.last-verdict.lv-red .lv-line1 { color: #f85149; }
+.coach-reminder {
+  border: 1px solid rgba(227,179,65,0.55);
+  background: rgba(227,179,65,0.08);
+  color: #e3b341;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.coach-pre {
+  border: 1px solid var(--hud-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+.coach-pre .cp-title { font-weight: 700; margin-bottom: 4px; }
+.coach-pre .cp-check { margin: 0 0 6px 0; padding-left: 0; list-style: none; }
+.coach-pre .cp-check li { margin-bottom: 3px; line-height: 1.4; }
+.coach-pre .cp-q { margin-bottom: 6px; }
+.coach-pre .cp-qt { margin-bottom: 3px; color: var(--text-dim); }
+.coach-pre .cp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.coach-pre .cp-opt {
+  background: #21262d; color: var(--text); border: 1px solid var(--hud-border);
+  border-radius: 4px; padding: 3px 2px; font-size: 0.72rem; cursor: pointer;
+}
+.coach-pre .cp-opt:hover { border-color: var(--blue); }
+.coach-pre .cp-opt.sel { border-color: var(--gold); color: var(--gold); font-weight: 700; }
+.coach-pre .cp-hint {
+  width: 100%; background: transparent; color: var(--gold); border: 1px dashed var(--gold);
+  border-radius: 4px; padding: 3px 6px; font-size: 0.78rem; cursor: pointer;
+}
+.coach-pre .cp-hint-used { color: var(--text-dim); font-size: 0.75rem; }
+.coach-level-row { margin: 12px 0; color: var(--text-dim); font-size: 0.9rem; text-align: center; }
+.coach-level-row select {
+  background: #21262d; color: var(--text); border: 1px solid var(--hud-border);
+  border-radius: 4px; padding: 4px 6px; font-size: 0.85rem;
+}

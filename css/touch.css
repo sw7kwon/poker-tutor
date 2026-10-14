@@ -1,0 +1,76 @@
+/* css/touch.css — 터치 레이어 (A-3 소유)
+   html.touch 는 ui/touch.js 가 (hover:none) and (pointer:coarse) 기기(폰·태블릿)에서만 붙인다.
+   마우스 데스크톱·터치 노트북(주 포인터=마우스)에는 아래 html.touch / (hover:none) 규칙이 하나도 적용되지 않는다.
+   전역 규칙은 .opt-help 숨김과 #touch-tip 뿐(둘 다 데스크톱에는 해당 요소가 없음). */
+
+/* ── 빌런 선택 설명: touch.js가 title 문구로 만든 본문 ── */
+.opt-help { display: none; }
+html.touch .opt-help {
+  display: block; font-size: .8rem; color: var(--text-dim); line-height: 1.45;
+  margin-top: 4px; white-space: normal; font-weight: 400;
+}
+
+/* ── 키보드 단축키 표기 숨김 (키 핸들러는 유지 — 블루투스 키보드 대응) ── */
+html.touch .kb-hint, html.touch .drill-key { display: none; }
+
+/* ── 탭 반응: 더블탭 확대 지연 제거, 파란 하이라이트·길게 누르기 메뉴 제거 ── */
+html.touch button, html.touch [onclick], html.touch .seat,
+html.touch .pot-odds-ring, html.touch .seat-hud, html.touch .mini-cell, html.touch .hm-row {
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none;
+}
+/* 슬라이더: 가로 드래그는 슬라이더가, 세로 드래그는 페이지 스크롤이 받도록 */
+html.touch input[type=range] { touch-action: pan-y; -webkit-tap-highlight-color: transparent; }
+/* 롱프레스(0.5초) 중 글자 선택이 시작되지 않게 */
+html.touch button { -webkit-user-select: none; user-select: none; }
+/* 탭 토스트 대상(버튼이 아닌 title 요소) — 누를 수 있다는 표시 + 작은 팟 오즈 링은 누르는 범위를 6px 넓힘 */
+html.touch .pot-odds-ring, html.touch .seat-hud, html.touch .mini-cell, html.touch .hm-row { cursor: pointer; }
+html.touch .pot-odds-ring::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+
+/* ── 누름 피드백 ── */
+html.touch .action-btn:active, html.touch .menu-btn:active, html.touch .drill-choice:active,
+html.touch .villain-opt:active, html.touch .cp-opt:active, html.touch .cp-hint:active,
+html.touch .thinking-chip:active, html.touch .raise-presets button:active, html.touch .raise-step:active,
+html.touch .gto-preset-btn:active, html.touch .drill-tile:active, html.touch .m-dock-tabs button:active {
+  transform: scale(.97); filter: brightness(1.15);
+}
+
+/* ── 입력 16px: 포커스 시 자동 확대 방지 (퀴즈 textarea의 인라인 font-size까지 덮도록 !important) ── */
+html.touch input, html.touch select, html.touch textarea { font-size: 16px !important; }
+html.touch input[type=checkbox] { width: 22px; height: 22px; flex-shrink: 0; }
+html.touch .thinking-toggle-box label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+
+/* ── 터치 타깃 44px ── */
+html.touch :is(.menu-btn, .villain-opt, .drill-tile, .drill-choice, .cp-opt, .cp-hint, .thinking-chip,
+  .hm-practice-btn, .gto-preset-btn, .gto-reason-toggle, .history-session-header, .history-hand-item,
+  .raise-presets button, .m-dock-tabs button, select) { min-height: 44px; }
+html.touch .drill-quick-close { width: 44px; height: 44px; top: 0; right: 0; }
+
+/* ── 손가락 기기의 '눌린 채 남는 hover' 무력화 — 각 원본 기본값으로 되돌림 ── */
+@media (hover: none) {
+  .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+  .card.hero-card:hover { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
+  .menu-btn:hover { transform: none; box-shadow: none; background: linear-gradient(135deg, #1f6b35, #2d8a47); }
+  .menu-btn.secondary:hover { background: #21262d; }
+  .villain-opt:hover { border-color: var(--hud-border); background: #161b22; }
+  .villain-opt.gto-mirror-opt:hover { border-color: var(--gold); background: rgba(212,175,55,0.08); }
+  .drill-tile:hover { border-color: var(--hud-border); }
+  .fold-btn:hover { background: #4a1818; }
+  .call-btn:hover { background: #1a3a6b; }
+  .raise-btn:hover { background: #1a4a25; }
+  .raise-presets button:hover { border-color: var(--hud-border); color: var(--text-dim); }
+  .gto-preset-btn:hover { background: rgba(212,175,55,0.12); }
+  .coach-pre .cp-opt:not(.sel):hover { border-color: var(--hud-border); }
+  .thinking-chip:not(.on):hover { border-color: #30363d; }
+  .hm-practice-btn:hover { background: #1f2733; }
+  .history-session-header:not(.expanded):hover, .history-hand-item:not(.selected):hover { background: transparent; }
+}
+
+/* ── 탭 토스트 (touch.js가 body 끝에 1개 생성) ── */
+#touch-tip {
+  position: fixed; left: 50%; top: 12%; transform: translateX(-50%);
+  width: max-content; max-width: 86vw; box-sizing: border-box;
+  background: rgba(20,20,30,0.96); color: #e6edf3; border: 1px solid #8b949e; border-radius: 8px;
+  padding: 10px 14px; font-size: .9rem; line-height: 1.45; white-space: normal; word-break: keep-all; overflow-wrap: anywhere;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 520; pointer-events: none;
+}
+#touch-tip[hidden] { display: none; }

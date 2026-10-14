@@ -1,0 +1,25 @@
+@keyframes dealCard {
+  from { transform: translate(-200px, -200px) scale(0.3); opacity: 0; }
+  to   { transform: translate(0,0) scale(1); opacity: 1; }
+}
+@keyframes flipCard {
+  0%   { transform: rotateY(0deg); }
+  50%  { transform: rotateY(90deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes foldCard {
+  to { transform: translateY(-50px) rotate(15deg); opacity: 0; }
+}
+@keyframes chipToPot {
+  from { transform: translate(0,0) scale(1); opacity: 1; }
+  to   { transform: translate(var(--tx), var(--ty)) scale(0.3); opacity: 0; }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.deal-anim { animation: dealCard 0.3s ease-out; }
+.flip-anim { animation: flipCard 0.4s ease-in-out; }
+.fold-anim { animation: foldCard 0.35s ease-in forwards; }
+.fadein    { animation: fadeInUp 0.25s ease-out; }
