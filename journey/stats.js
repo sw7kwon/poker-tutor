@@ -2,6 +2,8 @@
 // 여정 집계(poker_journey_stats, 설계서 6.1): 일별 집계, 90일 지난 날은 ISO 주 합계로 롤업,
 // 최근 300결정 링 버퍼(미션/보스 롤링 판정), 캐스트 좌석 누적(castObs), 단계 진입 기록.
 // 저장은 localStorage(try/catch), 실패하면 메모리에만 유지한다. 로드 시 DOM/타이머 접근 없음.
+// M3-P4a: 핸드 순번 hseq(집계한 'handEnd' 수)와 링 결정의 h(그 결정이 나온 핸드 순번 = 기록 당시 hseq)를 더했다.
+//   미션/보스의 "최근 n핸드" 창은 h ≥ hseq - n 인 결정이다(진행 중 핸드는 h === hseq). h가 없는 예전 결정은 핸드 창에서 빠진다.
 var JStats = (function() {
   var KEY = 'poker_journey_stats';
   var V = 1;
@@ -73,7 +75,7 @@ var JStats = (function() {
 
   // ── 상태 ──
   function defaults() {
-    return { v: V, days: {}, weeks: {}, recent: [], castObs: {}, marks: { stageEnter: {} } };
+    return { v: V, days: {}, weeks: {}, recent: [], castObs: {}, marks: { stageEnter: {} }, hseq: 0 };
   }
   function _isObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function _normalize(o) {
@@ -84,6 +86,11 @@ var JStats = (function() {
     if (!_isObj(o.castObs)) o.castObs = {};
     if (!_isObj(o.marks)) o.marks = {};
     if (!_isObj(o.marks.stageEnter)) o.marks.stageEnter = {};
+    // 핸드 순번: 숫자가 아니면 0, 링에 남은 결정의 h보다 작으면 그 값까지(병합/가져오기 뒤에도 창이 거꾸로 가지 않게)
+    var hs = Number(o.hseq);
+    hs = (isFinite(hs) && hs > 0) ? Math.floor(hs) : 0;
+    o.recent.forEach(function(e) { if (e && typeof e.h === 'number' && isFinite(e.h) && e.h > hs) hs = Math.floor(e.h); });
+    o.hseq = hs;
     o.v = V;
     return o;
   }
@@ -193,7 +200,8 @@ var JStats = (function() {
         if (p.concept) _countLight(_bucket(d.concept, p.concept), lk);
         var e = { t: _ms(now), street: p.street || null, source: p.source || null, concept: p.concept || null,
           light: p.light, marginal: !!p.marginal, pattern: p.pattern || null, pos: p.pos || null,
-          hu: !!p.hu, mode: p.mode || null, node: p.node || null };
+          hu: !!p.hu, mode: p.mode || null, node: p.node || null, h: (p.backfill ? null : _num(st.hseq)) };
+        if (e.h === null) delete e.h;
         if (p.hint) e.hint = true;
         if (p.estimated) e.est = true;
         st.recent.push(e);
@@ -206,6 +214,7 @@ var JStats = (function() {
         break;
       case 'handEnd':
         d.hero.hands++;
+        st.hseq = _num(st.hseq) + 1;
         if (p) _addNums(d.hero, p, ['wtsdOpp', 'wtsd', 'wsd']);
         break;
       case 'drill': {
@@ -435,6 +444,9 @@ var JStats = (function() {
     return { moved: moved };
   }
 
+  // 집계한 핸드 수(핸드 순번). 진행 중 핸드의 결정은 h === handSeq()
+  function handSeq() { return _num(load().hseq); }
+
   function castObs(name) {
     var o = load().castObs[name];
     return _isObj(o) ? o : null;
@@ -444,7 +456,7 @@ var JStats = (function() {
     KEY: KEY, V: V, RECENT_MAX: RECENT_MAX, ROLLUP_DAYS: ROLLUP_DAYS,
     load: load, save: save, reset: reset, batch: batch, defaults: defaults,
     record: record, day: day, range: range, accuracy: accuracy, lights: lights, recent: recent,
-    heroTotals: heroTotals, trend: trend, markStageEnter: markStageEnter, rollup: rollup, castObs: castObs,
+    heroTotals: heroTotals, trend: trend, markStageEnter: markStageEnter, rollup: rollup, castObs: castObs, handSeq: handSeq,
     dayKey: dayKey, weekKey: weekKey, _setStorage: _setStorage
   };
   if (typeof module !== 'undefined') module.exports = api;

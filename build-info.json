@@ -1,8 +1,8 @@
 {
-  "version": "537d4ae-202610201537",
-  "sha": "537d4ae",
+  "version": "fe3c5f7-202610201929",
+  "sha": "fe3c5f7",
   "branch": "feat/journey",
-  "builtAt": "2026-10-20T06:37:41.964Z",
+  "builtAt": "2026-10-20T10:29:18.227Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",
@@ -86,6 +86,7 @@
     "lessons/widgets/variance-cone.js",
     "manifest.webmanifest",
     "puzzles/gen-basic.js",
+    "puzzles/gen-lesson.js",
     "puzzles/gen-math.js",
     "puzzles/gen-postflop.js",
     "puzzles/gen-range.js",

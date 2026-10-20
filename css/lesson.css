@@ -1,4 +1,5 @@
-/* css/lesson.css (채우는 패키지: M2-P4a의 sr- 장면 렌더러 스타일, M3-P1이 레슨 플레이어 스타일을 이어서 채운다)
+/* css/lesson.css (채우는 패키지: M2-P4a의 sr- 장면 렌더러 스타일, M3-P1a가 table, bar, compare, sum 장면 스타일을 이어서 채운다.
+   레슨 플레이어 셸(진행 점, 캡션, 하단 버튼) 스타일은 css/journey.css(M3-P1b) 몫)
    lessons/scene-render.js가 만드는 장면 그림. 클래스는 전부 sr- 접두(격자 셀 색은 기존 차트의 gto-raise 등을 그대로 쓴다).
    기준: 세로 412px에서 가로 넘침 0, 탭 요소 44px 이상, 모션 줄이기면 깜빡임과 채우기 애니메이션 없음. */
 
@@ -140,8 +141,104 @@
 .sr-verdict.sr-fold { color: #ff9a93; background: rgba(248,81,73,.12); }
 .sr-verdict.sr-even { color: var(--gold); background: rgba(212,175,55,.12); }
 
+/* 6인 테이블(M3-P1a): 위 줄 BB, UTG, HJ / 펠트 / 아래 줄 SB, BTN, CO. 칩은 펠트 쪽에 붙는다 */
+.sr-table { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; }
+.sr-trow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; align-items: end; min-width: 0; }
+.sr-trow-bot { align-items: start; }
+.sr-tseat { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; padding: 5px 4px; border-radius: 12px;
+  background: #161b22; border: 1px solid var(--hud-border); text-align: center; font-size: .78rem; line-height: 1.25; color: #c9d1d9;
+  overflow-wrap: anywhere; word-break: keep-all; }
+.sr-tbot .sr-tbet { order: -1; }
+.sr-tsh { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 3px; min-width: 0; }
+.sr-tpos { color: var(--text); font-size: .86rem; letter-spacing: .2px; }
+.sr-ord { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: 1.55em; height: 1.55em; padding: 0 2px;
+  border-radius: 999px; background: var(--blue); color: #0d1117; font-size: .76rem; font-weight: 800; line-height: 1; }
+.sr-tact { color: #7ee787; font-size: .76rem; }
+.sr-me { padding: 0 6px; border-radius: 999px; background: var(--gold); color: #1a1405; font-size: .72rem; font-weight: 800; line-height: 1.5; }
+.sr-dealer { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 1.5em; height: 1.5em; border-radius: 50%;
+  background: #f5f5f5; color: #111; border: 2px solid #9aa4ad; font-size: .68rem; font-weight: 900; line-height: 1; }
+.sr-tname { font-size: .78rem; color: var(--text); font-weight: 600; }
+.sr-tname.sr-tempty { color: var(--text-dim); font-weight: 400; }
+.sr-tstack { font-size: .74rem; color: var(--text-dim); }
+.sr-say { max-width: 100%; padding: 1px 8px; border-radius: 10px; background: #e6edf3; color: #0d1117; font-size: .76rem; font-weight: 700; line-height: 1.4; }
+.sr-say.sr-sfold { background: #30363d; color: #c9d1d9; font-weight: 600; }
+.sr-tbet { display: inline-flex; align-items: center; gap: 3px; font-size: .76rem; font-weight: 800; color: var(--gold); line-height: 1.2; }
+.sr-tbet.sr-blind { color: #f0d77a; }
+.sr-chipi { display: inline-block; flex: 0 0 auto; width: .95em; height: .95em; border-radius: 50%; background: var(--gold);
+  box-shadow: inset 0 0 0 2px #8a6d12, inset 0 0 0 3.5px #f6e7a8; }
+.sr-blind .sr-chipi { background: #b08a1e; }
+.sr-tseat .sr-cards { justify-content: center; gap: 4px; }
+.sr-tseat.is-hero { border: 2px solid var(--gold); background: rgba(212,175,55,.14); }
+.sr-tseat.is-active { border-color: #7ee787; box-shadow: 0 0 0 1px #7ee787; }
+.sr-tseat.is-empty { background: transparent; border: 1px dashed rgba(255,255,255,.2); }
+.sr-tseat.is-empty .sr-tpos { color: var(--text-dim); }
+.sr-tseat.is-folded { opacity: .5; }
+.sr-tseat.is-focus { box-shadow: 0 0 0 3px #ffd54a; animation: sr-pulse .9s ease-in-out 3; }
+@keyframes sr-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px #ffd54a; }
+  50% { box-shadow: 0 0 0 5px #fff3b0; }
+}
+.sr-felt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 64px; min-width: 0;
+  padding: 10px 20px; border-radius: 999px; border: 3px solid var(--wood);
+  background: radial-gradient(ellipse at center, var(--felt-light) 0%, var(--felt) 78%); box-shadow: inset 0 0 0 2px rgba(0,0,0,.25); }
+.sr-felt .sr-cards { justify-content: center; gap: 5px; }
+.sr-felt .sr-none { color: #c9e2cf; }
+.sr-tpot { font-size: .84rem; text-align: center; word-break: keep-all; overflow-wrap: anywhere; }
+.sr-tpot .is-focus { margin: 0 3px; padding: 0 4px; border-radius: 6px; background: rgba(255,213,74,.22); outline: 2px solid #ffd54a;
+  animation: sr-blinkbg .9s ease-in-out 3; }
+@keyframes sr-blinkbg {
+  0%, 100% { background: rgba(255,213,74,.22); }
+  50% { background: rgba(255,213,74,.5); }
+}
+.sr-tnote { font-size: .78rem; color: var(--text-dim); text-align: center; line-height: 1.4; word-break: keep-all; }
+
+/* 막대(M3-P1a): bb 막대(팟, 스택, 콜)와 승률 막대 */
+.sr-bars { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 400px; margin: 0 auto; min-width: 0; }
+.sr-brow { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 3px 6px; border-radius: 8px; } /* 모든 줄 같은 안쪽 여백(트랙 폭이 같아 길이 비교가 맞다) */
+.sr-brow.is-hl { background: rgba(212,175,55,.12); outline: 1px solid rgba(212,175,55,.6); }
+.sr-bhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; font-size: .86rem; }
+.sr-blb { min-width: 0; color: #c9d1d9; overflow-wrap: anywhere; word-break: keep-all; }
+.sr-bv { flex: 0 0 auto; font-weight: 800; color: var(--text); }
+.sr-btrack { position: relative; height: 12px; border-radius: 4px; background: #21262d; overflow: hidden; }
+.sr-bfill { display: block; height: 100%; min-width: 2px; border-radius: 4px; background: var(--gold); transform-origin: left center;
+  animation: sr-fill .6s ease-out both; }
+@keyframes sr-fill { from { transform: scaleX(0); } to { transform: none; } }
+.sr-bequity .sr-bfill { background: var(--blue); }
+.sr-bequity .sr-btrack::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.35); }
+.sr-bscale { display: grid; grid-template-columns: 1fr auto 1fr; padding: 0 6px; font-size: .7rem; color: var(--text-dim); }
+.sr-bscale span:last-child { text-align: right; }
+.sr-bfoot { text-align: center; }
+.sr-tag.sr-tag-eng { border-color: var(--green); color: #7ee787; }
+.sr-bars .sr-row, .sr-barcmp .sr-row { gap: 6px 8px; }
+
+/* 같은 축 비교 막대(M3-P1a, ring의 축과 같은 좌표, 이름표는 축 왼쪽) */
+.sr-barcmp { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; max-width: 400px; margin: 0 auto; min-width: 0; }
+.sr-barcmp .sr-bar-svg { width: 100%; }
+.sr-needle.sr-unk { stroke: var(--text-dim); }
+.sr-tip.sr-unk { fill: var(--text-dim); }
+
+/* 세 사람의 속마음 3열(M3-P1a) */
+.sr-cmp { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; }
+.sr-ccols { display: grid; grid-template-columns: repeat(var(--sr-n, 3), minmax(0, 1fr)); gap: 6px; min-width: 0; }
+.sr-ccol { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 7px; border-radius: 10px; background: #161b22;
+  border: 1px solid var(--hud-border); }
+.sr-ccol.is-mine { border: 2px solid var(--gold); background: rgba(212,175,55,.12); }
+.sr-who { font-size: .84rem; color: var(--text); overflow-wrap: anywhere; }
+.sr-said { font-size: .8rem; line-height: 1.45; color: #c9d1d9; overflow-wrap: anywhere; word-break: keep-all; }
+.sr-mine { margin-top: auto; font-size: .72rem; font-weight: 700; color: var(--gold); }
+.sr-cme { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: .86rem; color: var(--text); line-height: 1.4;
+  overflow-wrap: anywhere; word-break: keep-all; }
+
+/* 한 줄 정리(M3-P1a) */
+.sr-sum { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; padding: 14px 16px;
+  border-radius: 14px; border: 1px solid rgba(212,175,55,.55); background: linear-gradient(135deg, rgba(212,175,55,.16), rgba(212,175,55,.05)); }
+.sr-sumk { font-size: .76rem; font-weight: 700; color: var(--gold); }
+.sr-sumt { font-size: 1.02rem; font-weight: 700; line-height: 1.5; color: var(--text); word-break: keep-all; overflow-wrap: anywhere; }
+
 /* 모션 줄이기(시스템 설정 또는 설정 패널) */
 @media (prefers-reduced-motion: reduce) {
   .sr-grid .sr-cell.sr-hl, .sr-grid .sr-cell.sr-lay { animation: none; }
+  .sr-tseat.is-focus, .sr-tpot .is-focus, .sr-bfill { animation: none; }
 }
 html.reduce-motion .sr-grid .sr-cell.sr-hl, html.reduce-motion .sr-grid .sr-cell.sr-lay { animation: none; }
+html.reduce-motion .sr-tseat.is-focus, html.reduce-motion .sr-tpot .is-focus, html.reduce-motion .sr-bfill { animation: none; }

@@ -36,7 +36,10 @@ var Gto = (function() {
       HJ:  { fourbet: ['JJ+','AKs','AKo'], call: ['TT','99','AQs','AJs','KQs','KJs'] },
       CO:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','ATs','KQs','KJs','QJs'] },
       BTN: { fourbet: ['99+','ATs+','A5s-A4s','KQs','AKo'], call: ['88','77','AJs','ATo','KJs','KTs','QJs','JTs'] },
-      SB:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','KQs','KJs'] }
+      SB:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','KQs','KJs'] },
+      // BB는 오픈이 없어 림퍼 상대 아이솔 레이즈 뒤 재레이즈를 맞을 때만 이 표를 쓴다(M3-P4b).
+      // 표가 없으면 AA도 폴드로 판정되던 빈칸이라, 같은 OOP 자리인 SB 표와 같은 값으로 근사한다.
+      BB:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','KQs','KJs'] }
     },
     // vs4bet: 3벳터가 4벳을 맞았을 때 반응(5벳 올인/콜/폴드). 07-20 6차 패스.
     // 동일한 근사 수준 — 표준 캐시 100bb 기준(KK+ 올인, QQ/AK 콜다운 위주, 후위 포지션은 소폭 확장).
@@ -47,7 +50,11 @@ var Gto = (function() {
       BTN: { fivebet: ['QQ+','AKs'], call: ['JJ','TT','AKo','AQs'] },
       SB:  { fivebet: ['KK+','AKs'], call: ['QQ','AKo'] },
       BB:  { fivebet: ['KK+','AKs'], call: ['QQ','AKo'] }
-    }
+    },
+    // vsLimpBB: 림퍼만 있는 팟의 BB(M3-P4b). 체크가 공짜이고 플랍 뒤 내내 먼저 행동하므로
+    // 체크하면 밸류를 놓치는 아주 강한 패만 '레이즈가 정답'. 66, JTs, KQo처럼 멀티웨이에서 체크도 표준인 손은
+    // CO 오픈 표와 함께 '체크 또는 레이즈'(둘 다 정답)로 둔다(gtoActionVsLimp, vsLimpAlt).
+    vsLimpBB: ['TT+','AQs+','AQo+']
   };
 
   function _in(holeCards, rangeArr) {
@@ -202,9 +209,41 @@ var Gto = (function() {
     return 'fold';
   }
 
+  // ── 림퍼 상대(vs-limp, M3-P4b) ──
+  // 림퍼 수: 레이즈가 없고(lastRaiser 없음, 현재 벳 = 1bb) 팟이 블라인드 1.5bb보다 크면 그 차이를 1bb씩 센다.
+  // engine/ev.js:28-32의 표준 사이즈 계산과 같은 셈이라 SB가 0.5bb를 채워 들어온 것도 림퍼 1명이다.
+  function limperCount(state) {
+    if (!state || state.street !== 'preflop' || state.lastRaiser) return 0;
+    var bb = state.bigBlind || 1;
+    if ((state.currentBet || 0) > bb + 1e-9 || (state.streetBetCount || 0) > 0) return 0;
+    var pot = state.pot || 0;
+    if (!(pot > 1.5 * bb + 1e-9)) return 0;
+    return Math.max(0, Math.round((pot - 1.5 * bb) / bb));
+  }
+
+  // 아이솔 사이즈(raise-to, bb 단위 x bb): 그 자리 오픈 사이즈(SB 3bb, 나머지 2.5bb) + 림퍼당 1bb. ev.js:28-32 표와 같다.
+  function isoSize(position, limpers, bb) {
+    return ((position === 'SB' ? 3 : 2.5) + Math.max(0, limpers || 0)) * (bb || 1);
+  }
+
+  // 림퍼 뒤 GTO 액션. 아이솔 = 그 자리 RFI 표(표 안 레이즈, 밖 폴드, 따라 콜은 없음).
+  // BB는 RFI 표가 없고 콜할 돈이 0이라 레이즈 아니면 체크: 아주 강한 패(vsLimpBB)만 레이즈, 나머지는 체크.
+  function gtoActionVsLimp(position, holeCards) {
+    if (position === 'BB') return _in(holeCards, GTO_RANGES.vsLimpBB) ? 'raise' : 'check';
+    return gtoAction(position, holeCards);
+  }
+
+  // BB가 림퍼 상대로 체크가 정답인 손 중 CO 오픈 표 안의 손은 아이솔 레이즈도 괜찮다(둘 다 정답). 그 외 null.
+  function vsLimpAlt(position, holeCards) {
+    if (position !== 'BB' || gtoActionVsLimp(position, holeCards) !== 'check') return null;
+    return _in(holeCards, GTO_RANGES.rfi.CO) ? 'raise' : null;
+  }
+
   // 현재 상태 기준 프리플랍 GTO 권장 (라운드 2 힌트용)
   // facing: false(오픈) | true(vs오픈) | 'vs3bet'(내 오픈에 3벳 맞음) | 'vs4bet'(내 3벳에 4벳 맞음) | 'cold3bet'(콜드 3벳 직면)
   // opener: vs오픈일 때 오프너 포지션(없으면 null)
+  // 림퍼 뒤(facing false, limpers ≥ 1)는 추가 필드 limpers, size(아이솔 raise-to), alt(BB만, 체크와 함께 정답인 레이즈)를 준다.
+  // facing은 false 그대로 둔다(app.js 힌트 문구와 gto-chart.js가 그 자리 RFI 표를 그대로 보여 주게).
   function preflopHint(state, heroPos) {
     if (state.street !== 'preflop') return null;
     var facing4 = isFacing4bet(state);
@@ -213,15 +252,26 @@ var Gto = (function() {
     var facing = facing4 ? 'vs4bet' : facing3 ? 'vs3bet' : cold3 ? 'cold3bet'
       : !!(state.lastRaiser && state.currentBet > state.bigBlind);
     var opener = openerPos(state);
+    var limpers = facing === false ? limperCount(state) : 0;
     var act = facing4 ? gtoActionVs4bet(heroPos, state.heroCards)
       : facing3 ? gtoActionVs3bet(heroPos, state.heroCards)
       : cold3 ? gtoActionVsCold3bet(state.heroCards)
       : facing ? gtoActionVsRfi(heroPos, state.heroCards, opener)
+      : limpers > 0 ? gtoActionVsLimp(heroPos, state.heroCards)
       : gtoAction(heroPos, state.heroCards);
     var label = { raise: '레이즈', call: '콜', fold: '폴드', check: '체크' }[act] || act;
-    return { action: act, label: label, facing: facing, opener: opener };
+    var out = { action: act, label: label, facing: facing, opener: opener };
+    if (limpers > 0) {
+      out.limpers = limpers;
+      out.size = isoSize(heroPos, limpers, state.bigBlind);
+      out.alt = vsLimpAlt(heroPos, state.heroCards);
+    }
+    return out;
   }
 
-  if (typeof module !== 'undefined') module.exports = { GTO_RANGES, gtoAction, gtoActionVsRfi, gtoActionVs3bet, gtoActionVs4bet, gtoActionVsCold3bet, isFacing3bet, isFacing4bet, isFacingCold3bet, openerPos, preflopHint, rangeClassSet, villainRangeFor, callerRangeFor };
-  return { GTO_RANGES, gtoAction, gtoActionVsRfi, gtoActionVs3bet, gtoActionVs4bet, gtoActionVsCold3bet, isFacing3bet, isFacing4bet, isFacingCold3bet, openerPos, preflopHint, rangeClassSet, villainRangeFor, callerRangeFor };
+  var api = { GTO_RANGES, gtoAction, gtoActionVsRfi, gtoActionVs3bet, gtoActionVs4bet, gtoActionVsCold3bet, gtoActionVsLimp,
+    isFacing3bet, isFacing4bet, isFacingCold3bet, openerPos, preflopHint, rangeClassSet, villainRangeFor, callerRangeFor,
+    limperCount, isoSize, vsLimpAlt };
+  if (typeof module !== 'undefined') module.exports = api;
+  return api;
 })();

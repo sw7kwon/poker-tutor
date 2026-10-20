@@ -2,6 +2,9 @@
 // 여정 상태 poker_journey(설계서 6.1절) 로드/저장/마이그레이션(6.4절), 노드 상태 전이, XP와 레벨, 스트릭(36시간 규칙),
 // 블록 기록, 미션/자유/보스 세션 컨텍스트, app.js 훅 수신과 전달(JStats, HeroStats, Boss, ReviewQueue는 전부 typeof 가드),
 // playersSpec, routePractice, mapModel(홈 지도 순수 모델). 설계서 9절 M1-P1b.
+// M3-P4a: 학습 노드 미션은 핸드 수 AND Boss.evaluate 조건(롤링, minOpp 미달은 판정 보류)으로 통과한다. 보스 노드의 실전 핸드는
+//   롤링 집계가 아니라 Boss가 세는 보스 카운터(이 시험의 실전 핸드)다. 세션 시작/끝/교체는 Boss.onSessionStart/onSessionEnd로
+//   알린다(코칭 고정과 보스 판정). 지도 힌트의 "핸드 n개 더"는 기회 미달 조건의 어림도 반영한다.
 // 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다(전부 함수 안에서 typeof 가드).
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
@@ -403,22 +406,38 @@ var Journey = (function() {
     if (nd.lesson && !r.lesson.done) return 'lesson';
     if (nd.drill && !_drillMet(nd, r)) return 'drill';
     if (nd.mission && r.mission.hands < _missionMin(nd)) return 'mission';
+    if (nd.mission) { var br = _bossEval(nd, st); if (br && !br.pass) return 'mission'; }   // 핸드는 채웠지만 조건 미달
     return null;
   }
+  // 가장 앞 가용 노드의 남은 할 일. 남은 할 일이 이번 버전에서 판정할 수 없는 미션 조건(Boss pending)뿐이면 뒤 노드를 먼저 안내하고,
+  // 그런 노드만 남았을 때 그 노드를 돌려준다.
   function nextNode() {
     var st = _st();
     var list = _ordered();
+    var parked = null;
     for (var i = 0; i < list.length; i++) {
       var nd = list[i];
       if (!nd || !_availableRec(st, nd)) continue;
-      var step = _stepOf(st, nd, st.nodes[nd.id]);
-      if (step) return { id: nd.id, step: step };
+      var r = st.nodes[nd.id];
+      var step = _stepOf(st, nd, r);
+      if (!step) continue;
+      if (step === 'mission' && nd.kind !== 'boss' && r.mission.hands >= _missionMin(nd)) {
+        var br = _bossEval(nd, st);
+        if (br && br.pending) { if (!parked) parked = { id: nd.id, step: step }; continue; }
+      }
+      return { id: nd.id, step: step };
     }
-    return null;
+    return parked;
   }
 
-  // bossResult = { pass } (Boss.evaluate 결과). 학습 노드는 M1에서 미션 핸드 수만 보고, bossResult가 오면 조건 판정을 AND로 더한다.
-  // 보스 노드는 bossResult.pass가 있어야만 통과(M1에는 Boss가 없으므로 passNode 직접 호출로만 통과).
+  // 미션 조건 판정(M3-P4a, Boss.evaluate). Boss가 없거나 실패하면 null(M1 동작: 핸드 수만)
+  function _bossEval(nd, st) {
+    if (!nd || !nd.mission || typeof Boss === 'undefined' || !_fn(Boss, 'evaluate')) return null;
+    try { return Boss.evaluate(nd, (typeof JStats !== 'undefined') ? JStats : null, st || _st()) || null; } catch (e) { _warn(e); return null; }
+  }
+  // bossResult = Boss.evaluate 결과({ pass, cond?, ... }). 없으면 미션이 있는 노드는 Boss.evaluate를 직접 부른다.
+  // 학습 노드: 통과 = 레슨 AND 드릴 AND (미션 핸드 수 AND 조건). 이미 passed인 노드는 이 결과로 되돌리지 않는다(표시용).
+  // 보스 노드: 실전 칸(mission) = 보스 카운터 핸드 수 AND 조건(드릴 제외), 통과는 Boss 흐름이 넘긴 bossResult.pass가 있어야만.
   function evaluateNode(id, bossResult) {
     var st = _st(), nd = _node(id), r = st.nodes[id];
     if (!nd || !r) return { lesson: false, drill: false, mission: false, pass: false };
@@ -426,16 +445,19 @@ var Journey = (function() {
     var lessonOk = !needL || !!r.lesson.done;
     var drillOk = !needD || _drillMet(nd, r);
     var handsOk = !needM || r.mission.hands >= _missionMin(nd);
-    var condOk = bossResult ? !!bossResult.pass : true;
+    var given = _isObj(bossResult) ? bossResult : null;
+    var br = given || (needM ? _bossEval(nd, st) : null);
+    var condOk = br ? !!(nd.kind === 'boss' && br.cond != null ? br.cond : br.pass) : true;
     var missionOk = !needM || (handsOk && condOk);
     var pass = (nd.kind === 'boss')
-      ? (!!(bossResult && bossResult.pass) && lessonOk && drillOk)
-      : (lessonOk && drillOk && missionOk && condOk);
+      ? (!!(given && given.pass) && lessonOk && drillOk)
+      : (lessonOk && drillOk && missionOk);
     var c = _drillCount(nd.drill);
     return { lesson: lessonOk, drill: drillOk, mission: missionOk, pass: pass,
       need: { lesson: needL, drill: needD, mission: needM },
       have: { scene: r.lesson.scene, best: r.drill.best, hands: r.mission.hands },
-      req: { drillPass: needD ? _num(nd.drill.pass, c) : null, drillCount: needD ? c : null, hands: needM ? _missionMin(nd) : null } };
+      req: { drillPass: needD ? _num(nd.drill.pass, c) : null, drillCount: needD ? c : null, hands: needM ? _missionMin(nd) : null },
+      cond: br ? { pass: !!br.pass, hold: !!br.hold, pending: !!br.pending, more: _num(br.more, 0), est: !!br.est } : null };
   }
 
   // 기준을 모두 채운 가용 학습 노드는 자동 통과(결과는 lastPass()로 조회)
@@ -716,8 +738,14 @@ var Journey = (function() {
   function endToday() { _todayRunning = false; }
 
   // ── 세션(미션 5핸드, 자유 3핸드, 보스 5핸드 단위) ─────
+  // 세션이 끝나거나(end) 새 세션으로 바뀌거나(replaced) 다른 게임이 시작되면(other) Boss에 알린다(코칭 고정 해제, 보스 판정)
+  function _sessionEnded(s, reason) {
+    if (!s || typeof Boss === 'undefined' || !_fn(Boss, 'onSessionEnd')) return;
+    try { Boss.onSessionEnd(s, { reason: reason }); } catch (e) { _warn(e); }
+  }
   function startSession(opts) {
     opts = opts || {};
+    if (_session) { var old = _session; _session = null; _sessionEnded(old, 'replaced'); }
     var kind = (opts.kind === 'mission' || opts.kind === 'free' || opts.kind === 'boss') ? opts.kind : 'free';
     var nd = opts.node ? _node(opts.node) : null;
     var chunk = Math.floor(_num(opts.chunk, CHUNK[kind]));
@@ -726,10 +754,11 @@ var Journey = (function() {
       emphasis: opts.emphasis || (nd && nd.mission && nd.mission.emphasis) || null,
       cast: Array.isArray(opts.cast) ? opts.cast.slice() : null,
       seed: (opts.seed != null) ? opts.seed : null, sid: null };
+    if (typeof Boss !== 'undefined' && _fn(Boss, 'onSessionStart')) { try { Boss.onSessionStart(_session); } catch (e) { _warn(e); } }
     return _session;
   }
   function session() { return _session; }
-  function endSession() { var s = _session; _session = null; return s; }
+  function endSession() { var s = _session; _session = null; _sessionEnded(s, 'end'); return s; }
   function shouldEndSession() { return !!(_session && _session.chunk > 0 && _session.hands >= _session.chunk); }
   function active() { return !!_session || _todayRunning; }
 
@@ -805,7 +834,7 @@ var Journey = (function() {
       // 시작되면 그 세션은 끝난 것으로 보고 비운다(남겨 두면 새 게임이 매 핸드 세션 요약으로 끊기고 핸드가 엉뚱한 노드에 붙는다).
       if (_session && !ctx.practice && ctx.sessionId != null) {
         if (_session.sid == null) _session.sid = ctx.sessionId;
-        else if (_session.sid !== ctx.sessionId) _session = null;
+        else if (_session.sid !== ctx.sessionId) { var gone = _session; _session = null; _sessionEnded(gone, 'other'); }
       }
       var names = (ctx.state && ctx.state.names) || [];
       var hu = (ctx.hu != null) ? !!ctx.hu : names.length === 2;
@@ -860,10 +889,10 @@ var Journey = (function() {
           var he = HeroStats.onHandEnd(ctx.state, ctx.result, !!ctx.heroFolded);
           if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) JStats.record('handEnd', _isObj(he) ? he : null, now);
         } else if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) JStats.record('handEnd', null, now);
-        // 미션 롤링 집계: 가용 노드 중 미션이 있는 노드 전부에 핸드 1개(2.2절, 노드가 열린 뒤의 모든 6인 플레이)
-        // 목록을 먼저 고정한다(이 핸드로 통과해 새로 열린 노드에는 이 핸드를 세지 않음)
+        // 미션 롤링 집계: 가용 학습 노드 중 미션이 있는 노드 전부에 핸드 1개(2.2절, 노드가 열린 뒤의 모든 6인 플레이)
+        // 목록을 먼저 고정한다(이 핸드로 통과해 새로 열린 노드에는 이 핸드를 세지 않음). 보스의 실전 핸드는 Boss.onHandEnd가 센다.
         var st = _st();
-        _ordered().filter(function(nd) { return nd && nd.mission && _availableRec(st, nd); })
+        _ordered().filter(function(nd) { return nd && nd.mission && nd.kind !== 'boss' && _availableRec(st, nd); })
           .forEach(function(nd) { recordMissionHand(nd.id, now); });
       }
       if (typeof Boss !== 'undefined' && _fn(Boss, 'onHandEnd')) Boss.onHandEnd(ctx, { excluded: excluded });
@@ -961,11 +990,25 @@ var Journey = (function() {
   // ── 홈 지도 모델(순수, 5.2절) ────────────────────────
   function _hint(st, nd, r, avail) {
     if (r.status === 'passed') return r.skipped ? '건너뜀' : '통과';
+    var act = (nd.kind === 'boss' && st.boss && _isObj(st.boss.active) && st.boss.active.node === nd.id) ? st.boss.active : null;
+    if (act) {
+      var left = Math.max(0, _missionMin(nd) - _num(act.hands, 0));
+      var bb = _bossEval(nd, st), bm = (bb && !bb.pass) ? _num(bb.more, 0) : 0;
+      if (bm > left) return '시험 중, 핸드 ' + (bb.est ? '약 ' : '') + bm + '개 더';
+      return '시험 중' + (left > 0 ? ', 핸드 ' + left + '개 더' : '');
+    }
     if (!avail) return r.status === 'done' ? '레슨 완료' : '';
     if (nd.kind === 'boss') return '승급 시험';
     if (nd.lesson && !r.lesson.done) return r.lesson.scene > 0 ? '레슨 이어 보기' : '레슨';
     if (nd.drill && !_drillMet(nd, r)) { var c = _drillCount(nd.drill); return '드릴 ' + c + '문항 중 ' + _num(nd.drill.pass, c) + '개 이상'; }
-    if (nd.mission && r.mission.hands < _missionMin(nd)) return '핸드 ' + (_missionMin(nd) - r.mission.hands) + '개 더';
+    if (nd.mission) {
+      var short = Math.max(0, _missionMin(nd) - r.mission.hands);
+      var br = _bossEval(nd, st);
+      var more = (br && !br.pass) ? _num(br.more, 0) : 0;
+      if (more > short) return '핸드 ' + (br.est ? '약 ' : '') + more + '개 더';      // 기회(minOpp) 미달이나 창에서 빠질 기록
+      if (short > 0) return '핸드 ' + short + '개 더';
+      if (br && !br.pass) return br.pending ? '다음 업데이트에서 판정' : '실전 조건 확인';
+    }
     return '통과 가능';
   }
   // [ { stage, title, name, pct, open(단계 열림 = 현재 단계 이하), current, boss, nodes: [ { id, title, status, kind, hint, available, skipped } ] } ]
@@ -1021,7 +1064,7 @@ var Journey = (function() {
     startSession: startSession, session: session, endSession: endSession,
     playersSpec: playersSpec, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd,
     routePractice: routePractice, sessionFor: sessionFor, mapModel: mapModel, summary: summary, showFirstCard: showFirstCard,
-    lastPass: lastPass, lastTouch: lastTouch, castList: _castList,
+    lastPass: lastPass, lastTouch: lastTouch, castList: _castList, node: _node,
     _setData: _setData, _setStore: _setStore
   };
   if (typeof module !== 'undefined') module.exports = api;

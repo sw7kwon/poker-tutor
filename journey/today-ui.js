@@ -456,6 +456,12 @@ var TodayUI = (function() {
   }
   function _drillStats(t) { var st = _call('Drills', 'stats', t) || {}; return { n: _num(st.n, 0), ok: _num(st.ok, 0) }; }
 
+  // 이 노드의 레슨을 M3 레슨 플레이어로 볼 수 있나(없으면 커리큘럼 페이지로 대체)
+  function _lessonPlayable(nd) {
+    var L = _m('LESSONS');
+    return !!(nd && nd.lesson && _can('LessonPlayer', 'start') && Array.isArray(L) &&
+      L.some(function(l) { return l && (l.id === nd.lesson || l.node === nd.id); }));
+  }
   // 어댑터: 새 배움(placement, lesson, curriculum, drill, mission, gto)
   function _learn(b, i) {
     var s = _state();
@@ -471,8 +477,8 @@ var TodayUI = (function() {
       return true;
     }
     if (b.kind === 'lesson') {
-      var nd = _node(b.node), L = _m('LESSONS');
-      if (nd && nd.lesson && _can('LessonPlayer', 'start') && Array.isArray(L) && L.some(function(l) { return l && (l.id === nd.lesson || l.node === nd.id); })) {
+      var nd = _node(b.node);
+      if (_lessonPlayable(nd)) {
         var rec = (s.nodes || {})[nd.id] || {};
         _setPending(_base(i, 'lesson', { inJourney: true, node: nd.id }));
         _call('LessonPlayer', 'start', nd.lesson, _num(rec.lesson && rec.lesson.scene, 0), function(res) {
@@ -760,6 +766,11 @@ var TodayUI = (function() {
     switch (b.kind) {
       case 'placement': return '10문제로 시작 단계를 정해요. 결과는 한 번만 반영돼요';
       case 'lesson': case 'curriculum': {
+        if (b.kind === 'lesson' && _lessonPlayable(_node(b.node))) {
+          var from = _num(b.scene, 0);
+          return from > 0 ? '그림 레슨을 ' + (from + 1) + '번째 장면부터 이어 봐요. 질문은 탭으로 답해요'
+            : '그림 레슨' + (_num(b.scenes, 0) > 0 ? ' ' + _num(b.scenes, 0) + '장면' : '') + '. 질문은 탭으로 답해요';
+        }
         var n = _num(b.session, 0) || (_can('JourneyUI', 'curriculumFor') && b.node ? JourneyUI.curriculumFor(b.node) : null) || _plan_cs() || 1;
         var C = _m('CURRICULUM'), topic = '';
         if (Array.isArray(C)) { var it = C.filter(function(x) { return x && x.session === n; })[0]; if (it) topic = _clean(it.topic); }
@@ -919,7 +930,7 @@ var TodayUI = (function() {
   var api = {
     start: start, again: again, runBlock: runBlock, stopHere: stopHere, finish: finish, onBlockDone: onBlockDone, skip: skip,
     resume: resume, show: show, leave: leave, running: running, hasPending: hasPending, pendingInfo: pendingInfo,
-    preview: preview, plan: plan, build: build, ctx: ctx, label: label,
+    preview: preview, plan: plan, build: build, ctx: ctx, label: label, desc: _desc,
     // M2-P7 연결(순수 판정: 테스트, 하네스용)
     puzzleTypes: puzzleTypes, reviewPlan: _reviewPlan, ratingLine: ratingLine, blockReady: _blockReady,
     _review: _review, _learn: _learn, _fun: _fun, _wrap: _wrap

@@ -35,7 +35,7 @@ var JourneyUI = (function() {
     puzzle: '약점 퍼즐', daily5: '데일리 5', rush: '퍼즐 러시', survival: '서바이벌' };
   // 진행 상태를 저장하지 않는 퍼즐 화면(해시 #j/puzzle, #j/rush, #j/daily5, #j/survival): 뒤로/새로고침으로 다시 오면 홈으로.
   // 러시와 서바이벌은 빠른 줄에서 다시 시작하면 된다.
-  var TRANSIENT_VIEWS = { puzzle: true, rush: true, daily5: true, survival: true };
+  var TRANSIENT_VIEWS = { puzzle: true, rush: true, daily5: true, survival: true, lesson: true, boss: true };
   var RATING_TIP = '퍼즐 레이팅, 나의 추세용';
   var LIGHT_LABEL = { green: '초록', yellow: '노랑', red: '빨강', marginal: '애매한 스팟' };
   // 통과 기준 문구용(조건 DSL, journey-data.js 머리 주석의 필드 의미 그대로)
@@ -44,6 +44,7 @@ var JourneyUI = (function() {
   var SOURCE_LABEL = { chart: '차트', potodds: '팟 오즈', guide: '가이드', ev: 'EV' };
   var STREET_LABEL = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
   var METRIC_LABEL = { vpip: 'VPIP', pfr: 'PFR', tb: '3벳', f3: '3벳에 폴드' };
+  var COACH_NAME = { 0: '풀코칭', 1: '먼저 판단', 2: '예측', 3: '실전' };   // index.html 코칭 보조 선택지와 같은 이름
   var PATTERN_FALLBACK = { overlimp: '림퍼 뒤에 콜로 따라 들어가기' };   // Coach.PATTERNS.overlimp(M3) 전 라벨
   var VIEWS = { dashboard: 'DashboardView', weekly: 'WeeklyView', collection: 'CollectionView', placement: 'PlacementView', settings: 'SettingsView' };
   var VIEW_TITLE = { dashboard: '📊 내 실력', weekly: '📅 주간 챌린지', collection: '🗂 수집', placement: '📝 실력 확인 3분',
@@ -662,12 +663,13 @@ var JourneyUI = (function() {
     var cells = [];
     if (nd.lesson) cells.push(_cell('레슨', _evOk(ev.lesson, !!(rec.lesson && rec.lesson.done)), rec.lesson && rec.lesson.done ? '완료' : (rec.lesson && rec.lesson.scene ? rec.lesson.scene + '장면까지' : '아직')));
     if (nd.drill) {
-      var cnt = _drillCount(nd.drill), best = _num(rec.drill && rec.drill.best, 0);
-      cells.push(_cell('드릴', _evOk(ev.drill, best * cnt >= _num(nd.drill.pass, cnt)), rec.drill && rec.drill.n ? '최고 ' + Math.round(best * cnt) + '/' + cnt : '아직'));
+      var cnt = _drillCount(nd.drill), best = _num(rec.drill && rec.drill.best, 0), dpass = _num(nd.drill.pass, cnt);
+      cells.push(_cell('드릴', _evOk(ev.drill, best * cnt >= dpass), rec.drill && rec.drill.n ? '최고 ' + Math.round(best * cnt) + '/' + cnt : (dpass > 0 ? '아직' : '연습(선택)')));
     }
     if (nd.mission) {
-      var mh = _num(rec.mission && rec.mission.hands, 0);
-      cells.push(_cell('실전', _evOk(ev.mission, mh >= _num(nd.mission.hands, 0) && !(nd.mission.conditions || []).length), mh + '/' + nd.mission.hands + '핸드'));
+      // 롤링 집계라 기준보다 많이 칠 수 있다(보스 핸드 포함). 칸에는 기준까지만 보인다("10/5핸드" 대신 "5/5핸드")
+      var mh = _num(rec.mission && rec.mission.hands, 0), mneed = _num(nd.mission.hands, 0);
+      cells.push(_cell('실전', _evOk(ev.mission, mh >= mneed && !(nd.mission.conditions || []).length), Math.min(mh, mneed) + '/' + mneed + '핸드'));
     }
     if (cells.length) parts.push('<div class="j-prog3">' + cells.join('') + '</div>');
     // 통과 기준과 롤링 진행
@@ -709,7 +711,7 @@ var JourneyUI = (function() {
     var m = nd.mission;
     if (m) {
       out.push((m.config === 'sixmax-cast-hidden' ? '6인 실전(유형 숨김) ' : '6인 실전 ') + m.hands + '핸드' +
-        (m.approx ? '(체험, 참고 기준)' : '') + (m.coach != null ? ', 코칭 L' + m.coach : ''));
+        (m.approx ? '(체험, 참고 기준)' : '') + (m.coach != null ? ', 코칭 L' + m.coach + (COACH_NAME[m.coach] ? '(' + COACH_NAME[m.coach] + ')' : '') : ''));
       (m.conditions || []).forEach(function(c) {
         if (c && c.kind === 'hands' && _num(c.min, 0) <= _num(m.hands, 0)) return;   // 위 핸드 수 줄과 같은 말
         var t = _condText(c); if (t) out.push(t);
@@ -1058,7 +1060,9 @@ var JourneyUI = (function() {
   // ── 외부 화면 복귀 감시: "계속" 버튼 주입 + 여정 화면이 다시 보이면 자동 복귀 ──────────
   function _setPending(p) { _pending = p; watchReturn(!!p); }
   function _setOrigin() { _origin = true; watchReturn(true); }
-  function hasPending() { return !!_pending || !!(_can('TodayUI', 'hasPending') && _call('TodayUI', 'hasPending')); }
+  // 노드에 묶인 실전 세션(보스, 커리큘럼 '이 주제로 실습'의 미션)도 복귀 대상이다. 세션 요약에 "여정으로 돌아가기"를 붙인다
+  function _nodeSession() { var ses = _call('Journey', 'session'); return !!(ses && ses.node); }
+  function hasPending() { return !!_pending || !!(_can('TodayUI', 'hasPending') && _call('TodayUI', 'hasPending')) || _nodeSession(); }
   function watchReturn(on) {
     if (typeof MutationObserver === 'undefined' || !_hasDom() || !document.body) return;
     if (!on && (_origin || hasPending())) on = true;   // 아직 감시할 대상이 남아 있으면 유지

@@ -1,6 +1,7 @@
 // ui/coach-ui.js — 인게임 코칭 UI (8차 WP3)
 // 결정 전: 정답 가림 + 자기점검(L1) / 예측 카드(L2) / 실전(L3)
 // 결정 직후: #last-verdict 판정 스트립 + 신호등 토스트, 반복 실수 경고, 레벨 자동 페이드
+// M3-P4b: snapshot()/restore(s)(보스 코칭 고정 뒤 복원), 고정 벌점은 bb 대신 '(큰 실수)/(작은 실수)', 림퍼 뒤 체크리스트
 // 로드 시 DOM 접근 금지 — 초기화는 window load 이벤트에서만
 var CoachUI = (function() {
   var KEY = 'poker_coach';
@@ -116,6 +117,24 @@ var CoachUI = (function() {
     var bb = state.bigBlind || 1;
     if (state.street === 'preflop') {
       var opened = (state.currentBet || 0) > bb + 1e-9;
+      var limpers = 0;
+      if (!opened && typeof Gto !== 'undefined' && Gto.limperCount) {
+        try { limpers = Gto.limperCount(state) || 0; } catch (e) { limpers = 0; }
+      }
+      if (!opened && limpers > 0) {
+        if (toCall <= 0) {
+          return [
+            '① 림퍼만 있으면 BB는 공짜로 체크할 수 있어요',
+            '② 아주 강한 패면 레이즈로 아이솔(오픈 사이즈 + 림퍼당 1bb)',
+            '③ 폴드할 이유는 없어요 (콜할 돈이 0)'
+          ];
+        }
+        return [
+          '① 앞에 림퍼 ' + limpers + '명: 레이즈(아이솔) 아니면 폴드',
+          '② 이 패가 내 자리(' + pos + ') 오픈 레인지 안인가?',
+          '③ 아이솔 사이즈 = 오픈 사이즈 + 림퍼당 1bb, 콜로 따라 들어가지 않기'
+        ];
+      }
       if (!opened) {
         if (toCall <= 0) {
           return [
@@ -169,12 +188,22 @@ var CoachUI = (function() {
     return KOR[action] || '';
   }
 
+  // 손해 표기: EV로 계산한 delta는 bb 숫자, 고정 벌점(G.estimated, 차트와 가이드 판정 등)은 숫자 대신 크기 라벨만
+  // (설계서 8.2절 6번: 고정 벌점은 실제 bb 손실이 아니므로 '(큰 실수)/(작은 실수)')
+  function lossLabel(G) {
+    G = G || {};
+    var delta = (typeof G.delta === 'number' && !isNaN(G.delta)) ? G.delta : 0;
+    if (!(delta < 0)) return '';
+    if (G.estimated) return G.light === 'red' ? '(큰 실수)' : '(작은 실수)';
+    return '(' + delta.toFixed(1) + 'bb)';
+  }
+
   function verdictText(G, V, action) {
     G = G || {}; V = V || {};
     var light = ICON[G.light] ? G.light : 'yellow';
-    var delta = (typeof G.delta === 'number' && !isNaN(G.delta)) ? G.delta : 0;
+    var loss = lossLabel(G);
     var line1 = ICON[light] + ' ' + (G.title || '') + ' | 당신: ' + _actionKor(action, V) +
-      ' / 추천: ' + (V.label || '') + (delta < 0 ? ' (' + delta.toFixed(1) + 'bb)' : '');
+      ' / 추천: ' + (V.label || '') + (loss ? ' ' + loss : '');
     return { cls: 'lv-' + light, line1: line1, line2: G.why ? String(G.why) : '' };
   }
 
@@ -512,13 +541,37 @@ var CoachUI = (function() {
     _updateToggleLabel();
   }
 
+  // 보스처럼 코칭 레벨을 잠시 고정했다가 되돌릴 때(설계서 2.5절, 7.3절 9번):
+  // setLevel(n)은 auto 이력(recent)을 지우고 setLevel('auto')는 level을 되돌리지 못하므로
+  // snapshot()으로 {auto, level, recent}를 떠 두고 끝나면 restore(s)로 그대로 돌린다(try/finally 권장).
+  function snapshot() {
+    _load();
+    return { auto: !!_st.auto, level: _st.level, recent: (_st.recent || []).slice() };
+  }
+
+  function restore(s) {
+    if (!s || typeof s !== 'object') return false;
+    var lv = (typeof s.level === 'number') ? s.level : parseInt(s.level, 10);
+    if (isNaN(lv) || lv < 0 || lv > 3 || lv !== Math.floor(lv)) return false;
+    _load();
+    _st.level = lv;
+    if (typeof s.auto === 'boolean') _st.auto = s.auto;
+    _st.recent = Array.isArray(s.recent)
+      ? s.recent.filter(function(x) { return x === 'g' || x === 'y' || x === 'r'; }).slice(-20) : [];
+    _save();
+    _updateToggleLabel();
+    _syncSelect();
+    return true;
+  }
+
   if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('load', _init);
 
   var api = {
     viewFor: viewFor, nextLevel: nextLevel, potOddsChoices: potOddsChoices, eqBucket: eqBucket,
-    checklist: checklist, explainLines: explainLines, verdictText: verdictText,
+    checklist: checklist, explainLines: explainLines, verdictText: verdictText, lossLabel: lossLabel,
     onNewHand: onNewHand, beforeDecision: beforeDecision, afterDecision: afterDecision,
     onHandEnd: onHandEnd, currentGoal: currentGoal, showHint: showHint, setLevel: setLevel,
+    snapshot: snapshot, restore: restore,
     handleKey: handleKey, _pick: _pick
   };
   if (typeof module !== 'undefined') module.exports = api;

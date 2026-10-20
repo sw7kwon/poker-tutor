@@ -1,4 +1,4 @@
-// ui/history.js — 핸드 리뷰 화면 (세션 사이드바 + 스트리트별 복기)
+// ui/history.js, 핸드 리뷰 화면 (세션 사이드바 + 스트리트별 복기)
 var HistoryUI = (function() {
   var _returnTo = 'menu'; // 'menu' | 'game'
   var _groups = [];
@@ -47,7 +47,7 @@ var HistoryUI = (function() {
     if (body) body.classList.toggle('detail-open', !!on);
   }
 
-  // 세로 폰 상세의 "↩ 목록" — 목록으로 돌아가며 보던 핸드를 화면 가운데로
+  // 세로 폰 상세의 "↩ 목록": 목록으로 돌아가며 보던 핸드를 화면 가운데로
   function showList() {
     _setDetailOpen(false);
     _renderSidebar();
@@ -56,9 +56,9 @@ var HistoryUI = (function() {
     if (sel && sel.scrollIntoView) sel.scrollIntoView({ block: 'center' });
   }
 
-  // ── 실수 로그(Storage.getMistakes) 최초 소비처 — 07-19 2차 패스, 07-20 7차 확장 ──
+  // ── 실수 로그(Storage.getMistakes) 최초 소비처, 07-19 2차 패스, 07-20 7차 확장 ──
   // 기존에는 addMistake로 쌓이기만 하고 어디서도 읽지 않던 죽은 데이터였음.
-  // 게임 실수(EV 손실)와 퀴즈 오답은 스키마가 달라 분기 렌더 — 퀴즈를 게임 스키마로 그리면 "undefined" 깨짐.
+  // 게임 실수(EV 손실)와 퀴즈 오답은 스키마가 달라 분기 렌더. 퀴즈를 게임 스키마로 그리면 "undefined" 깨짐.
   var STREET_ICON = { preflop: '🃏', flop: '🂡', turn: '🂢', river: '🂣' };
   var _recentMistakes = []; // 🔁 연습 버튼 라우팅용 (렌더 순서와 동일)
 
@@ -68,7 +68,7 @@ var HistoryUI = (function() {
     var mistakes = Storage.getMistakes();
     if (!mistakes.length) { el.innerHTML = ''; return; }
     _recentMistakes = mistakes.slice(-10).reverse();
-    el.innerHTML = '<div class="hm-title">⚠ 최근 실수 — 게임 EV 손실·퀴즈 오답 (최근 ' + _recentMistakes.length + '건)</div>' +
+    el.innerHTML = '<div class="hm-title">⚠ 최근 실수: 게임 EV 손실, 퀴즈 오답 (최근 ' + _recentMistakes.length + '건)</div>' +
       '<div class="hm-list">' + _recentMistakes.map(function(m, i) { return _mistakeRowHTML(m, i); }).join('') + '</div>';
   }
 
@@ -77,8 +77,8 @@ var HistoryUI = (function() {
     if (m.situation != null || m.subtype != null) {
       var q = (m.situation || '').length > 60 ? m.situation.slice(0, 60) + '…' : (m.situation || '');
       return '<div class="hm-row hm-quiz" title="' + _fmtDate(m.date) + '">' +
-        '<span class="hm-street">📝 퀴즈' + (m.subtype ? '(' + m.subtype + ')' : '') + '</span>' +
-        '<span class="hm-action">' + q + '</span>' +
+        '<span class="hm-street">📝 퀴즈' + (m.subtype ? '(' + _esc(m.subtype) + ')' : '') + '</span>' +
+        '<span class="hm-action">' + _esc(q) + '</span>' +
         '<span class="hm-delta">오답</span>' +
       '</div>';
     }
@@ -101,7 +101,7 @@ var HistoryUI = (function() {
     '</div>' + whyHtml;
   }
 
-  // 실수 패널 🔁 연습 — 실수 당시 seed/포지션/모드로 같은 핸드 반복 연습 진입
+  // 실수 패널 🔁 연습: 실수 당시 seed/포지션/모드로 같은 핸드 반복 연습 진입
   function practiceMistake(idx) {
     var m = _recentMistakes[idx];
     if (!m || m.seed == null) return;
@@ -123,7 +123,7 @@ var HistoryUI = (function() {
   function selectHand(gi, hi) {
     _selGi = gi;
     _selHi = hi;
-    // 세로 폰 목록 단계(상세 숨김)에서 열 때는 맨 위부터 — 안 그러면 이전 핸드에서 내린 스크롤 위치가 남아
+    // 세로 폰 목록 단계(상세 숨김)에서 열 때는 맨 위부터. 안 그러면 이전 핸드에서 내린 스크롤 위치가 남아
     // 헤더와 "↩ 목록"이 화면 위로 밀린 채 열림. 데스크톱은 상세가 늘 보이므로(숨김 아님) 이 분기를 타지 않음.
     var det = (typeof document !== 'undefined') ? document.getElementById('history-detail') : null;
     var wasHidden = !!(det && typeof getComputedStyle === 'function' && getComputedStyle(det).display === 'none');
@@ -174,7 +174,7 @@ var HistoryUI = (function() {
       return '<div class="history-session-group">' +
         '<div class="history-session-header' + (expanded ? ' expanded' : '') + '" onclick="HistoryUI.selectSession(' + gi + ')">' +
           '<span class="hs-label">' + label + '</span>' +
-          '<span class="hs-meta">' + _fmtDate(g.date) + ' · ' + g.count + '개</span>' +
+          '<span class="hs-meta">' + _fmtDate(g.date) + ', ' + g.count + '개</span>' +
         '</div>' +
         '<div class="history-hand-list" style="display:' + (expanded ? 'block' : 'none') + '">' + handsHtml + '</div>' +
       '</div>';
@@ -259,7 +259,7 @@ var HistoryUI = (function() {
     return (date || '').slice(5, 16).replace('T', ' ');
   }
 
-  // ── 총 편차 신호등 (스트리트 개별 lightFor와 별개 — 결정 0건은 '평가 없음', 완전 0 델타는 초록) ──
+  // ── 총 편차 신호등 (스트리트 개별 lightFor와 별개, 결정 0건은 '평가 없음', 완전 0 델타는 초록) ──
 
   function _totalLight(decisions) {
     decisions = decisions || [];
@@ -269,7 +269,7 @@ var HistoryUI = (function() {
     return { icon: icon, label: 'Δ' + (total >= 0 ? '+' : '') + total.toFixed(2) + 'bb' };
   }
 
-  // ── 순수 함수 (node 테스트 대상 — DOM/localStorage 접근 금지) ──
+  // ── 순수 함수 (node 테스트 대상, DOM/localStorage 접근 금지) ──
 
   function buildStreetSegments(record) {
     var board = record.board || [];
@@ -316,7 +316,7 @@ var HistoryUI = (function() {
     var totalDelta = decisions.reduce(function(s, d) { return s + ((d.actualEV || 0) - (d.bestEV || 0)); }, 0);
     var perf = totalDelta >= -0.3 ? 'GTO에 가까운 훌륭한 플레이였습니다.' :
                totalDelta >= -1.5 ? '작은 마진의 EV 손실이 있었던 플레이입니다.' :
-               '큰 EV 손실이 있었던 플레이 — 복기가 필요합니다.';
+               '큰 EV 손실이 있었던 플레이입니다. 복기가 필요해요.';
     return (folded ? '폴드한 핸드입니다. ' : won ? '팟을 가져간 핸드입니다. ' : '팟을 내준 핸드입니다. ') + perf;
   }
 

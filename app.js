@@ -479,7 +479,7 @@ var App = (function() {
     ringEl.style.display = 'flex';
     if (pctEl) pctEl.textContent = pct.toFixed(0) + '%';
     // 해석 1줄 (호버 툴팁) — 초보자용: 팟 오즈 = 콜에 필요한 최소 승률
-    ringEl.title = '팟 오즈 ' + pct.toFixed(0) + '% = 콜 ' + toCall.toFixed(1) + 'bb ÷ (팟+콜) — 내 승률이 '
+    ringEl.title = '팟 오즈 ' + pct.toFixed(0) + '% = 콜 ' + toCall.toFixed(1) + 'bb ÷ (팟+콜), 내 승률이 '
       + pct.toFixed(0) + '% 이상이면 콜이 이득';
   }
 
@@ -708,7 +708,7 @@ var App = (function() {
     if (chartEl) chartEl.classList.remove('panel-closed');
     showScreen('screen-game');
     _newHand();
-    _showToast('🔁 연습 모드 — 같은 카드 반복 (빌런 반응은 달라질 수 있음)');
+    _showToast('🔁 연습 모드, 같은 카드 반복 (빌런 반응은 달라질 수 있음)');
   }
 
   function practiceSame() {
@@ -869,14 +869,14 @@ var App = (function() {
     var heroDesc = hand.handDescriptions && hand.handDescriptions['Hero'];
     var winnerDesc = hand.handDescriptions && hand.winner && hand.handDescriptions[hand.winner];
     if (hand.heroWon && !hand.showCards)
-      return raiseCount>=1 ? '베팅 압박으로 상대 폴드 유도 — 공격적 라인 성공' : '상대 폴드로 팟 쟁취';
+      return raiseCount>=1 ? '베팅 압박으로 상대 폴드 유도, 공격적 라인 성공' : '상대 폴드로 팟 쟁취';
     if (hand.heroWon && hand.showCards)
-      return '쇼다운 승리'+(heroDesc?' ('+heroDesc+')':'')+' — 밸류 추출 성공';
+      return '쇼다운 승리'+(heroDesc?' ('+heroDesc+')':'')+', 밸류 추출 성공';
     if (!hand.heroWon && last && last.action==='fold')
-      return (sKor[lastStreet]||lastStreet)+' 폴드 — 에쿼티 부족 판단';
+      return (sKor[lastStreet]||lastStreet)+' 폴드, 에쿼티 부족 판단';
     if (!hand.heroWon && hand.showCards)
-      return '쇼다운 패배'+(heroDesc?' ('+heroDesc+')':'')+(winnerDesc?' vs '+winnerDesc:'')+' — 핸드 상성 불리';
-    return hand.pot>=20 ? '빅팟 핸드 — 핵심 의사결정 스팟' : '표준 플레이';
+      return '쇼다운 패배'+(heroDesc?' ('+heroDesc+')':'')+(winnerDesc?' vs '+winnerDesc:'')+', 핸드 상성 불리';
+    return hand.pot>=20 ? '빅팟 핸드, 핵심 의사결정 스팟' : '표준 플레이';
   }
 
   // 결정 1개의 신호등: light 우선, 없으면 Δ 임계(≥-0.3 green, ≥-1.5 yellow, 그 외 red)

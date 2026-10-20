@@ -1,5 +1,6 @@
 // engine/coach.js — 8차 WP2: 단일 코치 판정
 // 프리플랍 = 레인지 차트(모든 모드), 포스트플랍 벳 직면 = 팟 오즈(큰 벳 +6%p 여유), 체크 가능 = 전략 가이드.
+// M3-P4b: 림퍼 뒤 아이솔 판정(spot 'vs_limp', Gto.preflopHint의 limpers, size, alt), PATTERNS.overlimp, grade의 estimated.
 // 별표, 금색 버튼, 신호등, 실수 기록, 약점 가중치, 핸드 총평이 모두 이 판정 하나를 따른다.
 var Coach = (function() {
   var KOR = { fold: '폴드', check: '체크', call: '콜', raise: '레이즈', allin: '올인' };
@@ -94,9 +95,25 @@ var Coach = (function() {
     return V;
   }
 
+  function _bbNum(x) { return String(Math.round((x || 0) * 100) / 100); }
+
   function _chartWhy(V, pos, hint) {
     var hand = V.hand || '이 패';
     var lbl = V.label;
+    if (V.spot === 'vs_limp') {
+      var n = V.limpers || 1, sz = _bbNum(V.size) + 'bb';
+      var GR = (typeof Gto !== 'undefined' && Gto.GTO_RANGES) ? Gto.GTO_RANGES : null;
+      var isoArr = !GR ? null : pos === 'BB' ? GR.vsLimpBB : (GR.rfi ? GR.rfi[pos] : null);
+      var ip = isoArr ? Math.round(rangePct(isoArr) * 100) : 0;
+      var top = ip ? '(상위 약 ' + ip + '%)' : '';
+      if (pos === 'BB') {
+        if (V.action === 'raise') return '림퍼 ' + n + '명, BB에서 ' + hand + '는 아주 강한 패' + top + ' → ' + sz + '로 아이솔 레이즈';
+        if (V.alt === 'raise') return '림퍼 ' + n + '명, BB에서 ' + hand + '는 공짜 체크도, ' + sz + ' 아이솔 레이즈도 괜찮아요';
+        return '림퍼만 있으면 BB는 공짜로 플랍을 봐요 → ' + hand + '는 체크';
+      }
+      if (V.action === 'raise') return '림퍼 ' + n + '명, ' + pos + '에서 ' + hand + '는 오픈 레인지' + top + ' 안 → ' + sz + '로 아이솔 레이즈';
+      return '림퍼가 있어도 ' + pos + ' 오픈 레인지' + top + ' 밖이면 폴드 → ' + hand + '는 따라 콜 말고 폴드';
+    }
     if (V.spot === 'rfi') {
       if (pos === 'BB' && V.action === 'check') return '아무도 레이즈 안 했으니 공짜로 플랍을 봐요 → 체크';
       var arr = (typeof Gto !== 'undefined' && Gto.GTO_RANGES && Gto.GTO_RANGES.rfi) ? Gto.GTO_RANGES.rfi[pos] : null;
@@ -139,13 +156,17 @@ var Coach = (function() {
       else m = V.toCall === 0 ? ['check', 'call'] : ['fold', 'fold'];
       V.action = m[0]; V.evKey = m[1]; V.source = 'chart';
       var f = h.facing;
-      V.spot = f === false ? 'rfi' : f === true ? 'vs_open' : f === 'vs3bet' ? 'vs_3bet'
+      // 림퍼 뒤(레이즈 없음, 팟 > 1.5bb)는 'vs_limp': 아이솔 판정, 개념은 오픈과 같은 'rfi'(s2-05)
+      var iso = f === false && h.limpers > 0;
+      V.spot = iso ? 'vs_limp' : f === false ? 'rfi' : f === true ? 'vs_open' : f === 'vs3bet' ? 'vs_3bet'
         : f === 'vs4bet' ? 'vs_4bet' : f === 'cold3bet' ? 'cold_3bet' : 'vs_3bet';
-      V.concept = V.spot === 'rfi' ? 'rfi'
+      if (iso) { V.limpers = h.limpers; V.size = h.size; V.alt = h.alt || null; }
+      V.concept = (V.spot === 'rfi' || V.spot === 'vs_limp') ? 'rfi'
         : V.spot === 'vs_open' ? ((pos === 'SB' || pos === 'BB') ? 'blind_defense' : 'vs_rfi') : 'vs_3bet';
       var lr = state.lastRaiser;
       V.opener = h.opener || ((lr && lr !== 'Hero' && state.players && state.players[lr]) ? state.players[lr].pos : null) || null;
       V.label = _label(V.action, V.toCall, 'preflop');
+      if (iso && V.alt) V.label += ' 또는 ' + _label(V.alt, V.toCall, 'preflop');   // BB: 둘 다 정답('체크 또는 레이즈')
       V.why = _clip(_chartWhy(V, pos, h), 70);
       return V;
     }
@@ -209,12 +230,17 @@ var Coach = (function() {
       title: title, why: _clip(why, 80) };
   }
 
-  // 포스트플랍 공짜 상황(콜 0)의 레이즈는 실제로 "벳" — 판정 제목도 벳으로 표기
+  // 포스트플랍 공짜 상황(콜 0)의 레이즈는 실제로 "벳", 판정 제목도 벳으로 표기(프리플랍 BB의 레이즈는 레이즈 그대로)
+  // estimated: delta가 EV 계산이 아니라 고정 벌점(차트, 가이드, 공짜 체크 폴드, 팟 오즈 고정값)이면 true.
+  //   화면은 이 delta를 bb 숫자 대신 '큰 실수/작은 실수'로만 보이고(설계서 8.2절 6번), 여정 통계는 payload.estimated로 받는다.
   function grade(V, action, ev, state) {
     var r = _grade(V, action, ev, state);
-    if (r && V && V.toCall === 0 && r.title && category(action) === 'raise' && action !== 'allin') r.title = r.title.replace('레이즈', '벳');
+    if (r && V && V.toCall === 0 && V.street !== 'preflop' && r.title && category(action) === 'raise' && action !== 'allin') r.title = r.title.replace('레이즈', '벳');
+    if (r && V && (V.source === 'chart' || V.source === 'guide')) r.estimated = true;
     return r;
   }
+
+  function _fixed(r) { r.estimated = true; return r; }
 
   function _grade(V, action, ev, state) {
     ev = ev || {};
@@ -223,7 +249,7 @@ var Coach = (function() {
     if (!KOR[action]) action = cat === 'raise' ? 'raise' : cat;
     if (V.toCall === 0 && action === 'fold') {
       return { light: 'red', delta: -2.0, pattern: 'fold_free_check', title: '공짜 체크를 폴드',
-        why: '콜할 돈이 0이면 체크! 공짜로 다음 카드를 볼 수 있어요' };
+        why: '콜할 돈이 0이면 체크! 공짜로 다음 카드를 볼 수 있어요', estimated: true };
     }
     if (cat === vcat) return _res('green', 0, null, action, V.why);
 
@@ -231,11 +257,15 @@ var Coach = (function() {
 
     if (V.source === 'chart') {
       var pattern = null, red = false;
-      var rfi = V.spot === 'rfi';
-      if (vcat === 'fold' && cat === 'raise') pattern = rfi ? 'open_too_loose' : 'call_too_loose_pre';
-      else if (vcat === 'fold' && cat === 'call') pattern = rfi ? 'limp' : 'call_too_loose_pre';
-      else if (vcat !== 'fold' && cat === 'fold') pattern = 'fold_too_tight_pre';
-      else if (V.action === 'raise' && cat === 'call') pattern = rfi ? 'limp' : null;
+      var rfi = V.spot === 'rfi', iso = V.spot === 'vs_limp';
+      // BB(콜 0)의 림퍼 상대: 체크와 아이솔 레이즈가 둘 다 정답인 손(V.alt)
+      if (iso && V.alt && category(V.alt) === cat) return _res('green', 0, null, action, V.why);
+      var bbIso = iso && V.toCall === 0;   // BB는 콜로 따라 들어갈 수 없으니 오버림프가 아니다
+      if (vcat === 'fold' && cat === 'raise') pattern = (rfi || iso) ? 'open_too_loose' : 'call_too_loose_pre';
+      else if (vcat === 'fold' && cat === 'call') pattern = rfi ? 'limp' : iso ? 'overlimp' : 'call_too_loose_pre';
+      // 림퍼 뒤 아이솔 손을 폴드: 아이솔 표는 림퍼 수와 상관없는 오픈 표라 놓친 기회일 뿐, 작은 실수이고 패턴 없음
+      else if (vcat !== 'fold' && cat === 'fold') pattern = iso ? null : 'fold_too_tight_pre';
+      else if (V.action === 'raise' && cat === 'call') pattern = rfi ? 'limp' : (iso && !bbIso) ? 'overlimp' : null;
       if (vcat === 'fold' && cat !== 'fold') {
         var cards = state && state.heroCards;
         var btnRaise = false;
@@ -244,14 +274,14 @@ var Coach = (function() {
         }
         red = !btnRaise;
       }
-      if (V.action === 'raise' && cat === 'fold') red = true;
+      if (V.action === 'raise' && cat === 'fold' && !iso) red = true;
       return _res(red ? 'red' : 'yellow', red ? -2.0 : -0.5, pattern, action,
         '레인지 차트 정답은 ' + V.label + ': ' + V.why);
     }
 
     if (V.source === 'potodds') {
       if (V.marginal) {
-        if (cat === 'raise') return _res('yellow', -0.3, null, action, '아슬아슬한 스팟이라 콜이나 폴드로 충분해요');
+        if (cat === 'raise') return _fixed(_res('yellow', -0.3, null, action, '아슬아슬한 스팟이라 콜이나 폴드로 충분해요'));
         var r = _res('green', 0, null, action,
           '필요 승률 ' + needP + '%와 내 승률 ' + eqp + '%가 거의 같아요: 콜, 폴드 모두 큰 차이 없음');
         r.title = '아슬아슬한 스팟';
@@ -268,8 +298,8 @@ var Coach = (function() {
         return _res(d2 < -1.5 ? 'red' : 'yellow', d2, 'fold_above_odds', action,
           '내 승률 ' + eqp + '%가 필요 승률 ' + needP + '%보다 높아요: 콜이 이득');
       }
-      if (cat === 'raise' && vcat === 'call') return _res('yellow', -0.3, null, action, '콜로 충분해요: ' + V.why);
-      if (cat === 'call' && vcat === 'raise') return _res('yellow', -0.3, 'missed_value', action, '아주 강한 패는 레이즈로 칩을 받아내요');
+      if (cat === 'raise' && vcat === 'call') return _fixed(_res('yellow', -0.3, null, action, '콜로 충분해요: ' + V.why));
+      if (cat === 'call' && vcat === 'raise') return _fixed(_res('yellow', -0.3, 'missed_value', action, '아주 강한 패는 레이즈로 칩을 받아내요'));
     }
 
     if (V.source === 'guide') {
@@ -304,6 +334,11 @@ var Coach = (function() {
   }
   function _opened(state) { return _pre(state) && (state.currentBet || 0) > (state.bigBlind || 1); }
   function _post(state) { return !!state && !!state.street && state.street !== 'preflop'; }
+  // 림퍼가 있는 미오픈 팟(BB 제외): Gto.limperCount와 같은 셈(ev.js:28-32)
+  function _limped(state) {
+    if (!_unopened(state) || typeof Gto === 'undefined' || !Gto.limperCount) return false;
+    try { return Gto.limperCount(state) > 0; } catch (e) { return false; }
+  }
 
   var PATTERNS = {
     fold_free_check: { label: '공짜 체크를 폴드', rule: '콜할 돈이 0이면 무조건 체크', concept: 'actions',
@@ -315,7 +350,9 @@ var Coach = (function() {
     open_too_loose: { label: '앞자리에서 너무 넓게 오픈', rule: '앞자리일수록 차트의 레이즈 칸만 오픈', concept: 'rfi',
       goal: 'UTG, HJ에서는 차트 레이즈 칸 핸드만 오픈하기', spotTest: function(s) { return _unopened(s); } },
     limp: { label: '림프(레이즈 없이 콜로 참여)', rule: '먼저 들어갈 땐 레이즈 아니면 폴드', concept: 'rfi',
-      goal: '먼저 들어갈 땐 레이즈 아니면 폴드, 콜로 들어가지 않기', spotTest: function(s) { return _unopened(s); } },
+      goal: '먼저 들어갈 땐 레이즈 아니면 폴드, 콜로 들어가지 않기', spotTest: function(s) { return _unopened(s) && !_limped(s); } },
+    overlimp: { label: '오버림프(림퍼 뒤에 콜로 따라 들어가기)', rule: '림퍼가 있으면 아이솔 레이즈 아니면 폴드', concept: 'rfi',
+      goal: '앞에 림퍼가 있으면 오픈 사이즈 + 림퍼당 1bb로 레이즈하거나 폴드하기', spotTest: function(s) { return _limped(s); } },
     call_too_loose_pre: { label: '상대 오픈에 너무 넓게 참여', rule: '앞자리 오픈일수록 강한 패만 콜, 3벳', concept: 'vs_rfi',
       goal: '상대 오픈에는 차트의 콜, 3벳 칸만 참여하기', spotTest: function(s) { return _opened(s); } },
     fold_too_tight_pre: { label: '참여해야 할 패를 폴드', rule: '차트의 콜, 3벳 칸은 버리지 않기', concept: 'vs_rfi',
