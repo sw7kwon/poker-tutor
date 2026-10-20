@@ -1,4 +1,4 @@
-// journey/journey-data.js (채우는 패키지: M1-P1a)
+// journey/journey-data.js (채우는 패키지: M1-P1a, M6-BOSS 주석)
 // 여정 데이터만(로직 없음). 설계서 9절 M1-P1a 형식, 부록 A 노드 60(학습 54 + 보스 6), 2.4절 흡수 매핑, 4.3절 XP.
 // 로드 시 DOM/window 접근 없음. 전역 7개: JOURNEY_STAGES, JOURNEY_NODES, CURRICULUM_MAP, JOURNEY_XP, JOURNEY_UNLOCKS, PUZZLE_TYPES, CONCEPT_KEYS.
 //
@@ -13,6 +13,8 @@
 //   tol: combos 허용 오차(±콤보). overlap: rangepaint 1문항 정답 기준(겹침 비율).
 // mission { config: 'sixmax-cast'|'sixmax-cast-hidden', emphasis: 캐스트 이름|null, hands: 최소 핸드 수(롤링),
 //           coach: 고정 코칭 레벨 0~3|null, conditions: [...], approx?: true, hiddenSeats?: n, earlySubmit?: true }
+//   hiddenSeats: 은닉 테이블에서 유형을 숨긴 좌석 수(5 = 손님A~E 전원, 1 = 그 좌석만 중립 이름 '손님'이고 나머지 4자리는 캐스트).
+//   earlySubmit: identify 조건의 조기 제출 허용(설계서 11절 4번, s6-boss만).
 //   approx 미션은 conditions가 kind 'hands'만(체험 완료).
 // 조건 DSL(Boss가 M3부터 평가, 데이터는 여기서 확정)
 //   { kind:'pattern', pattern, max, window? | minOpp?, filter? }   window = 최근 핸드 수, minOpp = 최근 기회(필터에 맞는 결정) 수
@@ -30,6 +32,15 @@
 //   { kind:'band', metric:'vpip'|'pfr'|'tb'|'f3', tol, minOpp } / { kind:'hands', min }
 //   { kind:'identify', seats, min, minHands } / { kind:'weeks', what:'review', min }
 //   { kind:'overlap', puzzle:'rangepaint', spots, min } / { kind:'custom', fn, min, ... }
+//   M6-BOSS 판정(정본 해석, 자세한 규칙은 journey/boss.js 머리 주석)
+//     identify: 은닉 좌석(mission.hiddenSeats곳, 배정은 poker_journey.boss.hidden[노드])마다 관찰 핸드(JStats.castObs(이름, 배정 key).hands,
+//       그 좌석이 프리플랍에 액션한 핸드 수)가 minHands 이상이고 맞히기 제출의 정답 수가 min 이상. 보기 = H4 4분류(Fish와 Station 같은 정답),
+//       정답 = 배정 프로필의 분류. mission.earlySubmit(s6-boss)이면 좌석마다 30핸드부터 조기 제출 가능(정답 min 이상이면 minHands를 갈음).
+//       min에 못 미친 제출은 정답을 공개하고 좌석을 다시 섞는다(관찰 처음부터). 은닉 보스의 실전 칸(hands)은 배정 뒤 누적 은닉 핸드.
+//     weeks: ReviewQueue.reportWeeks()의 ISO 주 중 지금 이어지는 연속 주 수 ≥ min(이번 주나 지난주가 마지막이면 이어지는 중).
+//     overlap: 보스 색칠 드릴 결과 r.paint(계약 H2)에서 겹침 ≥ min인 항목 수 ≥ spots.
+//     custom shortSession {min, maxHands}: 판정 창 안에서 분량 전에 스스로 끝낸 Journey 세션(1 ≤ 핸드 ≤ maxHands) 수 ≥ min.
+//     custom luckMeterViews {min}(M5), srsBoxRatio {type, keyPrefix, box, min, minOpp?}(M3).
 //   filter 키: street[], source[], concept[], pos[], marginal, multiway, oop, potType('3bet')
 //     multiway, oop, potType은 결정 기록의 mw, oop, pt(계약 F2, journey-core decisionFields)와 맞춘다. 그 필드가 없는(null 포함)
 //     예전 기록과 프리플랍 oop는 필터에 맞지 않는 것으로 본다. potType은 문자열 또는 배열('limp'|'srp'|'3bet'|'4bet').

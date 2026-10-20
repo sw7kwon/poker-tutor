@@ -1,4 +1,4 @@
-/* css/theater.css (채우는 패키지: M4-P5) */
+/* css/theater.css (채우는 패키지: M4-P5, M6-MINI 미니시즌 절) */
 /* 속마음 극장(theater/theater-ui.js). #screen-game에 th-on이 붙은 동안만 적용된다(일반 게임 화면은 그대로).
    탭 요소 44px 이상(설계서 5.9절 6번), 결정과 다음 버튼은 하단 엄지 영역(7번), 표시는 색 + 글자 + 아이콘(10번). */
 
@@ -163,6 +163,35 @@
 .th-card-acts { display: flex; gap: 8px; }
 .th-card-acts .th-btn { flex: 1 1 0; }
 
+/* ── 미니시즌(M6-MINI): 우승자 예측, 핸드 예고의 칩 순위, 탈락 공개, 편 결과 ── */
+.th-mini { display: flex; flex-direction: column; gap: 5px; }
+.th-mini-head { font-weight: 700; color: var(--gold); font-size: .9rem; }
+.th-mini-blind { font-size: .8rem; color: #9ecbff; line-height: 1.35; }
+.th-mini-stand { display: flex; flex-wrap: wrap; gap: 4px; }
+.th-mini-st {
+  display: inline-flex; align-items: baseline; gap: 3px; padding: 2px 8px; border-radius: 10px; font-size: .78rem; white-space: nowrap;
+  background: #161b22; border: 1px solid var(--hud-border);
+}
+.th-mini-st b { color: var(--text); font-weight: 700; }
+.th-mini-st small { color: var(--text-dim); font-size: .7rem; }
+.th-mini-st.is-lead { border-color: var(--gold); }
+.th-mini-picks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.th-chip.th-mini-pk { text-align: left; padding: 6px 8px; }
+.th-mini-pk-n { font-weight: 700; }
+.th-mini-skip { align-self: flex-start; }
+.th-mini-out { padding: 6px 8px; border-radius: 8px; background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.45); }
+.th-mini-out-t { color: #ffa198; line-height: 1.35; }
+.th-mini-why { color: #f0c674; line-height: 1.4; margin-top: 3px; word-break: keep-all; overflow-wrap: anywhere; }
+.th-mini-win { font-size: 1rem; color: var(--gold); }
+.th-mini-next { color: #9ecbff; }
+.th-line.th-k-out { color: #ffa198; }
+.th-fl-out { color: #ffa198; }
+.th-mini-card .j-card-d { line-height: 1.5; }
+/* 미니시즌은 탈락으로 5인 이하가 되면 빈 좌석이 생긴다: 극장에서는 모든 화면에서 빈 좌석을 숨긴다(데스크톱의 빈 좌석 틀) */
+#screen-game.th-on .poker-table .seat:empty { display: none; }
+/* 미니시즌 예고와 결과 패널은 길다(순위, 탈락 공개): 데스크톱에서도 일반 극장 영역 높이 근처로 묶어 아래 좌석(BTN)이 패널에 걸치지 않게(안에서 스크롤) */
+.th-panel.is-mini { max-height: max(150px, min(260px, calc(100vh - 560px))); overflow-y: auto; }
+
 /* ── 세로 폰: 테이블 → 도크(💭 띵킹 피드) → 극장 영역(하단 고정) 순서로 세로로 쌓고 겹치지 않게 ── */
 @media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
   /* 극장 영역이 들어갈 높이만큼 타원을 줄인다(412x915는 그대로 300px) */
@@ -185,6 +214,11 @@
   .th-panel.is-quiet { display: none; }
   .th-intro-list { max-height: 24dvh; }
   .th-bubble { max-width: 150px; font-size: .7rem; padding: 4px 7px; }
+  .th-mini-st { font-size: .74rem; padding: 2px 6px; }
+  /* 미니시즌 예고와 결과 패널은 길어서(순위, 탈락 공개) 극장 영역이 아래 좌석을 덮지 않게 남는 높이만큼만(안에서 스크롤).
+     412x915 = 345px, 320x658 = 150px(타원이 208px로 줄어든 테이블 아래) */
+  .th-panel.is-mini { max-height: max(150px, min(40dvh, calc(100dvh - 570px))); }
+  .th-chip.th-mini-pk .th-chip-sub { -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 }
 
 /* ── 모션 줄이기 ── */

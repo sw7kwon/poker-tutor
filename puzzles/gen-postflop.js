@@ -6,7 +6,10 @@
 //   facingbet-river  exact(주어진 상대 레인지 기준). 보드 5장, 상대 벳 레인지를 콤보 목록으로 명시(보드와 내 카드 블로커 제외),
 //                    히어로 vs 명시 레인지 열거 에쿼티(무승부 0.5) vs need = 콜/(팟+콜). |eq - need| >= 0.08만,
 //                    히어로 강도 nut/strong 제외, Coach.verdict가 raise면 폐기. 'multiway'는 명시 레인지 2개를 모두 이겨야 승리.
-//                    'marginal'(둘 다 OK, S5)은 소비처 s5-05가 M6이라 M6으로 이월(M5-P0 결정, 지금은 null).
+//                    'marginal'(둘 다 OK, S5, M6-WIDGET, 계약 H3): 보기 콜, 폴드, 둘 다 OK. |eq - need| < 0.04면 정답 '둘 다 OK'
+//                    (engine/coach.js V.marginal과 같은 값), >= 0.08이면 명백한 쪽, 그 사이(0.04~0.08)는 내지 않는다. 헤즈업만,
+//                    강도 제외와 raise 폐기는 기본과 같고, 코치가 같은 레인지로 다시 센 V.marginal이 정답('둘 다 OK' 여부)과 같아야 한다.
+//                    정답 비율 둘 다 OK 40%, 콜 30%, 폴드 30%. 기본 변형('default', 'multiway')의 생성 경로와 난수 소비는 그대로다.
 //   facingbet-next   exact. 플랍/턴, 상대는 명시한 손 1개 또는 작은 레인지. 남은 덱의 다음 1장을 열거해 "다음 카드 뒤 앞서는 비율"을
 //                    지금 콜 가격과 비교(마진 0.08). 'draw'는 히어로 드로우 스팟. 강도 제외와 raise 폐기도 리버와 같이 적용.
 // M5-COACH: raise 폐기 판정 때 코치에 명시 콤보를 그대로 넘긴다(헤즈업, { narrow: false }). 코치가 같은 레인지로 다시 센
@@ -66,6 +69,7 @@ var GenPostflop = (function() {
   function _rankText(r) { return r === 'T' ? '10' : r; }
   function _num(x) { var v = Math.round(x * 10) / 10; return (v % 1 === 0) ? String(v) : v.toFixed(1); }
   function _pct(x) { return Math.round(x * 100); }
+  function _pct1(x) { return (Math.round(x * 1000) / 10).toFixed(1); }
   function _deadMap(list) { var m = {}; list.forEach(function(c) { m[c] = 1; }); return m; }
   function _draw(rnd, n, dead) {
     var out = [], used = {}, k;
@@ -164,14 +168,18 @@ var GenPostflop = (function() {
     };
     return Coach.verdict(state, null, eq, heroPos, combos ? { narrow: false } : { basis: 'eq' });
   }
-  function _coachAction(hero, board, potTotal, toCall, eq, heroPos, others, combos) {
-    if (typeof Coach === 'undefined' || typeof Coach.verdict !== 'function') return 'none';
+  // 코치 판정 요약 { action, marginal(코치 V.marginal, 코치가 없으면 null) }. M6-WIDGET: marginal 변형이 '둘 다 OK' 일치를 본다
+  function _coachInfo(hero, board, potTotal, toCall, eq, heroPos, others, combos) {
+    if (typeof Coach === 'undefined' || typeof Coach.verdict !== 'function') return { action: 'none', marginal: null };
     try {
       var V = _coachVerdict(hero, board, potTotal, toCall, eq, heroPos, others, combos);
       // 헤즈업에서 코치가 다시 센 승률이 문항 승률과 다르면(정의 불일치) 폐기 쪽
-      if (V && combos && V.eqUsed != null && V.basis !== 'eq' && Math.abs(V.eqUsed - eq) > 1e-9) return 'error';
-      return (V && V.action) || 'none';
-    } catch (e) { return 'error'; }
+      if (V && combos && V.eqUsed != null && V.basis !== 'eq' && Math.abs(V.eqUsed - eq) > 1e-9) return { action: 'error', marginal: null };
+      return { action: (V && V.action) || 'none', marginal: V ? !!V.marginal : null };
+    } catch (e) { return { action: 'error', marginal: null }; }
+  }
+  function _coachAction(hero, board, potTotal, toCall, eq, heroPos, others, combos) {
+    return _coachInfo(hero, board, potTotal, toCall, eq, heroPos, others, combos).action;
   }
 
   // ── 독립 경로(verify 전용): 생성 경로의 정수 점수(_scoreOf)와 클래스 묶음을 쓰지 않고, 콤보 목록과 남은 52장을
@@ -574,7 +582,10 @@ var GenPostflop = (function() {
     var ok = fracs.map(function(f) {
       var B = _bet(P, f), pt = P + (1 + callers) * B;
       return { B: B, potTotal: pt, need: _need(pt, B) };
-    }).filter(function(o) { return Math.abs(eq - o.need) >= MARGIN && (eq > o.need ? 'call' : 'fold') === target; });
+    }).filter(function(o) {
+      if (target === 'both') return Math.abs(eq - o.need) < BOTH_BAND;
+      return Math.abs(eq - o.need) >= MARGIN && (eq > o.need ? 'call' : 'fold') === target;
+    });
     return ok.length ? _pick(ok, rnd) : null;
   }
   function _flatItems(groups) {
@@ -602,6 +613,9 @@ var GenPostflop = (function() {
   var RIVER_FRACS = [1 / 3, 1 / 2, 2 / 3, 3 / 4, 1, 1.5];
   var MW_POTS = [12, 14, 16, 18, 20, 24, 28, 32, 36];
   var MW_FRACS = [1 / 3, 1 / 2, 2 / 3, 3 / 4, 1];
+  // marginal 변형(M6-WIDGET, H3): 둘 다 OK 기준과 벳 크기(1.25배, 2배 오버벳까지 넓혀 필요 승률 17~40%를 고르게)
+  var BOTH_BAND = 0.04;
+  var MARG_FRACS = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4, 1, 1.25, 1.5, 2];
   var VALUE_OK = ['nut', 'strong', 'medium'];
   var CALLER_OK = ['strong', 'medium', 'weak-pair'];
   function _bet(P, f) { var B = Math.round(P * f * 2) / 2; return B < 0.5 ? 0.5 : B; }
@@ -635,8 +649,23 @@ var GenPostflop = (function() {
     }
     return null;
   }
-  function _riverHU(rnd) {
-    var S = _S(), target = rnd() < 0.5 ? 'call' : 'fold';   // 정답 쪽을 먼저 정해 콜/폴드 비율을 반반으로
+  // 보기(marginal이면 둘 다 OK 포함). near = 덜 틀린 오답: 정답이 둘 다 OK면 조금 나은 쪽, 정답이 분명하면 '둘 다 OK'
+  function _riverOptions(marg, answer, eq, need) {
+    var list = [{ id: 'call', label: '콜' }, { id: 'fold', label: '폴드' }];
+    if (!marg) return list;
+    list.push({ id: 'both', label: '둘 다 OK' });
+    var nearId = answer === 'both' ? (eq > need ? 'call' : 'fold') : 'both';
+    list.forEach(function(o) { if (o.id === nearId) o.near = true; });
+    return list;
+  }
+  function _riverPrompt(marg, potTotal, B, n) {
+    var head = '리버. 팟 ' + _num(potTotal) + 'bb(상대 벳 ' + _num(B) + 'bb 포함), 콜 ' + _num(B) + 'bb. 상대 벳 레인지가 표시된 ' + n + '콤보뿐이라면';
+    return marg ? head + ' 콜? 폴드? 승률이 필요 승률과 4%p 안쪽이면 둘 다 OK.' : head + ' 콜? 폴드?';
+  }
+  // mt = marginal 변형의 정답 쪽('both'|'call'|'fold'). 없으면 기본 변형(난수 소비와 결과가 M2 그대로)
+  function _riverHU(rnd, mt) {
+    var marg = !!mt, fracs = marg ? MARG_FRACS : RIVER_FRACS;
+    var S = _S(), target = mt || (rnd() < 0.5 ? 'call' : 'fold');   // 정답 쪽을 먼저 정해 콜/폴드 비율을 반반으로
     for (var deal = 0; deal < 25; deal++) {
       var sc = _pick(S.hu, rnd);
       var d = _riverDeal(rnd, sc.hero);
@@ -665,29 +694,32 @@ var GenPostflop = (function() {
         flat.items.forEach(function(x) { if (x.s < heroScore) wins++; else if (x.s === heroScore) ties++; else losses++; });
         var n = flat.items.length, eq = (wins + 0.5 * ties) / n;
         if (n < 3) continue;
-        var Z = _chooseSize(eq, P, RIVER_FRACS, 0, target, rnd);
+        var Z = _chooseSize(eq, P, fracs, 0, target, rnd);
         if (!Z) continue;
         var B = Z.B, potTotal = Z.potTotal, need = Z.need;
-        var coach = _coachAction(hero, board, potTotal, B, eq, 'BB', [sc.vpos], flat.items.map(function(x) { return x.c; }));
+        var ci = _coachInfo(hero, board, potTotal, B, eq, 'BB', [sc.vpos], flat.items.map(function(x) { return x.c; }));
+        var coach = ci.action;
         if (coach === 'raise' || coach === 'error') break;
+        if (marg && ci.marginal !== null && ci.marginal !== (target === 'both')) continue;   // 코치의 애매한 스팟 판정과 어긋나면 내지 않는다
         var info = _groupInfo(flat.groups, heroScore);
         var combos = flat.items.map(function(x) { return x.c; });
         var blocked = info.some(function(g) { return g.blocked > 0; });
-        var answer = eq > need ? 'call' : 'fold';
-        return {
+        var answer = target === 'both' ? 'both' : eq > need ? 'call' : 'fold';
+        var q = {
           type: 'facingbet-river', key: null, concept: 'pot_odds', difficulty: _riverDifficulty(Math.abs(eq - need), false, blocked),
-          confidence: 'exact', appDef: false, rated: true, srs: 'once', label: LABEL_RIVER, variant: 'default',
-          prompt: '리버. 팟 ' + _num(potTotal) + 'bb(상대 벳 ' + _num(B) + 'bb 포함), 콜 ' + _num(B) + 'bb. 상대 벳 레인지가 표시된 ' +
-            n + '콤보뿐이라면 콜? 폴드?',
+          confidence: 'exact', appDef: false, rated: true, srs: 'once', label: LABEL_RIVER, variant: marg ? 'marginal' : 'default',
+          prompt: _riverPrompt(marg, potTotal, B, n),
           scene: { hero: hero, board: board, potTotal: potTotal, toCall: B,
             seats: [{ pos: sc.vpos, label: '벳 ' + _num(B) + 'bb', active: true }, { pos: 'BB', hero: true }],
             range: { label: sc.vpos + ' 벳 레인지', combos: combos, text: _rangeText(flat.groups) },
             note: LABEL_RIVER },
-          options: [{ id: 'call', label: '콜' }, { id: 'fold', label: '폴드' }], answer: answer, ui: 'choice',
+          options: _riverOptions(marg, answer, eq, need), answer: answer, ui: 'choice',
           data: { street: 'river', hero: hero, board: board, potTotal: potTotal, toCall: B, need: need, eq: eq,
             wins: wins, ties: ties, losses: losses, n: n, margin: Math.abs(eq - need), groups: info,
             heroStrength: d.hs, heroPos: 'BB', villPos: sc.vpos, coachAction: coach }
         };
+        if (marg) { q.data.both = answer === 'both'; q.data.band = BOTH_BAND; q.data.evCall = eq * (potTotal + B) - B; q.data.coachMarginal = ci.marginal; }
+        return q;
       }
     }
     return null;
@@ -776,7 +808,7 @@ var GenPostflop = (function() {
     if (!_ready()) return null;
     rnd = _rnd(rnd);
     var v = opts && opts.variant;
-    if (v === 'marginal') return null; // 둘 다 OK 변형은 M6(소비처 s5-05)
+    if (v === 'marginal') { var r = rnd(); return _riverHU(rnd, r < 0.4 ? 'both' : r < 0.7 ? 'call' : 'fold'); }   // M6-WIDGET(s5-05)
     return v === 'multiway' ? _riverMW(rnd) : _riverHU(rnd);
   }
   function _combosOk(list, dead) {
@@ -794,7 +826,7 @@ var GenPostflop = (function() {
     }
     return true;
   }
-  function _baseOk(q, type, nBoard) {
+  function _baseOk(q, type, nBoard, marg) {
     var s = q && q.scene;
     if (!q || q.type !== type || !s || !Array.isArray(s.board) || !Array.isArray(s.hero)) return false;
     if (nBoard.indexOf(s.board.length) < 0 || s.hero.length !== 2) return false;
@@ -803,13 +835,14 @@ var GenPostflop = (function() {
     if (!(s.potTotal > 0) || !(s.toCall > 0)) return false;
     if (q.confidence !== 'exact' || q.srs !== 'once' || q.key !== null) return false;
     var ids = (q.options || []).map(function(o) { return o.id; }).sort().join(',');
-    if (ids !== 'call,fold') return false;
+    if (ids !== (marg ? 'both,call,fold' : 'call,fold')) return false;
     var hs = _strength(s.hero, s.board);
     return !(hs === 'nut' || hs === 'strong' || hs === null);
   }
   function _riverVerify(q) {
     try {
-      if (!_baseOk(q, 'facingbet-river', [5])) return false;
+      var marg = !!q && q.variant === 'marginal';
+      if (!_baseOk(q, 'facingbet-river', [5], marg)) return false;
       var s = q.scene, dead = _deadMap(s.board.concat(s.hero));
       var need = _need(s.potTotal, s.toCall), r;
       if (q.variant === 'multiway') {
@@ -821,12 +854,23 @@ var GenPostflop = (function() {
         if (!s.range || !_combosOk(s.range.combos, dead)) return false;
         r = equityVsCombos(s.hero, s.board, s.range.combos);
       }
-      if (Math.abs(r.eq - need) < MARGIN) return false;
+      var gap = Math.abs(r.eq - need), want;
+      if (marg) {   // H3: 4%p 안쪽 = 둘 다 OK, 8%p 이상 = 분명한 쪽, 그 사이는 출제 금지
+        if (gap < BOTH_BAND) want = 'both';
+        else if (gap >= MARGIN) want = r.eq > need ? 'call' : 'fold';
+        else return false;
+        var nearWant = want === 'both' ? (r.eq > need ? 'call' : 'fold') : 'both';
+        if (!q.options.every(function(o) { return !!o.near === (o.id === nearWant); })) return false;
+      } else {
+        if (gap < MARGIN) return false;
+        want = r.eq > need ? 'call' : 'fold';
+      }
       if (q.data && typeof q.data.eq === 'number' && Math.abs(q.data.eq - r.eq) > 1e-9) return false;
-      if (q.answer !== (r.eq > need ? 'call' : 'fold')) return false;
+      if (q.answer !== want) return false;
       var vp = q.data && q.data.villPos, others = Array.isArray(vp) ? vp : [vp || 'BTN'];
-      var ca = _coachAction(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', others, q.variant === 'multiway' ? null : s.range.combos);
-      return ca !== 'raise' && ca !== 'error';
+      var ci = _coachInfo(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', others, q.variant === 'multiway' ? null : s.range.combos);
+      if (ci.action === 'raise' || ci.action === 'error') return false;
+      return !marg || ci.marginal === null || ci.marginal === (want === 'both');
     } catch (e) { return false; }
   }
   function _groupList(info, pick) {
@@ -840,6 +884,26 @@ var GenPostflop = (function() {
       s1 = vp[0] + ' 레인지 중 내가 이기는 비율 ' + _pct(d.eqA) + '%, ' + vp[1] + ' 레인지 중 ' + _pct(d.eqB) + '%. 둘 다 이기는 비율은 ' + _pct(d.eq) +
         '%(겹치는 카드 반영).';
       s2 = price + ' → ' + (call ? '콜' : '폴드') + '. 상대가 둘이면 둘 다 이겨야 해서 승률이 크게 줄어요.';
+    } else if (q.variant === 'marginal') {
+      // 둘 다 OK 기준(4%p)과 견주므로 승률과 필요 승률을 소수 첫째 자리까지 보인다
+      var info2 = d.groups || [], gap = Math.abs(d.eq - need), evc = d.eq * (s.potTotal + s.toCall) - s.toCall;
+      var win2 = _groupList(info2, function(g) { return g.heroWins === g.n; });
+      var lose2 = _groupList(info2, function(g) { return g.heroLoses === g.n; });
+      s1 = '내가 이기는 콤보 ' + d.wins + '개' + (win2 ? '(' + win2 + ')' : '') + (d.ties ? ', 비김 ' + d.ties + '개' : '') + ', 지는 콤보 ' +
+        d.losses + '개' + (lose2 ? '(' + lose2 + ')' : '') + ' → 내 승률 ' + _pct1(d.eq) + '%, 필요 승률 ' + _num(s.toCall) + ' ÷ (' + _num(s.potTotal) + '+' +
+        _num(s.toCall) + ') = ' + _pct1(need) + '%.';
+      // 차이가 3.96%p처럼 첫째 자리 반올림으로 4.0이 되면 둘째 자리까지(4%p 안쪽과 글자가 어긋나지 않게).
+      // 해설 아래 링 그림의 판정 칩(콜이 이득 / 폴드가 나아요)과 엇갈려 보이지 않게, 둘 다 OK여도 조금 나은 쪽을 먼저 밝힌다.
+      var gapTxt = _pct1(gap), potAfter = _num(s.potTotal + s.toCall);
+      if (q.answer === 'both' && Number(gapTxt) >= 4) gapTxt = Math.min(3.99, Math.floor(gap * 10000 + 1e-6) / 100).toFixed(2);
+      var evZero = Math.abs(d.eq - need) < 1e-9, better = d.eq > need ? '콜이에요' : '폴드예요';
+      var evTxt = (evc > 0 ? '+' : '-') + (Math.abs(evc) < 0.05 ? Math.abs(evc).toFixed(2) : _num(Math.abs(evc)));
+      s2 = q.answer === 'both'
+        ? '차이 ' + gapTxt + '%p로 4%p 안쪽 → 둘 다 OK. ' + (evZero
+          ? '콜의 기대값이 0bb(승률 차이 × 콜 뒤 팟 ' + potAfter + 'bb)라 폴드(0)와 똑같아요.'
+          : '조금 나은 쪽은 ' + better + '. 콜의 기대값은 약 ' + evTxt + 'bb(승률 차이 × 콜 뒤 팟 ' + potAfter +
+            'bb)로 폴드(0)와 차이가 작아요.') + ' (' + LABEL_RIVER + ')'
+        : '차이 ' + gapTxt + '%p로 8%p 이상 벌어져 → ' + (call ? '콜' : '폴드') + '. 이럴 땐 둘 다 OK가 아니에요. (' + LABEL_RIVER + ')';
     } else {
       var info = d.groups || [];
       var win = _groupList(info, function(g) { return g.heroWins === g.n; });
@@ -1039,11 +1103,11 @@ var GenPostflop = (function() {
   }
 
   var api = {
-    gens: gens, META: META, MARGIN: MARGIN, VALID_IDS: VALID_IDS, CLASS_WEATHER: CLASS_WEATHER, CLASS_HEIGHT: CLASS_HEIGHT,
+    gens: gens, META: META, MARGIN: MARGIN, BOTH_BAND: BOTH_BAND, MARG_FRACS: MARG_FRACS, VALID_IDS: VALID_IDS, CLASS_WEATHER: CLASS_WEATHER, CLASS_HEIGHT: CLASS_HEIGHT,
     topHeight: topHeight, heightOf: heightOf, axesOf: axesOf, classifyIndep: _classifyIndep, axesIndep: _axesIndep,
     equityVsCombos: equityVsCombos, equityMultiway: equityMultiway, equityNextCard: equityNextCard,
     cardText: cardText, classCombos: _classCombos,
-    _scoreOf: _scoreOf, _eqMultiFast: _eqMultiFast, _nextFast: _nextFast, _itemOf: _itemOf, _coachAction: _coachAction, _coachVerdict: _coachVerdict
+    _scoreOf: _scoreOf, _eqMultiFast: _eqMultiFast, _nextFast: _nextFast, _itemOf: _itemOf, _coachAction: _coachAction, _coachInfo: _coachInfo, _coachVerdict: _coachVerdict
   };
   if (typeof module !== 'undefined' && module) module.exports = api;
   return api;

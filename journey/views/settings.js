@@ -1,6 +1,8 @@
-// journey/views/settings.js (채우는 패키지: M2-P5)
+// journey/views/settings.js (채우는 패키지: M2-P5, M6-SEASON이 '상대가 내 성향에 적응' 행 추가)
 // ⚙ 설정 화면(SettingsView, 설계서 5.9절, 계약 C8): JourneyUI.view('settings')가 open(params, el)로 연다.
 // 항목 6개: 글자 크기(100/115/130%), 4색 덱, 색약 차트, 움직임(시스템 따름/줄이기/보통), 효과음, 진동.
+// M6(계약 H6): 🧠 상대 카드의 '상대가 내 성향에 적응'(키 adaptive, 기본 켜기)은 VillainAdaptive.unlocked()가 true일 때만(S5 승급 시험 통과 뒤).
+//   html(settings, sup, opts)의 opts.adaptive(true/false)로 표시 여부를 직접 줄 수 있다(테스트용, 없으면 VillainAdaptive.unlocked()).
 //   효과음은 WebAudio, 진동은 navigator.vibrate가 없으면 그 줄을 숨긴다. 둘 다 기본 꺼짐.
 // 누르면 A11y.save(patch)로 바로 저장하고 적용한 뒤 다시 그린다. 맨 위 미리보기 줄(카드 4장, 차트 칸 3개)로 결과를 바로 본다.
 // ↩는 JourneyUI.back. 클래스는 journey.css(.j-sub, .j-sub-top, .j-back, .j-card, .j-set-row, .j-picks, .j-pick, .j-btn) 재사용.
@@ -9,7 +11,7 @@ var SettingsView = (function() {
   var SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   var RED = { h: 1, d: 1 };
   var PREVIEW = [['A', 's'], ['K', 'h'], ['Q', 'd'], ['J', 'c']];
-  var FALLBACK = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false };
+  var FALLBACK = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true };
   var _el = null;
 
   function _a11y(fn) { return (typeof A11y !== 'undefined' && A11y && typeof A11y[fn] === 'function') ? A11y : null; }
@@ -21,6 +23,11 @@ var SettingsView = (function() {
     });
   }
   function _val(v) { return v === null ? 'null' : String(v); }
+  // 적응형 상대가 열렸나(H6: S5 승급 시험 통과). 모듈이 없거나 예외면 숨김
+  function _adaptiveOpen() {
+    try { return typeof VillainAdaptive !== 'undefined' && !!VillainAdaptive && typeof VillainAdaptive.unlocked === 'function' && VillainAdaptive.unlocked() === true; }
+    catch (e) { return false; }
+  }
 
   // 고르기 버튼 하나: data-k/data-v는 다시 그린 뒤 포커스를 되돌리는 데 쓴다
   function _pick(key, value, on, label) {
@@ -53,9 +60,10 @@ var SettingsView = (function() {
   }
 
   // 순수: 설정과 지원 여부로 화면 문자열을 만든다
-  function html(settings, sup) {
+  function html(settings, sup, opts) {
     var s = settings || _settings();
     sup = sup || _supports();
+    var showAdaptive = (opts && typeof opts.adaptive === 'boolean') ? opts.adaptive : _adaptiveOpen();
     var rm = (s.reduceMotion === true || s.reduceMotion === false) ? s.reduceMotion : null;
     var look = [
       _row('fontScale', '글자 크기', '앱 전체 글자가 커져요.',
@@ -67,6 +75,9 @@ var SettingsView = (function() {
       _row('reduceMotion', '카드 돌리기와 화면 효과', '줄이면 카드와 화면이 기다림 없이 바로 나타나요. 시스템 따름은 폰의 동작 줄이기 설정을 따라요.',
         [_pick('reduceMotion', null, rm === null, '시스템 따름'), _pick('reduceMotion', true, rm === true, '줄이기'), _pick('reduceMotion', false, rm === false, '보통')])
     ];
+    var foe = showAdaptive ? '<div class="j-card"><div class="j-card-t">🧠 상대</div>' +
+      _row('adaptive', '상대가 내 성향에 적응', '켜면 자유 게임과 미션에서 상대가 내 플레이 습관(벳, 콜, 폴드를 얼마나 자주 하는지)을 읽고 조금씩 맞춰 와요. ' +
+        '승급 시험, 은닉 테이블, 극장, 연습에서는 원래 성향 그대로예요. 끄면 내 습관에 맞춰 바꾸지 않아요(이번 달 시즌에 바뀐 성향은 그대로예요).', _onOff('adaptive', s.adaptive !== false)) + '</div>' : '';
     var fxRows = [];
     if (sup.audio) fxRows.push(_row('sound', '효과음', '정답, 오답 때 짧은 소리가 나요.', _onOff('sound', s.sound)));
     if (sup.vibrate) fxRows.push(_row('vibrate', '진동', '정답, 오답 때 폰이 짧게 떨려요.', _onOff('vibrate', s.vibrate)));
@@ -75,7 +86,7 @@ var SettingsView = (function() {
       '<h2 class="j-sub-t">⚙ 설정</h2></div>' +
       _previewHTML() +
       '<div class="j-card"><div class="j-card-t">👀 보기</div>' + look.join('') + '</div>' +
-      '<div class="j-card"><div class="j-card-t">🎬 움직임</div>' + motion.join('') + '</div>' +
+      '<div class="j-card"><div class="j-card-t">🎬 움직임</div>' + motion.join('') + '</div>' + foe +
       '<div class="j-card"><div class="j-card-t">🔔 소리와 진동</div>' +
         (fxRows.length ? '<div class="j-card-d">처음에는 꺼져 있어요. 켜면 바로 한 번 울려요.</div>' + fxRows.join('')
           : '<div class="j-card-d">이 기기에서는 효과음과 진동을 쓸 수 없어요.</div>') + '</div>' +
@@ -102,7 +113,7 @@ var SettingsView = (function() {
   }
 
   var LIVE = { fontScale: '글자 크기를 바꿨어요', fourColor: '4색 덱을 바꿨어요', cbChart: '색약용 차트를 바꿨어요',
-    reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요' };
+    reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요' };
 
   // set(key, value): 바로 저장 + 적용 + 다시 그리기. 반환 = 저장된 설정
   function set(key, value) {

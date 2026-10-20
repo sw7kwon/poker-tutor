@@ -10,6 +10,24 @@
 //   TheaterUI.showCard가 있을 때다(카드를 다시 보여 줄 화면이 있어야 블록이 열린다).
 // M5-BOSS: 결정 기록 필드(계약 F2) decisionFields(pre, ctx) → { mw, oop, pt }를 'dec' 페이로드에 싣는다. 실수 SRS 연결(계약 F4):
 //   연습 핸드 끝(onHandEnd, ctx.practice)에 ReviewQueue.onPracticeHandEnd(ctx), todayCtx.mistakes = ReviewQueue.due(now, 3)(없으면 []).
+// M6-BOSS(계약 H9): 은닉 좌석 배정과 관찰
+//   hiddenSeats(노드, now, opts) → 배정(없으면 만든다, opts.peek면 만들지 않음), reshuffleHidden(노드, now) → 새 배정.
+//     poker_journey.boss.hidden[노드] = { key('노드:시드'), node, seed, names[], slots[](CAST_SEATS 순번), seats{ 좌석 이름: 엔진 유형 }, at, hands }
+//     mission.hiddenSeats 5(s6-boss) = 손님A~E에 TAG, LAG, Fish, Nit, Station 시드 셔플(mulberry32 + Fisher-Yates, 예전 seed 경로와 같은 식),
+//     1(s6-02) = 같은 셔플의 첫 유형 1개를 시드로 고른 자리 1곳에 앉히고 그 좌석만 중립 이름 '손님', 나머지 4자리는 캐스트.
+//     배정은 그 노드의 은닉 게임이 처음 필요할 때 만들고 맞히기에 실패해 다시 섞을 때까지 세션과 시도를 넘어 유지한다(누적 관찰).
+//     boss.hiddenLast = 마지막 은닉 노드(세션 밖에서 다시 친 같은 핸드, 연습이 같은 배정으로 앉게).
+//   관찰: 은닉 핸드(연습, GTO 2회차, HU 제외)의 빌런 액션을 VillainTracker.observe 통과 탭(원래 동작 그대로 부른 뒤 액션 묶음을 본다,
+//     app.js 수정 없이 은닉 좌석 액션을 받는 유일한 길)으로 모아 onHandEnd에서 은닉 좌석만 JStats.record('cast', { name, key, hand, post }).
+//     프리플랍에 한 번이라도 액션한 좌석만 그 핸드를 센다(VillainTracker와 같은 기준이라 게임 HUD 숫자와 맞는다). observeVillains가 공개 입구다.
+//     함께 앉은 캐스트 좌석(1곳 은닉 s6-02의 나머지 4자리)도 같은 방식으로 JStats.record('cast', { name: 캐스트 키, ... })에 key 없이 쌓는다
+//     (맞히기 화면의 비교 숫자, hiddenCast(노드) = 그 테이블 캐스트 목록. 게임 HUD는 5핸드 세션마다 비워져 비교에 못 쓴다).
+//     같은 탭과 Table.updateVillainActions 통과 탭이 은닉 좌석의 대사(va.phrase, 프로필마다 말투가 달라 유형이 샌다)를 지운다
+//     (maskPhrases, 은닉 테이블 핸드의 은닉 이름만. 연습 재생은 VillainTracker.observe를 거치지 않아 말풍선 탭이 맡는다).
+//     app.js가 Journey.observeVillains와 대사 가림을 직접 부르게 되면 이 탭들은 지운다.
+//   짧은 세션(s6-07): endSession 때 1 ≤ 핸드 < 세션 분량(chunk)이면 사용자가 스스로 멈춘 세션으로 보고 shortSessions[{ at, hands, chunk, kind, node }]
+//     (최근 20)에 남긴다. 분량을 채워 자동으로 끝난 세션, 교체(replaced)나 다른 게임(other)으로 끝난 세션은 세지 않는다.
+//   checkNode(id, now) = 학습 노드 자동 통과 재판정(맞히기 제출 뒤), nextNode는 기다리기만 남은 노드(br.later, 다음 주 복기)도 뒤로 미룬다.
 // 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다(전부 함수 안에서 typeof 가드).
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
@@ -25,7 +43,9 @@ var Journey = (function() {
   var POS6 = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
   var CAST_SEATS = [0, 1, 2, 4, 5];                       // app.js sixmax와 같은 좌석 배치(히어로는 3번 좌석 고정)
   var HIDDEN_NAMES = ['손님A', '손님B', '손님C', '손님D', '손님E'];
+  var HIDDEN_ONE = '손님';                                // 은닉 좌석이 1곳(s6-02)일 때 그 좌석 이름
   var HIDDEN_TYPES = ['TAG', 'LAG', 'Fish', 'Nit', 'Station'];
+  var SHORT_CAP = 20;                                     // shortSessions 보관 수
   var BASE_TYPES = { TAG: 1, LAG: 1, Fish: 1, Nit: 1, Mixed: 1 };
   var TYPE_FALLBACK = { Station: 'Fish' };                // Station 프로필(M4-P2) 전에는 Fish로 플레이
   var CHUNK = { mission: 5, free: 3, boss: 5 };
@@ -429,7 +449,8 @@ var Journey = (function() {
       if (!step) continue;
       if (step === 'mission' && nd.kind !== 'boss' && r.mission.hands >= _missionMin(nd)) {
         var br = _bossEval(nd, st);
-        if (br && br.pending) { if (!parked) parked = { id: nd.id, step: step }; continue; }
+        // 판정할 수 없거나(pending) 지금은 기다리기만 남은(later, 다음 주 주간 복기) 노드는 뒤 노드를 먼저 안내
+        if (br && (br.pending || br.later)) { if (!parked) parked = { id: nd.id, step: step }; continue; }
       }
       return { id: nd.id, step: step };
     }
@@ -473,6 +494,14 @@ var Journey = (function() {
     if (!_unlocked(st, nd) || !evaluateNode(id).pass) return null;
     var res = passNode(id, { skipped: false }, now);
     _lastPass = { id: id, opened: res.opened, promoted: res.promoted, at: now };
+    return res;
+  }
+  // 핸드, 레슨, 드릴 밖에서 조건이 채워졌을 때(숨은 좌석 맞히기 제출 등) 학습 노드 자동 통과를 다시 본다. 통과면 passNode 결과, 아니면 null
+  function checkNode(id, now) {
+    now = _now(now);
+    var st = _st();
+    var res = _autoPass(st, id, now);
+    save();
     return res;
   }
 
@@ -861,7 +890,20 @@ var Journey = (function() {
     return _session;
   }
   function session() { return _session; }
-  function endSession() { var s = _session; _session = null; _sessionEnded(s, 'end'); return s; }
+  function endSession() { var s = _session; _session = null; _noteShort(s, Date.now()); _sessionEnded(s, 'end'); return s; }
+  // 분량(chunk)을 채우기 전에 사용자가 끝낸 세션(세션 종료 버튼, 메뉴, 뒤로). 한 핸드도 안 친 세션은 세지 않는다
+  function _noteShort(s, now) {
+    if (!s) return;
+    var h = Math.floor(_num(s.hands, 0)), ch = Math.floor(_num(s.chunk, 0));
+    if (!(h >= 1 && h < ch)) return;
+    try {
+      var st = _st();
+      if (!Array.isArray(st.shortSessions)) st.shortSessions = [];
+      st.shortSessions.push({ at: _iso(now), hands: h, chunk: ch, kind: s.kind || null, node: s.node || null });
+      if (st.shortSessions.length > SHORT_CAP) st.shortSessions.splice(0, st.shortSessions.length - SHORT_CAP);
+      save();
+    } catch (e) { _warn(e); }
+  }
   function shouldEndSession() { return !!(_session && _session.chunk > 0 && _session.hands >= _session.chunk); }
   function active() { return !!_session || _todayRunning; }
 
@@ -888,8 +930,10 @@ var Journey = (function() {
     return out;
   }
   // 'sixmax-cast' → 캐스트 5인(히어로 제외, 강조 캐스트 포함), 좌석 고정 + 포지션 회전(app.js sixmax와 같은 식)
-  // 'sixmax-cast-hidden' → 유형 5종(TAG, LAG, Fish, Nit, Station) 시드 셔플, 이름은 중립(손님A~E), 각 spec에 hidden:true
-  // opts(선택) = { emphasis, cast:[keys], seed, seatTypes:{name:type} }. 없으면 현재 세션 컨텍스트와 boss.active를 본다.
+  // 'sixmax-cast-hidden' → 은닉 좌석(이름은 중립, spec.hidden:true). 정하는 순서:
+  //   opts.seatTypes(손님A~E 5개) > opts.seed(유형 5종 셔플) > 은닉 노드(opts.node, 세션 노드, 세션이 없으면 boss.hiddenLast)의 배정
+  //   (hiddenSeats, 1곳 은닉이면 나머지 4자리는 캐스트) > 세션 시드 > boss.active.seatTypes/seed > 시드 1
+  // opts(선택) = { emphasis, cast:[keys], seed, seatTypes:{name:type}, node }. 없으면 현재 세션 컨텍스트와 boss를 본다.
   // spec.type은 엔진이 실제로 쓰는 프로필(없는 유형은 폴백), spec.castType은 설계상의 유형.
   function playersSpec(config, heroPos, POS, opts) {
     if (config !== 'sixmax-cast' && config !== 'sixmax-cast-hidden') return null;
@@ -911,19 +955,204 @@ var Journey = (function() {
     }
     var active = null;
     try { active = _st().boss && _st().boss.active; } catch (e) { active = null; }
-    var seatTypes = opts.seatTypes || (active && active.seatTypes) || null;
-    var types;
+    var seatTypes = opts.seatTypes || null;
+    var types = null;
+    if (!(_isObj(seatTypes) && HIDDEN_NAMES.every(function(n) { return typeof seatTypes[n] === 'string'; })) && opts.seed == null) {
+      var asg = _hiddenFor(opts.node || (ses && ses.node) || null, !ses);
+      if (asg) return _specOf(asg, posFor, opts.emphasis || (ses && ses.emphasis) || null);
+      seatTypes = (active && active.seatTypes) || null;
+    }
     if (_isObj(seatTypes) && HIDDEN_NAMES.every(function(n) { return typeof seatTypes[n] === 'string'; })) {
       types = HIDDEN_NAMES.map(function(n) { return seatTypes[n]; });
     } else {
       var seed = (opts.seed != null) ? opts.seed : ((ses && ses.seed != null) ? ses.seed : ((active && active.seed != null) ? active.seed : 1));
-      var rnd = _rng(Math.floor(_num(seed, 1)) >>> 0);
-      types = HIDDEN_TYPES.slice();
-      for (var i = types.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var t = types[i]; types[i] = types[j]; types[j] = t; }
+      types = _shuffleTypes(seed).types;
     }
     return CAST_SEATS.map(function(seat, k) {
       return { type: _playable(types[k]), name: HIDDEN_NAMES[k], pos: posFor(seat), castType: types[k], hidden: true };
     });
+  }
+
+  // ── 은닉 좌석 배정(M6-BOSS, 계약 H9) ─────────────────
+  // 유형 5종 시드 셔플(mulberry32 + Fisher-Yates). 같은 rnd를 이어 써서 1곳 은닉의 자리를 고른다
+  function _shuffleTypes(seed) {
+    var rnd = _rng(Math.floor(_num(seed, 1)) >>> 0);
+    var types = HIDDEN_TYPES.slice();
+    for (var i = types.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var t = types[i]; types[i] = types[j]; types[j] = t; }
+    return { types: types, rnd: rnd };
+  }
+  function _hiddenNode(id) {
+    var nd = id ? _node(id) : null;
+    return (nd && nd.mission && nd.mission.config === 'sixmax-cast-hidden') ? nd : null;
+  }
+  function _hiddenMap(st) {
+    if (!_isObj(st.boss)) st.boss = { active: null };
+    if (!_isObj(st.boss.hidden)) st.boss.hidden = {};
+    return st.boss.hidden;
+  }
+  // 배정 1개(순수): n = mission.hiddenSeats(1~5). 5면 손님A~E 전부, 아니면 셔플 앞 n개 유형을 시드로 고른 n자리에(1곳이면 이름 '손님')
+  function _makeAssign(nd, seed, now) {
+    var n = Math.max(1, Math.min(5, Math.floor(_num(nd.mission && nd.mission.hiddenSeats, 5))));
+    var sh = _shuffleTypes(seed), seats = {}, names, slots;
+    if (n >= 5) { names = HIDDEN_NAMES.slice(); slots = [0, 1, 2, 3, 4]; }
+    else {
+      var order = [0, 1, 2, 3, 4];
+      for (var i = order.length - 1; i > 0; i--) { var j = Math.floor(sh.rnd() * (i + 1)); var t = order[i]; order[i] = order[j]; order[j] = t; }
+      slots = order.slice(0, n).sort(function(a, b) { return a - b; });
+      names = (n === 1) ? [HIDDEN_ONE] : HIDDEN_NAMES.slice(0, n);
+    }
+    names.forEach(function(nm, k) { seats[nm] = sh.types[k]; });
+    return { key: nd.id + ':' + seed, node: nd.id, seed: seed, names: names, slots: slots, seats: seats, at: _iso(now), hands: 0 };
+  }
+  function _newSeed(now, old) {
+    var s = Math.floor(_num(now, Date.now()) % 1000000) + 1;
+    if (old != null && s === old) s = (s % 1000000) + 1;
+    return s;
+  }
+  // 노드의 은닉 배정(없으면 만든다). opts.peek = 만들지 않음, opts.seed = 처음 만들 때 시드(테스트)
+  function hiddenSeats(id, now, opts) {
+    var nd = _hiddenNode(id);
+    if (!nd) return null;
+    var st = _st(), map = _hiddenMap(st), cur = map[id];
+    if (_isObj(cur) && _isObj(cur.seats) && Array.isArray(cur.names) && Array.isArray(cur.slots)) return cur;
+    if (opts && opts.peek) return null;
+    map[id] = _makeAssign(nd, (opts && opts.seed != null) ? Math.floor(_num(opts.seed, 1)) : _newSeed(_now(now)), _now(now));
+    st.boss.hiddenLast = id;
+    save();
+    return map[id];
+  }
+  // 맞히기 실패 뒤 좌석을 새로 섞는다(새 key라 castObs 관찰이 처음부터). 보스 시도 중이면 active.seatTypes도 맞춘다
+  function reshuffleHidden(id, now, opts) {
+    var nd = _hiddenNode(id);
+    if (!nd) return null;
+    now = _now(now);
+    var st = _st(), map = _hiddenMap(st), old = map[id];
+    var seed = (opts && opts.seed != null) ? Math.floor(_num(opts.seed, 1)) : _newSeed(now + 7919, old && old.seed);
+    map[id] = _makeAssign(nd, seed, now);
+    var a = st.boss.active;
+    if (_isObj(a) && a.node === id) { a.seatTypes = _copyJSON(map[id].seats); a.seed = seed; }
+    st.boss.hiddenLast = id;
+    save();
+    return map[id];
+  }
+  // playersSpec와 onNewHand가 쓸 배정: 은닉 노드면 그 배정(없으면 만든다), 아니면 lastOk일 때만 마지막 은닉 노드의 배정(만들지 않음)
+  function _hiddenFor(nodeId, lastOk) {
+    if (_hiddenNode(nodeId)) return hiddenSeats(nodeId);
+    if (!lastOk) return null;
+    var st = _st(), last = st.boss && st.boss.hiddenLast;
+    return last ? hiddenSeats(last, null, { peek: true }) : null;
+  }
+  function _specOf(asg, posFor, emph) {
+    var cast = _pickCast(emph, null).filter(function(c) { return asg.names.indexOf(c.key) < 0; });
+    var ci = 0;
+    return CAST_SEATS.map(function(seat, i) {
+      var k = asg.slots.indexOf(i);
+      if (k >= 0) {
+        var nm = asg.names[k], t = asg.seats[nm];
+        return { type: _playable(t), name: nm, pos: posFor(seat), castType: t, hidden: true };
+      }
+      var c = cast[ci++] || cast[0];
+      var o = { type: _playable(c.type), name: c.key, pos: posFor(seat), castType: c.type };
+      if (emph && c.key === emph) o.emphasis = true;
+      return o;
+    });
+  }
+  // 은닉 노드 테이블에 함께 앉는 캐스트(1곳 은닉인 s6-02의 비교 상대) [{ name: 캐스트 키, type }](_specOf와 같은 순서, 배정이 없거나 5곳 은닉이면 [])
+  function hiddenCast(id) {
+    var nd = _hiddenNode(id);
+    var asg = nd ? hiddenSeats(id, null, { peek: true }) : null;
+    if (!asg || asg.names.length >= CAST_SEATS.length) return [];
+    return _pickCast((nd.mission && nd.mission.emphasis) || null, null).filter(function(c) { return asg.names.indexOf(c.key) < 0; })
+      .slice(0, CAST_SEATS.length - asg.names.length).map(function(c) { return { name: c.key, type: c.type }; });
+  }
+
+  // ── 은닉 좌석 관찰(VillainTracker.observe 통과 탭) ─────
+  var OBS_VPIP = { call: 1, raise: 1, '3bet': 1, bet: 1, allin: 1 };
+  var OBS_PFR = { raise: 1, '3bet': 1, bet: 1, allin: 1 };
+  var HIDDEN_SET = {};
+  HIDDEN_NAMES.concat([HIDDEN_ONE]).forEach(function(n) { HIDDEN_SET[n] = 1; });
+  function _ensureTap() {
+    var VT = (typeof VillainTracker !== 'undefined' && VillainTracker) ? VillainTracker : null;
+    if (!VT || typeof VT.observe !== 'function' || VT.observe.__journeyTap) return false;
+    var orig = VT.observe;
+    var tap = function(sid, state, acts) {
+      var r = orig.apply(this, arguments);
+      try { observeVillains(state, acts); maskPhrases(acts); } catch (e) { _warn(e); }
+      return r;
+    };
+    tap.__journeyTap = true; tap.__orig = orig;
+    VT.observe = tap;
+    return true;
+  }
+  // 좌석 말풍선(Table.updateVillainActions) 통과 탭: 연습 재생(🔁, 실수 다시 풀기)은 VillainTracker.observe를 거치지 않아
+  // 은닉 좌석 대사가 그대로 그려진다. 말풍선을 그리기 직전에 같은 가림을 한 번 더 건다(은닉 테이블 핸드에서만)
+  function _ensureTableTap() {
+    var T = (typeof Table !== 'undefined' && Table) ? Table : null;
+    if (!T || typeof T.updateVillainActions !== 'function' || T.updateVillainActions.__journeyTap) return false;
+    var orig = T.updateVillainActions;
+    var tap = function(acts) {
+      try { maskPhrases(acts); } catch (e) { _warn(e); }
+      return orig.apply(this, arguments);
+    };
+    tap.__journeyTap = true; tap.__orig = orig;
+    T.updateVillainActions = tap;
+    return true;
+  }
+  // 진행 중 은닉 핸드의 빌런 액션 묶음(app.js가 VillainTracker.observe에 넘기는 그대로). 같은 핸드(seed)만 센다.
+  // 은닉 좌석과 함께 앉은 캐스트 좌석(c.others, s6-02 비교용)을 센다
+  function observeVillains(state, acts) {
+    var c = _hand && _hand.cast;
+    if (!c || !state || !Array.isArray(acts) || !acts.length) return;
+    if (c.seed != null && state.seed != null && state.seed !== c.seed) return;
+    var pre = state.street === 'preflop';
+    var others = Array.isArray(c.others) ? c.others : [];
+    acts.forEach(function(va) {
+      if (!va || (c.names.indexOf(va.name) < 0 && others.indexOf(va.name) < 0)) return;
+      var o = c.obs[va.name] || (c.obs[va.name] = { acted: false, vpip: false, pfr: false, tb: false, aggr: 0, calls: 0, folds: 0, facing: 0 });
+      var a = va.action;
+      if (pre) {
+        o.acted = true;
+        if (OBS_VPIP[a]) o.vpip = true;
+        if (OBS_PFR[a]) o.pfr = true;
+        if (a === '3bet' || va.label === '3벳') o.tb = true;
+      } else {
+        if (a === 'bet' || a === 'raise' || a === 'allin') o.aggr++;
+        else if (a === 'call') o.calls++;
+        else if (a === 'fold') o.folds++;
+        if (a === 'fold' || a === 'call' || a === 'raise') o.facing++;
+      }
+    });
+  }
+  // 은닉 좌석의 대사(Villain.getAction이 프로필 phrases에서 고른 말, 예 '이번엔 패스!'는 Fish만 쓴다)는 유형을 알려 준다.
+  // app.js는 같은 villainActions 배열을 VillainTracker.observe 다음에 Table.updateVillainActions로 그리므로 두 탭에서 은닉 좌석 대사만 지운다
+  // (좌석 말풍선에는 액션과 금액만 남는다. 캐스트 좌석은 이름으로 유형을 아는 사람들이라 그대로).
+  // 은닉 테이블 핸드(연습 포함, _hand.mode)에서 은닉 이름(손님, 손님A~E)만 본다. → 지운 수
+  function maskPhrases(acts) {
+    if (!_hand || _hand.mode !== 'sixmax-cast-hidden' || !Array.isArray(acts)) return 0;
+    var k = 0;
+    acts.forEach(function(va) { if (va && HIDDEN_SET[va.name] && va.phrase != null) { va.phrase = null; k++; } });
+    return k;
+  }
+  function _recordCast(c, now) {
+    if (typeof JStats === 'undefined' || !_fn(JStats, 'record')) return;
+    var seen = 0;
+    c.names.forEach(function(nm) {
+      var o = c.obs[nm];
+      if (!o || !o.acted) return;                                       // 프리플랍 액션을 못 본 좌석(워크, 히어로 폴드로 끝난 핸드)은 세지 않음
+      seen++;
+      JStats.record('cast', { name: nm, key: c.key, hand: { vpip: o.vpip, pfr: o.pfr, tb: o.tb },
+        post: { aggr: o.aggr, calls: o.calls, folds: o.folds, facing: o.facing } }, now);
+    });
+    // 함께 앉은 캐스트(s6-02 비교용): 배정 key 없이 이름별로 계속 쌓는다(캐스트 성향은 고정이라 다시 섞어도 이어진다)
+    (Array.isArray(c.others) ? c.others : []).forEach(function(nm) {
+      var o = c.obs[nm];
+      if (!o || !o.acted) return;
+      JStats.record('cast', { name: nm, hand: { vpip: o.vpip, pfr: o.pfr, tb: o.tb },
+        post: { aggr: o.aggr, calls: o.calls, folds: o.folds, facing: o.facing } }, now);
+    });
+    var st = _st(), map = _hiddenMap(st), asg = map[c.node];
+    if (_isObj(asg) && asg.key === c.key) { asg.hands = Math.max(0, _num(asg.hands, 0)) + 1; save(); }
+    return seen;
   }
 
   // ── 결정 기록 필드(M5-BOSS, 계약 F2) ─────────────────
@@ -988,6 +1217,21 @@ var Journey = (function() {
       var hu = (ctx.hu != null) ? !!ctx.hu : names.length === 2;
       _hand = { hu: hu, practice: !!ctx.practice, excluded: _excluded({ practice: ctx.practice, gtoMode: ctx.gtoMode, gtoRound: ctx.gtoRound, hu: hu }),
         mode: ctx.mode || null, heroPos: ctx.heroPos || null, handNum: ctx.handNum || null };
+      // 은닉 테이블(M6-BOSS): 이 핸드의 은닉 좌석 관찰을 연다(연습, GTO 2회차, HU는 관찰하지 않음)
+      if (ctx.mode === 'sixmax-cast-hidden') _ensureTableTap();            // 연습 재생에서도 은닉 좌석 대사를 가린다
+      if (ctx.mode === 'sixmax-cast-hidden' && !_hand.excluded) {
+        var asg = _hiddenFor(_session && _session.node, !_session);
+        if (asg) {
+          var ckeys = {};
+          _castList().forEach(function(c) { ckeys[c.key] = 1; });
+          var others = names.filter(function(n) { return n !== 'Hero' && asg.names.indexOf(n) < 0 && ckeys[n]; });
+          _hand.cast = { key: asg.key, node: asg.node, seed: (ctx.state && ctx.state.seed != null) ? ctx.state.seed : null, names: asg.names.slice(),
+            others: others, obs: {} };
+          var bst = _st();
+          if (bst.boss && bst.boss.hiddenLast !== asg.node) { bst.boss.hiddenLast = asg.node; save(); }
+          _ensureTap();
+        }
+      }
       if (typeof Boss !== 'undefined' && _fn(Boss, 'onNewHand')) Boss.onNewHand(ctx);
     } catch (e) { _warn(e); }
   }
@@ -1041,6 +1285,8 @@ var Journey = (function() {
         } else if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) JStats.record('handEnd', null, now);
         // 미션 롤링 집계: 가용 학습 노드 중 미션이 있는 노드 전부에 핸드 1개(2.2절, 노드가 열린 뒤의 모든 6인 플레이)
         // 목록을 먼저 고정한다(이 핸드로 통과해 새로 열린 노드에는 이 핸드를 세지 않음). 보스의 실전 핸드는 Boss.onHandEnd가 센다.
+        // 은닉 좌석 관찰(M6-BOSS)은 롤링 집계보다 먼저 남긴다(이 핸드로 s6-02 관찰 핸드가 기준에 닿으면 판정에 바로 반영)
+        if (_hand && _hand.cast) { try { _recordCast(_hand.cast, now); } catch (e3) { _warn(e3); } }
         var st = _st();
         _ordered().filter(function(nd) { return nd && nd.mission && nd.kind !== 'boss' && _availableRec(st, nd); })
           .forEach(function(nd) { recordMissionHand(nd.id, now); });
@@ -1152,11 +1398,15 @@ var Journey = (function() {
     if (r.status === 'passed') return r.skipped ? '건너뜀' : '통과';
     var act = (nd.kind === 'boss' && st.boss && _isObj(st.boss.active) && st.boss.active.node === nd.id) ? st.boss.active : null;
     if (act) {
-      var left = Math.max(0, _missionMin(nd) - _num(act.hands, 0));
       var bb = _bossEval(nd, st), bm = (bb && !bb.pass) ? _num(bb.more, 0) : 0;
+      var items = (bb && Array.isArray(bb.items)) ? bb.items : [];
+      // 실전 핸드 칸: Boss의 보스 카운터 항목(은닉 보스는 배정 뒤 누적 핸드, 맞히기 통과면 채움)
+      var hi = items.filter(function(x) { return x && x.kind === 'hands' && x.boss; })[0];
+      var left = hi ? ((hi.ok || hi.waive) ? 0 : Math.max(0, _num(hi.need, 0) - _num(hi.have, 0))) : Math.max(0, _missionMin(nd) - _num(act.hands, 0));
       // 드릴을 아직 못 끝낸 시도(M5-BOSS: 세트 나눔 드릴은 다음 세트 번호)
-      var di = (bb && Array.isArray(bb.items)) ? bb.items.filter(function(x) { return x && x.drill; })[0] : null;
+      var di = items.filter(function(x) { return x && x.drill; })[0];
       if (di && !di.ok) return '시험 중, 드릴' + (di.part ? ' 세트 ' + di.part + '/' + di.parts : '') + '부터';
+      if (items.some(function(x) { return x && x.submit && !x.ok; })) return '시험 중, 유형 맞히기 제출';
       if (bm > left) return '시험 중, 핸드 ' + (bb.est ? '약 ' : '') + bm + '개 더';
       return '시험 중' + (left > 0 ? ', 핸드 ' + left + '개 더' : '');
     }
@@ -1170,6 +1420,8 @@ var Journey = (function() {
       var more = (br && !br.pass) ? _num(br.more, 0) : 0;
       if (more > short) return '핸드 ' + (br.est ? '약 ' : '') + more + '개 더';      // 기회(minOpp) 미달이나 창에서 빠질 기록
       if (short > 0) return '핸드 ' + short + '개 더';
+      if (br && !br.pass && Array.isArray(br.items) && br.items.some(function(x) { return x && x.submit && !x.ok; })) return '유형 맞히기 제출';
+      if (br && !br.pass && br.later) return '다음 주에 이어서';
       if (br && !br.pass) return br.pending ? '다음 업데이트에서 판정' : '실전 조건 확인';
     }
     return '통과 가능';
@@ -1227,6 +1479,9 @@ var Journey = (function() {
     todayCtx: todayCtx, active: active, shouldEndSession: shouldEndSession,
     startSession: startSession, session: session, endSession: endSession,
     playersSpec: playersSpec, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd, decisionFields: decisionFields,
+    hiddenSeats: hiddenSeats, reshuffleHidden: reshuffleHidden, observeVillains: observeVillains, checkNode: checkNode,
+    hiddenCast: hiddenCast, maskPhrases: maskPhrases,
+    HIDDEN_NAMES: HIDDEN_NAMES.slice(), HIDDEN_ONE: HIDDEN_ONE, HIDDEN_TYPES: HIDDEN_TYPES.slice(),
     routePractice: routePractice, sessionFor: sessionFor, mapModel: mapModel, summary: summary, showFirstCard: showFirstCard,
     lastPass: lastPass, lastTouch: lastTouch, castList: _castList, node: _node,
     _setData: _setData, _setStore: _setStore

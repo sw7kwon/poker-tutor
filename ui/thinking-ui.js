@@ -477,6 +477,10 @@ var ThinkingUI = (function() {
       if (Object.keys(_choice).length > 0) {
         var g = Thinking.gradeHeroThought(_choice, _pro);
         _stats.matched += g.matched; _stats.total += g.total;
+        // 여정 통계(대시보드 띵킹 추세, 배지 'think-10' = 프로와 같은 판단 누적 10번). M6 통합 검증에서 연결
+        if (g.total > 0 && typeof JStats !== 'undefined' && JStats && typeof JStats.record === 'function') {
+          try { JStats.record('think', { m: g.matched, t: g.total }); } catch (e) {}
+        }
         entry.choice = _choice; entry.grade = g;
         var marks = g.steps.map(function(s) { return (s.match ? '✅' : '❌') + s.title.slice(0, 1); }).join(' ');
         _feed('🧠 나의 속마음 vs 프로: ' + marks + '<br><span class="thinking-sub">' + _esc(g.feedback) + '</span>', 'thinking-hero');

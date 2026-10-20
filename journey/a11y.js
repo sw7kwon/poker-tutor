@@ -1,5 +1,7 @@
-// journey/a11y.js (채우는 패키지: M2-P5)
+// journey/a11y.js (채우는 패키지: M2-P5, M6-SEASON이 adaptive 키 추가)
 // 접근성 설정(설계서 5.9절, 계약 C8): 글자 크기, 4색 덱, 색약 차트, 모션 줄이기, 효과음, 진동.
+// M6(계약 H6): adaptive = 상대가 내 성향에 적응(VillainAdaptive, S5 승급 시험 통과 뒤). 기본 true, false일 때만 끈다
+//   (true/false 말고 다른 값은 true로 정규화. 0과 'false'도 끔). 읽는 쪽은 load().adaptive 또는 저장값 !== false.
 // 저장 키 poker_journey_settings(6.1절)는 JourneyUI._readSettings/_writeSettings와 같이 쓴다.
 //   save(patch)는 저장된 객체에 patch만 덮어써 다른 패키지 필드(thinkingReveal 등)를 지우지 않는다.
 // apply(settings): html 루트에 인라인 font-size(100%면 지움)와 클래스 four-color, cb, reduce-motion(, motion-full)을 붙인다.
@@ -10,7 +12,7 @@
 var A11y = (function() {
   var KEY = 'poker_journey_settings';
   var SCALES = [100, 115, 130];
-  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false };
+  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true };
   var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate'];
   var MQ = '(prefers-reduced-motion: reduce)';
   // 진동 패턴(ms)과 비프(주파수 Hz, 길이 s). 짧게: 결과 알림용, 연속 재생으로 귀찮지 않게
@@ -39,6 +41,8 @@ var A11y = (function() {
     return best;
   }
   function _rm(v) { return v === true || v === false ? v : null; }
+  // 적응형 상대(H6): 끄는 값(false, 0, 'false')만 false, 나머지(없음 포함)는 기본 true
+  function _adaptive(v) { return !(v === false || v === 0 || v === 'false'); }
 
   // 저장 형식 그대로 받아 이 모듈 필드만 정규화한다(다른 필드는 보존)
   function normalize(o) {
@@ -49,6 +53,7 @@ var A11y = (function() {
     out.fontScale = ('fontScale' in src) ? _scale(src.fontScale) : DEFAULTS.fontScale;
     for (var i = 0; i < BOOL_KEYS.length; i++) out[BOOL_KEYS[i]] = !!src[BOOL_KEYS[i]];
     out.reduceMotion = _rm(src.reduceMotion);
+    out.adaptive = _adaptive(src.adaptive);
     return out;
   }
 

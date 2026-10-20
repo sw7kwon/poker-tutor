@@ -1,0 +1,159 @@
+/* css/collection.css (채우는 그룹: M6-COLLECT)
+   배지, 도감(CollectionView), 외형 해금(테이블 색, 카드 뒷면, 캐스트 테두리, 명장면 카드 테두리).
+   외형 클래스는 Badges.applyLooks가 html에 붙인다: cos-table-navy, cos-table-wine, cos-back-diamond, cos-frame-gold, cos-border-film.
+   기준: 세로 폰 우선, 탭 요소 44px 이상, 가로 넘침 0(글자 130% 포함), 상태는 색 + 글자 + 아이콘 3중. */
+
+/* ── 외형: 테이블 색(펠트 변수만 바꾼다, 게임 테이블과 레슨 그림 테이블 공통) ── */
+html.cos-table-navy { --felt: #173b66; --felt-light: #2b5d94; }
+html.cos-table-wine { --felt: #4f1828; --felt-light: #823047; }
+
+/* ── 외형: 카드 뒷면 다이아 무늬 ── */
+html.cos-back-diamond .card.back,
+html.cos-back-diamond .card.hidden,
+.cv-sw-cardBack.is-diamond .cv-sw-card.back {
+  background-color: #7a1a28;
+  background-image:
+    linear-gradient(45deg, transparent 44%, rgba(240,198,116,.75) 44% 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, rgba(240,198,116,.75) 44% 56%, transparent 56%);
+  background-size: 9px 9px;
+  background-position: 0 0;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.6), 0 2px 6px rgba(0,0,0,.4);
+  color: transparent;
+}
+/* 미리보기의 기본 뒷면은 html 외형과 무관하게 원래 무늬 */
+.cv-sw-cardBack.is-default .cv-sw-card.back {
+  background-color: transparent;
+  background-image: linear-gradient(135deg, #1a3a8a 25%, #0d2060 25%);
+  background-size: 8px 8px;
+  background-position: 0 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+
+/* ── 외형: 캐스트 아이콘 금테 ── */
+html.cos-frame-gold .cv-face:not(.cv-face-lock),
+html.cos-frame-gold .cast-face,
+.cv-sw-castFrame.is-gold .cv-sw-face {
+  box-shadow: 0 0 0 3px #d4af37, 0 0 12px rgba(212,175,55,.45);
+}
+
+/* ── 외형: 명장면 카드 필름 테두리(극장 카드 창, 홈 오늘의 명장면, 도감 카드) ── */
+html.cos-border-film .th-card {
+  border: 2px solid #30363d;
+  border-radius: 6px;
+  padding: 16px 10px;
+  background:
+    repeating-linear-gradient(90deg, #d0d7de 0 6px, transparent 6px 14px) left 6px top 4px / calc(100% - 12px) 6px no-repeat,
+    repeating-linear-gradient(90deg, #d0d7de 0 6px, transparent 6px 14px) left 6px bottom 4px / calc(100% - 12px) 6px no-repeat,
+    #0b0d10;
+}
+
+/* ── 홈 새 배지 카드(Badges.homeCard) ── */
+.j-card.cv-home { border-color: rgba(212,175,55,.6); }
+.cv-home-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cv-home-b { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
+.cv-home-ic { flex: 0 0 auto; font-size: 1.4rem; line-height: 1.2; }
+.cv-home-tx { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: .92rem; color: var(--text); }
+.cv-home-d { font-size: .8rem; color: var(--text-dim); line-height: 1.4; }
+
+/* ── 대시보드 수집 탭 요약(DashboardView, css/dashboard.css는 소유 밖이라 여기에 둔다) ── */
+.db-col { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.db-col-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ic k v" "ic d d"; column-gap: 8px; row-gap: 1px;
+  align-items: center; padding: 8px 10px; border-radius: 10px; background: #161b22; border: 1px solid var(--hud-border); min-width: 0; }
+.db-col-ic { grid-area: ic; font-size: 1.3rem; line-height: 1; }
+.db-col-k { grid-area: k; font-size: .88rem; font-weight: 700; color: var(--text); min-width: 0; }
+.db-col-v { grid-area: v; font-size: .9rem; color: var(--gold); white-space: nowrap; }
+.db-col-d { grid-area: d; font-size: .74rem; color: var(--text-dim); line-height: 1.4; min-width: 0; }
+.db-col-open { width: 100%; margin-top: 4px; }
+
+/* ── 수집 화면 ── */
+.cv-view { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cv-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.cv-tab { min-height: 52px; min-width: 0; padding: 4px 2px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 700;
+  background: #161b22; color: var(--text-dim); border: 1px solid var(--hud-border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.cv-tab-ic { font-size: 1.1rem; line-height: 1.2; }
+.cv-tab-t { font-size: .74rem; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-tab.is-on { color: var(--text); border: 2px solid var(--gold); background: rgba(212,175,55,.12); }
+.cv-tab:focus-visible, .cv-card-btn:focus-visible, .cv-more:focus-visible, .cv-look-b:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.cv-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.cv-lead { margin: 0; font-size: .86rem; color: #c9d1d9; line-height: 1.45; }
+.cv-lead b { color: var(--gold); }
+.cv-note { margin: 0; font-size: .76rem; color: #c297ff; line-height: 1.45; }
+.cv-note.is-app { color: #9cc8ff; }   /* 설계서 8.2절 3번(앱 정의, 파란) */
+
+/* 배지 */
+.cv-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.cv-badge { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; min-width: 0;
+  background: #11161d; border: 1px solid var(--hud-border); border-left: 4px solid var(--gold); }
+.cv-badge-ic { flex: 0 0 auto; width: 2.4rem; height: 2.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; background: rgba(212,175,55,.14); border: 1px solid rgba(212,175,55,.5); }
+.cv-badge-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cv-badge-n { font-size: .95rem; color: var(--text); }
+.cv-badge-d { font-size: .82rem; color: #c9d1d9; line-height: 1.4; }
+.cv-badge-at { font-size: .72rem; color: var(--text-dim); }
+
+/* 명장면 카드 */
+.cv-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.cv-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; min-width: 0;
+  background: #11161d; border: 1px solid var(--hud-border); }
+.cv-card.is-compact .th-card-eq,
+.cv-card.is-compact .th-card-plans,
+.cv-card.is-compact .th-card-cast,
+.cv-card.is-compact .th-card-note { display: none; }
+.cv-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cv-card-at { font-size: .74rem; color: var(--text-dim); }
+.cv-card-btn { min-height: 44px; }
+.cv-more { width: 100%; min-height: 44px; }
+
+/* 캐릭터 도감 */
+.cv-cast { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.cv-cast-pg { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; min-width: 0;
+  background: #11161d; border: 1px solid var(--hud-border); }
+.cv-cast-pg.is-locked { border-style: dashed; background: #0d1117; }
+.cv-cast-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cv-face { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 50%; background: #21262d; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.cv-face svg { width: 48px; height: 48px; display: block; }
+.cv-face-ic { font-size: 1.8rem; }
+.cv-face-lock { font-size: 1.3rem; font-weight: 800; color: var(--text-dim); background: transparent; border: 2px dashed #6e7681; box-sizing: border-box; }
+.cv-cast-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cv-cast-n { font-size: 1rem; color: var(--text); }
+.cv-cast-t { font-size: .78rem; color: #9cc8ff; line-height: 1.35; }
+.cv-cast-pg.is-locked .cv-cast-n, .cv-cast-pg.is-locked .cv-cast-t { color: var(--text-dim); }
+.cv-cast-bio, .cv-cast-tail, .cv-cast-obs, .cv-cast-meta { margin: 0; line-height: 1.45; }
+.cv-cast-bio { font-size: .86rem; color: #c9d1d9; }
+.cv-cast-tail { font-size: .84rem; color: #f0c674; }
+.cv-cast-obs, .cv-cast-meta { font-size: .76rem; color: var(--text-dim); }
+
+/* 속마음 아카이브 */
+.cv-arch { display: flex; flex-direction: column; gap: 6px; }
+.cv-arch-h { margin: 0; font-size: .98rem; color: var(--text); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cv-arch-n { font-size: .74rem; font-weight: 400; color: var(--text-dim); }
+.cv-arch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cv-arch-l { display: flex; flex-direction: column; gap: 1px; padding: 4px 0 4px 10px; border-left: 3px solid #6e40c9; min-width: 0; }
+.cv-arch-q { font-size: .88rem; line-height: 1.45; color: #f0c674; word-break: keep-all; overflow-wrap: anywhere; }
+.cv-arch-at { font-size: .7rem; color: var(--text-dim); }
+
+/* 외형 고르기 */
+.cv-look { display: flex; flex-direction: column; gap: 8px; }
+.cv-look-h { margin: 0; font-size: .98rem; color: var(--text); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.cv-look-cur { font-size: .76rem; font-weight: 400; color: var(--text-dim); }
+.cv-look-picks { gap: 6px; }
+.cv-look-b { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; text-align: left; font: inherit; font-size: .86rem; color: var(--text); }
+.cv-look-b > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.cv-look-b:disabled { opacity: .62; cursor: default; border-style: dashed; }
+.cv-sw { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+.cv-sw-tableColor { width: 34px; height: 20px; border-radius: 10px; border: 2px solid #8a5a2b; box-sizing: border-box; }
+.cv-sw-tableColor.is-default { background: radial-gradient(ellipse at center, #2d6a40 0%, #1a472a 70%); }
+.cv-sw-tableColor.is-navy { background: radial-gradient(ellipse at center, #2b5d94 0%, #173b66 70%); }
+.cv-sw-tableColor.is-wine { background: radial-gradient(ellipse at center, #823047 0%, #4f1828 70%); }
+.cv-sw-card.card { width: 18px; height: 26px; border-radius: 3px; font-size: 0; transition: none; }
+.cv-sw-card.card:hover { transform: none; }
+.cv-sw-face { width: 24px; height: 24px; border-radius: 50%; background: #21262d; display: inline-flex; align-items: center; justify-content: center; font-size: .9rem; }
+.cv-sw-film { width: 30px; height: 22px; border-radius: 4px; border: 1px solid #6e7681; display: inline-flex; align-items: center; justify-content: center;
+  font-size: .72rem; box-sizing: border-box; }
+.cv-sw-cardBorder.is-film .cv-sw-film { border-color: #30363d;
+  background:
+    repeating-linear-gradient(90deg, #d0d7de 0 3px, transparent 3px 6px) left 2px top 1px / calc(100% - 4px) 3px no-repeat,
+    repeating-linear-gradient(90deg, #d0d7de 0 3px, transparent 3px 6px) left 2px bottom 1px / calc(100% - 4px) 3px no-repeat,
+    #0b0d10; }
+

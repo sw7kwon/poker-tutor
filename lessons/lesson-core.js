@@ -28,7 +28,8 @@
 //   ask {id(레슨 안에서 유일, 예 'q1'), q, choices[2~4], answer(0부터), why(한 줄), calc?, pick?[], ref?}:
 //     ref는 커리큘럼 문항 id('c4-1')를 가리키는 예약 필드로 M3 데이터에서는 쓰지 않는다.
 //   compare {cols:[{who, text}] 3개, mine?}(S4 이상, 렌더만).
-//   widget {name, params}(M6, 모듈이 없으면 플레이어가 '다음 업데이트' 카드).
+//   widget {name, params}(M6, 모듈이 없으면 플레이어가 '다음 업데이트' 카드). (M6-P0) name은 toyGame, varianceCone, rangePaint 중
+//     하나, params는 객체(tests/j-lessons가 막는다). 위젯 모듈과 mount 계약은 docs/JOURNEY_ROADMAP.md M6 계약 H1.
 //   렌더 분담: SceneRender.render가 cards, grid, ring, scene, table, bar, compare, sum(P1a가 table, bar, compare, sum을 추가),
 //     LessonPlayer가 say, ask, widget과 모든 장면의 caption 줄과 label 칩.
 //

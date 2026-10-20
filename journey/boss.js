@@ -1,6 +1,31 @@
-// journey/boss.js (채우는 패키지: M3-P4a, M5-BOSS)
+// journey/boss.js (채우는 패키지: M3-P4a, M5-BOSS, M6-BOSS)
 // 승급 시험(보스) v1과 미션 조건 판정. 설계서 2.2절(미션 판정 규약), 2.5절(보스 표, 코칭 고정), 6.1절 boss.active, 7.1절 7번.
 // 조건 DSL 10종과 판정 창 해석의 정본은 journey/journey-data.js 머리 주석이다.
+// M6-BOSS(로드맵 계약 H2, H4, H8, H9, H10): 다음 업데이트로 미뤘던 조건 4개를 판정한다.
+//   identify {seats, min, minHands}: 은닉 배정(Journey.hiddenSeats, poker_journey.boss.hidden[노드])의 좌석마다 관찰 핸드
+//     (JStats.castObs(이름, 배정 key).hands)가 minHands 이상이고, 맞히기 제출(boss.identify[노드] = { guesses{ 좌석: 분류 }, at, correct,
+//     total, hands, early, key, ok })의 정답 수가 min 이상이면 ok. 보기는 H4 4분류(tight, standard, loose-aggr, loose-passive),
+//     정답은 배정 프로필의 분류(VillainTracker.CLASS_OF_TYPE, 없으면 같은 표: Nit 타이트, TAG 정석, LAG 루즈-공격, Fish와 Station 루즈-패시브).
+//     조기 제출(mission.earlySubmit, s6-boss): 좌석마다 EARLY_HANDS(30)핸드부터 minHands 전에 제출할 수 있다. 정답 수가 min 이상이면
+//       minHands 없이 ok(관찰 핸드 기준을 갈음), earlySubmit이 없는 노드(s6-02)는 minHands가 되어야 제출할 수 있다.
+//     제출이 min에 못 미치면 정답을 공개하고 좌석을 새로 섞는다(Journey.reshuffleHidden, 새 key라 관찰이 처음부터, 벌점 없음).
+//       정답을 본 배정으로 다시 찍지 못하게 하는 규칙이라 재제출 횟수 제한은 따로 없다.
+//     제출 뒤 Badges.note('identify', { node, correct, total }), 학습 노드는 Journey.checkNode, 보스 시도 중이면 judge.
+//     은닉 보스(identify 조건이 있는 보스)의 실전 칸은 시도 카운터가 아니라 배정 뒤 은닉 테이블 핸드(배정.hands, 세션과 시도를 넘어 누적)이고
+//       맞히기가 통과되면(조기 제출 포함) 채운 것으로 본다. 48시간이 지나 시도가 끝나도 배정, 관찰, 맞히기 기록은 이어진다.
+//   weeks {what:'review', min}: ReviewQueue.reportWeeks()(없으면 state.review.views)의 ISO 주 중 지금 이어지는 연속 주 수.
+//     이번 주나 지난주에 열었으면 이어지는 중(이번 주는 아직 끝나지 않았다), 그 전이 마지막이면 0. 이번 주를 이미 열었는데
+//     모자라면 later(다음 주까지 기다리기만 남음, nextNode가 뒤로 미룬다).
+//   overlap {puzzle:'rangepaint', spots, min}: 보스 색칠 드릴 결과 r.paint = [{ spot, overlap }](계약 H2)를 recordDrill이
+//     boss.active.drill.paint(통과 기록은 boss.sets[노드].paint로 다음 시도에 이월)에 쌓고, overlap ≥ min인 항목 수가 spots 이상이면 ok.
+//     r.paint가 없는 PuzzleUI(머지 전)는 드릴 기준(drill.overlap)이 min 이상일 때 rangepaint 정답 수로 갈음한다.
+//   custom shortSession {min, maxHands}: 판정 창 안에서 사용자가 분량 전에 스스로 끝낸 Journey 세션(state.shortSessions,
+//     journey-core endSession) 중 핸드 수 ≤ maxHands인 것의 수 ≥ min.
+//   은닉 테이블 유형 가림(로드맵 M6 결정 8): onNewHand가 mode 'sixmax-cast-hidden'이면 ctx.state.hideTypes = true를 걸고 같은 호출 안에서
+//     Table.render로 다시 그린다(좌석 (유형) 라벨, HUD style 칩, Thinking 말버릇과 rtype 문구가 이 플래그를 본다).
+//   화면: sheetActions(노드 시트 '🕵 숨은 좌석 유형 맞히기'), openIdentify(좌석별 관찰 n, VPIP, PFR, AF만, 유형 노출 없음.
+//     1곳 은닉이면 함께 앉은 캐스트의 누적 숫자와 분류를 비교용으로, 5곳이면 구성 1/1/1/2와 좌석끼리 비교 안내),
+//     submitIdentify(순수에 가까운 제출 판정, 테스트 입구), identifyHTML(화면 문자열).
 // M5-BOSS(로드맵 계약 F1~F4)
 //   F2 필터 multiway, oop, potType은 결정 기록의 mw, oop, pt를 본다. 그 필드가 없는(null 포함) 예전 기록은 필터에 맞지 않는다.
 //   F3 판정 전: 판정 창 안 핸드가 0개이거나 기회가 0인 롤링 항목(pattern, light, band, srsBoxRatio 카드 0장)은 wait: true,
@@ -16,13 +41,15 @@
 // 순수 판정(테스트는 opts로 recent, hseq, now, hero, bands, drillItems, sets를 직접 넣는다)
 //   Boss.context(node, stats, state, opts) → ctx
 //   Boss.evalCondition(cond, ctx) → item
-//   Boss.evaluate(node, stats, state, opts) → { node, pass, cond, hold, pending, items, more, est, expired }
+//   Boss.evaluate(node, stats, state, opts) → { node, pass, cond, hold, pending, later, items, more, est, expired }
+//     opts(M6-BOSS) hidden, identify, castObs{ 이름: 기록 }, reportWeeks[], paint[], shortSessions[]로 상태 대신 직접 넣을 수 있다.
 //     node = 노드 객체 또는 id, stats = JStats(또는 recent/heroTotals/handSeq를 가진 가짜), state = poker_journey 상태
 //     item = { kind, ok, have, need, opp, label, why, hold?, pending?, wait?, ref?, more?, est? }
 //       have/need는 노드 시트의 롤링 줄 "label: have/need(기회 opp)"에 그대로 들어가는 표시값(숫자 또는 짧은 글). need가 null이면 숨김.
 //       hold = 기회(minOpp) 미달이라 판정 보류(소표본 통과/실패 없음), pending = 이번 버전에서 판정할 수 없는 조건
-//       (identify, weeks, overlap, custom의 shortSession, 운 미터 기능 전의 luckMeterViews, 모르는 필터 키),
-//       wait = 판정 창 안 핸드 0개 또는 기회 0(have '판정 전', 계약 F3),
+//       (모르는 kind, 모르는 custom fn, 운 미터 기능 전의 luckMeterViews, 모르는 필터 키),
+//       wait = 판정 창 안 핸드 0개 또는 기회 0(have '판정 전', 계약 F3), later = 지금 칠 것이 없고 다음 주까지 기다리기만 남음(weeks),
+//       submit = 관찰은 됐고 맞히기 제출만 남음(identify),
 //       ref = 참고 표시(통과 미반영), more = 이 항목을 채우는 데 더 필요한 핸드 수(est = 기회 비율로 어림한 값).
 //     학습 노드: 조건 항목만(핸드 수는 Journey가 본다). pass = 참고가 아닌 조건 전부 ok.
 //     보스 노드: 드릴 + 보스 카운터(이 시험의 실전 핸드) + 조건. pass = 전부 ok이고 시작 뒤 48시간 안.
@@ -41,9 +68,10 @@
 // 코칭 고정: 보스와 mission.coach가 있는 미션(s1-06 L0, s2-10 L1)은 세션 시작 때(onSessionStart) CoachUI.snapshot() 뒤 setLevel(n),
 //   세션이 끝나거나(onSessionEnd) 다른 게임이 시작되면 restore. 스냅샷은 poker_journey.boss.coachLock(보스는 boss.active.coachSnap에도)에
 //   저장해 새로고침 뒤에도 복원한다(load 때). CoachUI.snapshot/restore(M3-P4b)가 없으면 고정하지 않는다(setLevel만 쓰면 auto 이력이 지워짐).
-// 상태(poker_journey.boss): { active: null|{ node, startedAt, hands, drill: null|{n, ok, at, byType, passed, carried, parts?}, coachSnap, seatTypes, seed },
+// 상태(poker_journey.boss): { active: null|{ node, startedAt, hands, drill: null|{n, ok, at, byType, passed, carried, parts?, paint?}, coachSnap, seatTypes, seed },
 //   last: { 노드 id: { startedAt, endedAt, result: 'pass'|'drill'|'expired'|'stopped', n?, ok?, srsWrong?, part?, parts? } },
-//   coachLock: null|{ node, kind, level, snap, at }, sets: { 노드 id: { byType, n, ok, at } }(세트 나눔 드릴을 통과한 마지막 결과) }
+//   coachLock: null|{ node, kind, level, snap, at }, sets: { 노드 id: { byType, n, ok, at, paint? } }(세트 기준이나 색칠 겹침 조건이 있는 보스의
+//   통과한 마지막 드릴 결과), hidden: { 노드 id: 배정 }(journey-core), hiddenLast, identify: { 노드 id: 맞히기 제출 } }
 //   drill.parts = [{ n, ok, byType, srsWrong, at }](세트 나눔 드릴에서 끝낸 세트, 통과 전까지 passed false)
 // 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 모듈은 전부 typeof 가드로 부른다.
 var Boss = (function() {
@@ -57,9 +85,15 @@ var Boss = (function() {
   var SET_MIN = 10;              // PuzzleUI 세트 하한(이보다 작은 세트는 PuzzleUI가 반복으로 채운다)
   var CHUNK = 5;                 // 실전 분할 단위(2.2절 3번)
   var KINDS = ['pattern', 'light', 'drillSet', 'puzzleSet', 'band', 'hands', 'identify', 'weeks', 'overlap', 'custom'];
-  var PENDING_KIND = { identify: '숨은 좌석 유형 맞히기', weeks: '주간 복기', overlap: '레인지 색칠 겹침' };
-  var CUSTOM_PENDING = { luckMeterViews: '운 미터 카드 보기', shortSession: '짧게 끝낸 세션' };
-  var CUSTOM_OK = { srsBoxRatio: 1, luckMeterViews: 1 };             // 이 버전에서 판정하는 custom fn
+  var PENDING_KIND = {};                                              // 이 버전에서 판정하지 못하는 kind(M6-BOSS로 전부 판정)
+  var CUSTOM_PENDING = { luckMeterViews: '운 미터 카드 보기' };
+  var CUSTOM_OK = { srsBoxRatio: 1, luckMeterViews: 1, shortSession: 1 };   // 이 버전에서 판정하는 custom fn
+  // 숨은 좌석 맞히기(계약 H4 4분류, H9)
+  var ID_CLASSES = ['tight', 'standard', 'loose-aggr', 'loose-passive'];
+  var CLASS_LABEL = { tight: '🧊 타이트', standard: '⚖ 정석', 'loose-aggr': '🔥 루즈-공격', 'loose-passive': '🐟 루즈-패시브' };
+  var CLASS_OF_TYPE = { Nit: 'tight', TAG: 'standard', LAG: 'loose-aggr', Fish: 'loose-passive', Station: 'loose-passive' };
+  var EARLY_HANDS = 30;          // 조기 제출(mission.earlySubmit)을 열어 주는 좌석별 최소 관찰 핸드
+  var OBS_RATE = 0.6;            // 은닉 좌석을 실제로 관찰하는 비율(핸드당) 어림: 히어로가 폴드하면 그 뒤 좌석은 액션이 없다(시뮬 약 0.55~0.6)
   var FILTER_OK = { street: 1, source: 1, concept: 1, pos: 1, marginal: 1, multiway: 1, oop: 1, potType: 1 };
   var FILTER_FIELD = { multiway: 'mw', oop: 'oop', potType: 'pt' };   // 계약 F2: 필터 키 → 결정 기록 필드
   var PT_LABEL = { limp: '림프 팟', srp: '싱글 레이즈 팟', '3bet': '3벳 팟', '4bet': '4벳 팟' };
@@ -156,6 +190,54 @@ var Boss = (function() {
     return (_isObj(a) && a.node === id) ? a : null;
   }
   function _expiredAt(a, now) { var t = _ms(a && a.startedAt); return isFinite(t) && now - t > EXPIRE_MS; }
+
+  // ── 숨은 좌석(M6-BOSS) 상태 조회 ────────────────────────
+  function _condOf(nd, kind) {
+    var cs = (nd && nd.mission && Array.isArray(nd.mission.conditions)) ? nd.mission.conditions : [];
+    for (var i = 0; i < cs.length; i++) if (_isObj(cs[i]) && cs[i].kind === kind) return cs[i];
+    return null;
+  }
+  function _idCond(nd) { return _condOf(nd, 'identify'); }
+  function _hiddenOf(st, id) {
+    var h = (st && _isObj(st.boss) && _isObj(st.boss.hidden)) ? st.boss.hidden[id] : null;
+    return (_isObj(h) && _isObj(h.seats) && Array.isArray(h.names)) ? h : null;
+  }
+  function _idRecOf(st, id) {
+    var r = (st && _isObj(st.boss) && _isObj(st.boss.identify)) ? st.boss.identify[id] : null;
+    return _isObj(r) ? r : null;
+  }
+  // 배정 프로필 → H4 분류(READ의 VillainTracker.CLASS_OF_TYPE가 있으면 그것, 없으면 같은 표)
+  function _classOf(type) {
+    var VT = _m('VillainTracker');
+    var m = (VT && _isObj(VT.CLASS_OF_TYPE)) ? VT.CLASS_OF_TYPE : null;
+    return (m && m[type]) || CLASS_OF_TYPE[type] || null;
+  }
+  function _idNeed(nd, c) {
+    var seats = Math.max(1, Math.floor(_num(c && c.seats, 1)));
+    var min = Math.max(1, Math.min(seats, Math.floor(_num(c && c.min, seats))));
+    var full = Math.max(1, Math.floor(_num(c && c.minHands, 100)));
+    var early = !!(nd && nd.mission && nd.mission.earlySubmit);
+    return { seats: seats, min: min, full: full, early: early, gate: early ? Math.min(EARLY_HANDS, full) : full };
+  }
+  // 좌석별 관찰 [{ name, n, vpip, pfr, tb, aggr, calls, folds, facing }](배정 이름 순). getter(name, key) → castObs 기록
+  function _seatObs(asg, getter) {
+    return (asg && Array.isArray(asg.names) ? asg.names : []).map(function(nm) {
+      var o = null;
+      try { o = getter(nm, asg.key); } catch (e) { o = null; }
+      if (_isObj(o) && o.key != null && o.key !== asg.key) o = null;
+      o = _isObj(o) ? o : {};
+      return { name: nm, n: Math.max(0, Math.floor(_num(o.hands, 0))), vpip: _num(o.vpip, 0), pfr: _num(o.pfr, 0), tb: _num(o.tb, 0),
+        aggr: _num(o.aggr, 0), calls: _num(o.calls, 0), folds: _num(o.folds, 0), facing: _num(o.facing, 0) };
+    });
+  }
+  function _obsMin(list) { return list.length ? list.reduce(function(m, x) { return Math.min(m, x.n); }, Infinity) : 0; }
+  function _jsCast(name, key) { return _call('JStats', 'castObs', name, key); }
+  // 지금 배정에서 통과한 맞히기 제출인지(조기 제출은 earlySubmit 노드에서만 minHands를 갈음)
+  function _idPassed(rec, asg, need) {
+    if (!_isObj(rec) || !asg || rec.key !== asg.key) return false;
+    if (_num(rec.correct, 0) < need.min) return false;
+    return _num(rec.hands, 0) >= need.full || (need.early && !!rec.early);
+  }
 
   // ── 라벨 ───────────────────────────────────────────────
   function _typeName(t) {
@@ -264,6 +346,14 @@ var Boss = (function() {
   function _setConds(nd) {
     var cs = (nd && nd.mission && Array.isArray(nd.mission.conditions)) ? nd.mission.conditions : [];
     return cs.filter(function(c) { return _isObj(c) && c.kind === 'puzzleSet'; });
+  }
+  // 이 보스의 통과 드릴 결과를 boss.sets에 남겨 다음 시도로 이월하는지(세트 기준 또는 색칠 겹침 조건)
+  function _keepsSets(nd) { return _setConds(nd).length > 0 || !!_condOf(nd, 'overlap'); }
+  // PuzzleUI 결과의 색칠 겹침(계약 H2 r.paint = [{ spot, overlap }]). 없거나 형식이 다르면 null
+  function _paintOf(r) {
+    if (!r || !Array.isArray(r.paint)) return null;
+    return r.paint.filter(function(p) { return _isObj(p) && isFinite(Number(p.overlap)); })
+      .map(function(p) { return { spot: p.spot != null ? String(p.spot) : null, overlap: Number(p.overlap) }; });
   }
   function _setSum(by, types) {
     var n = 0, ok = 0;
@@ -377,6 +467,29 @@ var Boss = (function() {
       if (D && typeof D._load === 'function') { try { var d = D._load(); _di = (d && _isObj(d.items)) ? d.items : null; } catch (e) { _di = null; } }
       return _di;
     };
+    // M6-BOSS: 은닉 배정, 맞히기 제출, 좌석 관찰, 주간 복기 주, 색칠 결과, 짧은 세션(테스트는 opts로 직접 넣는다)
+    ctx.hidden = function() { return (opts.hidden !== undefined) ? opts.hidden : _hiddenOf(st, nd.id); };
+    ctx.idRec = function() { return (opts.identify !== undefined) ? opts.identify : _idRecOf(st, nd.id); };
+    ctx.castObs = function(name, key) {
+      if (opts.castObs) { var o = opts.castObs[name]; return _isObj(o) ? o : null; }
+      var S = (stats && typeof stats.castObs === 'function') ? stats : (stats === undefined ? _m('JStats') : null);
+      if (!S || typeof S.castObs !== 'function') return null;
+      try { return S.castObs(name, key) || null; } catch (e) { return null; }
+    };
+    ctx.weeks = function() {
+      if (Array.isArray(opts.reportWeeks)) return opts.reportWeeks;
+      if (_can('ReviewQueue', 'reportWeeks')) { var w = _call('ReviewQueue', 'reportWeeks'); if (Array.isArray(w)) return w; }
+      var rv = st.review;
+      return (_isObj(rv) && Array.isArray(rv.views)) ? rv.views : [];
+    };
+    ctx.paint = function() {
+      if (Array.isArray(opts.paint)) return opts.paint;
+      if (act && _isObj(act.drill)) return Array.isArray(act.drill.paint) ? act.drill.paint : null;
+      if (act) return null;
+      var keep = st.boss && _isObj(st.boss.sets) ? st.boss.sets[nd.id] : null;
+      return (_isObj(keep) && Array.isArray(keep.paint)) ? keep.paint : null;
+    };
+    ctx.shorts = function() { return Array.isArray(opts.shortSessions) ? opts.shortSessions : (Array.isArray(st.shortSessions) ? st.shortSessions : []); };
     return ctx;
   }
 
@@ -679,6 +792,7 @@ var Boss = (function() {
   // custom: srsBoxRatio = 복습 카드(type|keyPrefix) 중 box ≥ 기준 비율(카드 minOpp장부터 판정, 기본 30), luckMeterViews. 나머지 fn은 다음 업데이트
   function _custom(c, ctx) {
     if (c.fn === 'luckMeterViews') return _luck(c, ctx);
+    if (c.fn === 'shortSession') return _shortSession(c, ctx);
     if (c.fn !== 'srsBoxRatio') return _pendingItem(c, CUSTOM_PENDING[c.fn] || ('조건 ' + (c.fn || '')));
     var items = ctx.drillItems();
     var pre = String(c.type || 'preflop') + '|' + String(c.keyPrefix || '');
@@ -707,6 +821,124 @@ var Boss = (function() {
     return it;
   }
 
+  // ── M6-BOSS 조건 4개 ───────────────────────────────────
+  // identify: 관찰(좌석마다 가장 적게 본 수) → 제출 → 통과. 머리 주석의 조기 제출, 다시 섞기 규칙
+  function _identify(c, ctx) {
+    var nd = ctx.node, need = _idNeed(nd, c);
+    var asg = ctx.hidden(), rec = ctx.idRec();
+    var who = need.seats > 1 ? '숨은 좌석 ' + need.seats + '곳' : '숨은 좌석';
+    var it = { kind: 'identify', opp: null, seats: need.seats, min: need.min };
+    if (_idPassed(rec, asg, need)) {
+      it.ok = true; it.count = _num(rec.correct, 0);
+      it.label = who + ' 유형 맞히기' + (rec.early ? '(조기 제출)' : '');
+      it.have = rec.correct + '곳'; it.need = need.min + '곳 이상';
+      return it;
+    }
+    var obs = asg ? _seatObs(asg, ctx.castObs) : [];
+    var lo = obs.length ? _obsMin(obs) : 0;
+    it.obs = lo;
+    var prev = (_isObj(rec) && asg && rec.key !== asg.key) ? rec : null;           // 지난 배정에서 못 미친 제출(그 뒤 새로 섞음)
+    if (lo < need.gate) {
+      it.ok = false; it.hold = true;
+      it.label = who + ' 관찰(가장 적게 본 좌석)';
+      it.have = lo + '핸드'; it.need = need.full + '핸드';
+      var tbl = asg ? Math.max(0, _num(asg.hands, 0)) : 0;
+      var rate = (tbl >= 5 && lo > 0) ? Math.max(0.2, Math.min(1, lo / tbl)) : OBS_RATE;
+      it.est = true; it.more = _handsFor(need.gate - lo, rate);
+      it.why = (prev ? '지난 제출은 ' + _num(prev.total, need.seats) + '곳 중 ' + _num(prev.correct, 0) + '곳이라 좌석을 새로 섞었어요. ' : '') +
+        '숨은 좌석을 좌석마다 ' + need.gate + '핸드 이상 지켜보면 유형 맞히기를 제출할 수 있어요(핸드 약 ' + it.more + '개 더' +
+        (need.early ? ', 기준 ' + need.full + '핸드 전에 내는 조기 제출' : '') + ')';
+      if (!lo) _wait(it);
+      return it;
+    }
+    it.ok = false; it.submit = true;
+    it.label = who + ' 유형 맞히기';
+    it.have = '제출 전'; it.need = need.min + '곳 이상';
+    it.why = '🕵 숨은 좌석 유형 맞히기에서 ' + (need.seats > 1 ? need.seats + '곳 중 ' + need.min + '곳 이상 맞히기' : '유형 고르고 제출하기') +
+      (lo < need.full ? '(조기 제출, 기준 ' + need.full + '핸드 전)' : '');
+    return it;
+  }
+  // ISO 주(로컬 날짜 기준, JStats.weekKey와 같은 식)
+  function _weekKeyOf(t) {
+    var JS = _m('JStats');
+    if (JS && typeof JS.weekKey === 'function') { try { var k = JS.weekKey(t); if (k) return k; } catch (e) { /* 아래 */ } }
+    var d = new Date(t);
+    var u = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var dow = u.getUTCDay() || 7;
+    u.setUTCDate(u.getUTCDate() + 4 - dow);
+    var y = u.getUTCFullYear();
+    var wk = Math.ceil(((u.getTime() - Date.UTC(y, 0, 1)) / DAY + 1) / 7);
+    return y + '-W' + (wk < 10 ? '0' : '') + wk;
+  }
+  // 'YYYY-Www' → 그 주 월요일의 일 번호(UTC), 형식이 틀리면 null
+  function _weekIdx(wk) {
+    var m = /^(\d{4})-W(\d{2})$/.exec(String(wk || ''));
+    if (!m) return null;
+    var y = Number(m[1]), w = Number(m[2]);
+    if (w < 1 || w > 53) return null;
+    var jan4 = Date.UTC(y, 0, 4), dow = new Date(jan4).getUTCDay() || 7;
+    return Math.round(jan4 / DAY) - (dow - 1) + (w - 1) * 7;
+  }
+  // 지금 이어지는 연속 주 수: 마지막으로 연 주가 이번 주나 지난주면 거기서 거꾸로 이어진 주 수, 그보다 오래면 0
+  function weekStreak(weeks, now) {
+    var cur = _weekIdx(_weekKeyOf(_now(now)));
+    var idx = _arr(weeks).map(_weekIdx).filter(function(x) { return x != null && (cur == null || x <= cur); });
+    idx = idx.filter(function(x, i) { return idx.indexOf(x) === i; }).sort(function(a, b) { return a - b; });
+    if (!idx.length || cur == null) return { run: 0, thisWeek: false };
+    var last = idx[idx.length - 1];
+    if (last < cur - 7) return { run: 0, thisWeek: false };
+    var run = 1;
+    for (var i = idx.length - 2; i >= 0 && idx[i] === idx[i + 1] - 7; i--) run++;
+    return { run: run, thisWeek: last === cur };
+  }
+  function _weeks(c, ctx) {
+    var min = Math.max(1, Math.floor(_num(c.min, 1)));
+    var s = weekStreak(ctx.weeks(), ctx.now);
+    var it = { kind: 'weeks', opp: null, count: s.run, ok: s.run >= min, label: min > 1 ? '주간 복기 연속' : '주간 복기',
+      have: s.run + '주', need: min + '주' + (min > 1 ? ' 연속' : '') };
+    if (!it.ok) {
+      if (s.thisWeek) {
+        it.later = true;
+        it.why = '이번 주 주간 리포트는 열었어요. 다음 주에도 열면 ' + (s.run + 1) + '주 연속(' + min + '주 필요)';
+      } else {
+        it.why = '이번 주 주간 리포트(홈 📅 카드 또는 📊)를 열어 보세요' + (min > 1 ? '. 매주 한 번씩 ' + min + '주 연속이면 채워요' : '');
+      }
+    }
+    return it;
+  }
+  // overlap: 보스 색칠 드릴 r.paint(계약 H2)에서 겹침 ≥ min인 항목 수
+  function _overlap(c, ctx) {
+    var spots = Math.max(1, Math.floor(_num(c.spots, 3))), min = _num(c.min, 0.7);
+    var it = { kind: 'overlap', opp: null, label: '레인지 색칠 겹침 ' + _pct(min) + '% 이상', need: spots + '스팟' };
+    var list = ctx.paint(), k = null;
+    if (Array.isArray(list)) {
+      k = list.filter(function(p) { return _isObj(p) && _num(p.overlap, -1) + 1e-9 >= min; }).length;
+    } else {
+      // r.paint가 없는 결과(머지 전 PuzzleUI): 드릴 문항 기준(drill.overlap)이 min 이상이면 rangepaint 정답 수로 갈음
+      var nd = ctx.node, dov = (nd && nd.drill && nd.drill.type === 'rangepaint') ? _num(nd.drill.overlap, 0.7) : null;
+      var by = _isObj(ctx.sets) ? ctx.sets.rangepaint : null;
+      if (dov != null && dov + 1e-9 >= min && _isObj(by)) k = Math.max(0, Math.floor(_num(by.ok, 0)));
+    }
+    if (k == null) { it.ok = false; it.have = null; it.why = '레인지 색칠 드릴 ' + spots + '스팟을 풀어야 해요(겹침 ' + _pct(min) + '% 이상)'; return it; }
+    it.count = k; it.ok = k >= spots; it.have = k + '스팟';
+    if (!it.ok) it.why = '겹침 ' + _pct(min) + '% 이상 ' + k + '스팟, ' + spots + '스팟 필요';
+    return it;
+  }
+  // custom shortSession: 판정 창 안에서 분량 전에 스스로 끝낸 세션(핸드 1 ~ maxHands)
+  function _shortSession(c, ctx) {
+    var min = Math.max(1, Math.floor(_num(c.min, 1))), maxH = Math.max(1, Math.floor(_num(c.maxHands, 5)));
+    var from = ctx.since;
+    var k = ctx.shorts().filter(function(x) {
+      if (!_isObj(x)) return false;
+      var h = _num(x.hands, 0), t = _ms(x.at);
+      return h >= 1 && h <= maxH && (from == null || (isFinite(t) && t >= from));
+    }).length;
+    var it = { kind: 'custom', fn: 'shortSession', opp: null, count: k, ok: k >= min,
+      label: '스스로 일찍 끝낸 세션(' + maxH + '핸드 이하)', have: k + '번', need: min + '번' };
+    if (!it.ok) it.why = '게임 중 세션 종료 버튼으로 ' + maxH + '핸드 안에 세션을 끝내 보세요(멈출 신호를 느꼈다고 치고 연습)';
+    return it;
+  }
+
   function evalCondition(c, ctx) {
     if (!_isObj(c) || !c.kind) return { kind: 'unknown', ok: false, pending: true, have: null, need: null, opp: null, label: '알 수 없는 조건', why: '알 수 없는 조건' };
     switch (c.kind) {
@@ -716,6 +948,9 @@ var Boss = (function() {
       case 'band': return _band(c, ctx);
       case 'hands': return _handsCond(c, ctx);
       case 'custom': return _custom(c, ctx);
+      case 'identify': return _identify(c, ctx);
+      case 'weeks': return _weeks(c, ctx);
+      case 'overlap': return _overlap(c, ctx);
       default:
         return _pendingItem(c, PENDING_KIND[c.kind] || ('조건 ' + c.kind));
     }
@@ -745,6 +980,17 @@ var Boss = (function() {
   }
   function _handsItem(nd, ctx) {
     var need = Math.max(0, Math.floor(_num(nd.mission.hands, 0)));
+    var ic = _idCond(nd);
+    if (ic) {
+      // 은닉 보스: 배정 뒤 은닉 테이블 핸드(세션과 시도를 넘어 누적). 맞히기 통과(조기 제출 포함)면 채운 것으로 본다
+      var asg = ctx.hidden(), h = asg ? Math.max(0, Math.floor(_num(asg.hands, 0))) : 0;
+      var idOk = _idPassed(ctx.idRec(), asg, _idNeed(nd, ic));
+      var hi = { kind: 'hands', boss: true, ok: h >= need || idOk, label: '숨은 테이블 실전 핸드(여러 세션 합산)', have: h, need: need, opp: null };
+      if (idOk && h < need) hi.label += ', 조기 제출로 채움';
+      // 조기 제출로 갈음할 수 있어 '핸드 n개 더' 어림(more)은 맞히기 항목이 맡는다(waive)
+      if (!hi.ok) { hi.waive = true; hi.why = '숨은 테이블 실전 핸드 ' + (need - h) + '개 더(5핸드씩, 확신이 서면 유형 맞히기 조기 제출로 갈음)'; }
+      return hi;
+    }
     var it = { kind: 'hands', boss: true, ok: ctx.hands >= need, label: '시험 실전 핸드(48시간 안)', have: ctx.hands, need: need, opp: null };
     if (!it.ok) { it.more = need - ctx.hands; it.why = '실전 핸드 ' + it.more + '개 더(5핸드씩)'; }
     return it;
@@ -752,7 +998,7 @@ var Boss = (function() {
 
   function evaluate(node, stats, state, opts) {
     var nd = _nodeObj(node);
-    var out = { node: nd ? nd.id : null, pass: false, cond: false, hold: false, pending: false, items: [], more: 0, est: false, expired: false };
+    var out = { node: nd ? nd.id : null, pass: false, cond: false, hold: false, pending: false, later: false, items: [], more: 0, est: false, expired: false };
     if (!nd) return out;
     var ctx = context(nd, stats, state, opts);
     // 이미 통과한 노드는 더 쌓을 것이 없다(되돌리지 않음, 시트의 롤링 줄도 비운다). opts.force면 그래도 판정
@@ -775,6 +1021,9 @@ var Boss = (function() {
     out.pass = core.every(function(it) { return it.ok; }) && !ctx.expired;
     out.hold = core.some(function(it) { return !!it.hold; });
     out.pending = core.some(function(it) { return !!it.pending; });
+    // 못 미친 항목이 전부 기다리기(later, 다음 주 복기)뿐이면 later(지금 칠 것이 없음)
+    var unmet = core.filter(function(it) { return !it.ok; });
+    out.later = unmet.length > 0 && unmet.every(function(it) { return !!it.later; });
     core.forEach(function(it) {
       if (!it.ok && _num(it.more, 0) > out.more) { out.more = _num(it.more, 0); out.est = !!it.est; }
     });
@@ -828,13 +1077,23 @@ var Boss = (function() {
     var carry = null;
     if (met && nd.drill) {
       carry = { carried: true, passed: true };
-      var keep = b.sets[id];                                             // 세트 기준이 있는 보스는 통과한 유형별 결과도 이월
-      if (_setConds(nd).length && _isObj(keep) && _isObj(keep.byType)) { carry.byType = _copyBy(keep.byType); carry.n = keep.n; carry.ok = keep.ok; }
+      var keep = b.sets[id];                                             // 세트 기준(또는 색칠 겹침)이 있는 보스는 통과한 결과도 이월
+      if (_keepsSets(nd) && _isObj(keep) && _isObj(keep.byType)) { carry.byType = _copyBy(keep.byType); carry.n = keep.n; carry.ok = keep.ok; }
+      if (_isObj(keep) && Array.isArray(keep.paint)) carry.paint = keep.paint.slice();
     }
     b.active = { node: id, startedAt: _iso(now), hands: 0, drill: carry,
       coachSnap: null, seatTypes: null, seed: Math.floor(now % 1000000) };
     if (_isObj(rec) && _isObj(rec.mission)) rec.mission.hands = 0;
     _save(st);
+    // 은닉 보스: 좌석 배정(처음이면 지금 시드로 고정, 있으면 이어서)을 active.seatTypes에도 남긴다(설계서 6.1절)
+    if (nd.mission && nd.mission.config === 'sixmax-cast-hidden' && _can('Journey', 'hiddenSeats')) {
+      var asg = _call('Journey', 'hiddenSeats', id, now);
+      st = _jst(); b = _bs(st);
+      if (_isObj(asg) && _isObj(b.active) && b.active.node === id) {
+        b.active.seatTypes = JSON.parse(JSON.stringify(asg.seats)); b.active.seed = asg.seed;
+        _save(st);
+      }
+    }
     return b.active;
   }
   // PuzzleUI 결과 문항 → 유형별 { n, ok }와 복습 상자에 남는 오답 수(같은 카드를 두 번 틀려도 1장)
@@ -876,8 +1135,9 @@ var Boss = (function() {
     var met = !aborted && n > 0 && _drillMet(nd, _recOf(st, id)) && ok >= Math.min(need, n) && _setsOk(nd, t.byType);
     res.srsWrong = t.srsWrong;
     if (met) {
-      if (a) { a.drill = { n: n, ok: ok, at: _iso(now), byType: t.byType, passed: true }; }
-      if (_setConds(nd).length) _bs(st).sets[id] = { byType: _copyBy(t.byType), n: n, ok: ok, at: _iso(now) };
+      var paint = _paintOf(r);
+      if (a) { a.drill = { n: n, ok: ok, at: _iso(now), byType: t.byType, passed: true }; if (paint) a.drill.paint = paint; }
+      if (_keepsSets(nd)) { _bs(st).sets[id] = { byType: _copyBy(t.byType), n: n, ok: ok, at: _iso(now) }; if (paint) _bs(st).sets[id].paint = paint.slice(); }
       _save(st);
       res.status = 'pass';
       return res;
@@ -921,7 +1181,9 @@ var Boss = (function() {
     }
     if (aborted) { res.status = 'incomplete'; return res; }
     var wk = Object.keys(seen).slice(before);
+    var pp = _paintOf(r);
     dr.parts.push({ n: n, ok: ok, byType: t.byType, srsWrong: t.srsWrong, wrongKeys: wk, at: _iso(now) });
+    if (pp) dr.parts[dr.parts.length - 1].paint = pp;
     if (dr.parts.length < chunks.length) { _save(st); res.status = 'part'; return res; }
     // 마지막 세트까지 끝. 생성기가 세트를 덜 채웠을 수도 있어 기준을 남은 문항 없이 다시 본다
     res.n = totN; res.ok = totOk;
@@ -944,8 +1206,11 @@ var Boss = (function() {
       res.status = 'fail';
       return res;
     }
-    if (a) a.drill = { n: totN, ok: totOk, at: _iso(now), byType: by, passed: true, parts: parts };
+    var paintAll = null;
+    parts.forEach(function(p) { if (p && Array.isArray(p.paint)) paintAll = (paintAll || []).concat(p.paint); });
+    if (a) { a.drill = { n: totN, ok: totOk, at: _iso(now), byType: by, passed: true, parts: parts }; if (paintAll) a.drill.paint = paintAll; }
     _bs(st).sets[id] = { byType: _copyBy(by), n: totN, ok: totOk, at: _iso(now) };
+    if (paintAll) _bs(st).sets[id].paint = paintAll.slice();
     _save(st);
     res.status = 'pass';
     return res;
@@ -988,7 +1253,7 @@ var Boss = (function() {
     }
     var m = nd.mission;
     if (m) {
-      if (m.config === 'sixmax-cast-hidden') why.push('유형 숨김 테이블');
+      if (m.config === 'sixmax-cast-hidden' && !_can('Journey', 'hiddenSeats')) why.push('유형 숨김 테이블');
       (m.conditions || []).forEach(function(cd) {
         if (!_isObj(cd)) return;
         if (PENDING_KIND[cd.kind]) why.push(PENDING_KIND[cd.kind]);
@@ -1095,7 +1360,18 @@ var Boss = (function() {
     _later(function() { _afterGame(id, res); }, 0);
     return res;
   }
+  // 은닉 테이블 유형 가림(로드맵 M6 결정 8): app.js가 첫 Table.render 뒤 같은 실행 안에서 Journey.onNewHand를 부르므로
+  // 여기서 플래그를 걸고 다시 그리면 (유형) 라벨이 화면에 그려지지 않는다. 플래그는 GameState의 JSON 복제로 그 핸드 끝까지 남는다
+  function _hideTypes(ctx) {
+    if (!_isObj(ctx) || ctx.mode !== 'sixmax-cast-hidden' || !_isObj(ctx.state)) return false;
+    ctx.state.hideTypes = true;
+    if (_can('Table', 'render') && typeof document !== 'undefined' && document && typeof document.getElementById === 'function') {
+      try { G.Table.render(ctx.state); } catch (e) { _warn('Table.render', e); }
+    }
+    return true;
+  }
   function onNewHand(ctx) {
+    try { _hideTypes(ctx); } catch (e0) { _warn('hideTypes', e0); }
     try {
       var st = _jst(); if (!st) return;
       var b = _bs(st);
@@ -1157,13 +1433,14 @@ var Boss = (function() {
     }
     var m = nd.mission;
     if (m) {
-      li.push('6인 실전 ' + m.hands + '핸드(5핸드씩, 시작 뒤 48시간 안에)');
-      (m.conditions || []).forEach(function(c) { var t = _condText(c); if (t) li.push(t); });
+      li.push(_idCond(nd) ? '숨은 테이블 6인 실전 ' + m.hands + '핸드(5핸드씩, 여러 세션과 시도 합산, 유형 맞히기를 조기 제출로 통과하면 갈음)'
+        : '6인 실전 ' + m.hands + '핸드(5핸드씩, 시작 뒤 48시간 안에)');
+      (m.conditions || []).forEach(function(c) { var t = _condText(c, nd); if (t) li.push(t); });
       if (m.coach != null) li.push('실전 중 코칭은 L' + m.coach + (COACH_NAME[m.coach] ? '(' + COACH_NAME[m.coach] + ')' : '') + '로 고정, 끝나면 원래대로');
     }
     return '<div class="j-crit"><div class="j-crit-t">통과 기준(모두 채우기)</div><ul>' + li.map(function(t) { return '<li>' + _esc(t) + '</li>'; }).join('') + '</ul></div>';
   }
-  function _condText(c) {
+  function _condText(c, nd) {
     if (!_isObj(c)) return '';
     if (c.kind === 'pattern') {
       var where = c.window ? '최근 ' + c.window + '핸드' : (c.minOpp ? '최근 기회 ' + c.minOpp + '번' : '최근 ' + DEFAULT_WINDOW + '핸드');
@@ -1184,6 +1461,14 @@ var Boss = (function() {
     if (c.kind === 'hands') return _num(c.min, 0) + '핸드 체험';
     if (c.kind === 'drillSet' || c.kind === 'puzzleSet') return _arr(c.type).map(_typeName).join(', ') + ' ' + c.count + '문항 중 ' + c.pass + '개 이상' + (c.tol ? '(콤보 수 ±' + c.tol + ' 허용)' : '');
     if (c.kind === 'custom' && c.fn === 'luckMeterViews') return '운 미터 카드 ' + _num(c.min, 1) + '번 열어 보기';
+    if (c.kind === 'custom' && c.fn === 'shortSession') return '세션 종료 버튼으로 ' + _num(c.maxHands, 5) + '핸드 안에 스스로 끝낸 세션 ' + _num(c.min, 1) + '번';
+    if (c.kind === 'identify') {
+      var need = _idNeed(nd, c);
+      return '숨은 좌석 ' + need.seats + '곳' + (need.min < need.seats ? ' 중 ' + need.min + '곳' : '') + '의 유형 맞히기(좌석마다 관찰 ' + need.full + '핸드 뒤' +
+        (need.early ? ', 확신이 서면 ' + need.gate + '핸드부터 조기 제출' : '') + ', 보기 4개: 타이트, 정석, 루즈-공격, 루즈-패시브)';
+    }
+    if (c.kind === 'weeks') return _num(c.min, 1) > 1 ? '주간 복기(주간 리포트 열기) ' + _num(c.min, 1) + '주 연속' : '주간 리포트 한 번 열어 보기(이번 주나 지난주)';
+    if (c.kind === 'overlap') return '레인지 색칠 ' + _num(c.spots, 3) + '스팟 모두 겹침 ' + _pct(_num(c.min, 0.7)) + '% 이상';
     return (PENDING_KIND[c.kind] || CUSTOM_PENDING[c.fn] || '추가 조건') + '(다음 업데이트에서 판정)';
   }
   // 롤링 줄: ✓ 채움, ○ 아직, ⏳ 판정 전(계약 F3, 판정 창 안 핸드 0개 또는 기회 0), … 다음 업데이트
@@ -1288,7 +1573,7 @@ var Boss = (function() {
       else if (!drillDone && partN > 0) lineTxt = 'ℹ 드릴 세트 ' + partN + '/' + chunks.length + '까지 끝냈어요';
       else if (opts.afterGame) lineTxt = 'ℹ 아직이에요' + (ev.more ? '. 핸드 ' + (ev.est ? '약 ' : '') + ev.more + '개 더' : '') + (ev.hold ? '(판정 기회 모으는 중)' : '');
       else lineTxt = 'ℹ 시험 진행 중';
-      lineTxt += ', 남은 시간 ' + _hoursTxt(left);
+      lineTxt += ', 남은 시간 ' + _hoursTxt(left) + (_idCond(nd) ? '(지나도 숨은 좌석 관찰은 이어져요)' : '');
       body.push('<div class="j-done-line' + (opts.drill && (opts.drill.status === 'pass' || opts.drill.status === 'part') ? ' is-ok' : '') + '">' + _esc(lineTxt) + '</div>');
       body.push(_statusHTML(ev, '지금 상태'));
       if (opts.afterGame || ev.items.some(function(it) { return !it.ok && !it.ref && !it.drill && !(!drillDone && it.kind === 'puzzleSet'); })) body.push(_needHTML(ev, !drillDone));
@@ -1298,7 +1583,10 @@ var Boss = (function() {
       var primary = drillDone
         ? _btn('▶ ' + (_num(m.active.hands, 0) > 0 ? '이어서 ' : '') + '실전 5핸드', 'Boss._go(' + _q(id) + ')', true)
         : _btn(drillLabel, 'Boss._go(' + _q(id) + ')', true);
-      body.push(_acts([primary, _btn('나중에', 'Boss.back()')]));
+      var actBtns = [primary];
+      if (drillDone && _idCond(nd)) actBtns.push(_btn('🕵 숨은 좌석 유형 맞히기', 'Boss.openIdentify(' + _q(id) + ')'));   // 은닉 보스(M6-BOSS)
+      actBtns.push(_btn('나중에', 'Boss.back()'));
+      body.push(_acts(actBtns));
       return '<div class="j-sub">' + _top(nd) + body.join('') + '</div>';
     }
     if (m.wait > 0) {
@@ -1318,7 +1606,9 @@ var Boss = (function() {
       '<div class="j-block-d">' + _esc(locked
         ? '잠긴 시험에 바로 도전하는 건너뛰기예요. 통과하면 이 단계까지의 노드가 전부 건너뜀 통과가 돼요.'
         : '이 단계 노드를 모두 통과했어요. 드릴부터 풀고 6인 실전으로 마무리해요.') + '</div></div>');
-    if (m.last && m.last.result === 'expired') {
+    if (m.last && m.last.result === 'expired' && _idCond(nd)) {
+      body.push('<div class="j-done-line">ℹ 지난 시도는 48시간이 지났어요. 숨은 좌석 관찰과 맞히기 기록은 그대로 이어져요(벌점 없음)</div>');
+    } else if (m.last && m.last.result === 'expired') {
       body.push('<div class="j-done-line">ℹ ' + (m.last.partsDone
         ? '지난 시도는 드릴 세트 ' + m.last.partsDone + '개를 끝낸 채 48시간이 지났어요. 드릴 세트도 처음부터 다시 풀어요(벌점 없음)'
         : '지난 시도는 48시간이 지나 실전 핸드를 처음부터 다시 세요(벌점 없음)') + '</div>');
@@ -1336,8 +1626,20 @@ var Boss = (function() {
     if (!N || typeof N.setBack !== 'function' || (_backNav === N && _backSet === N.setBack)) return;
     if (_backOff) { try { _backOff(); } catch (e) { /* 무시 */ } }
     _backNav = N; _backSet = N.setBack;
-    // 시스템 뒤로: 보스 화면 기록을 걷어낸 뒤 부모(노드 시트 또는 홈)를 Nav가 다시 그린다(false = 기본 처리)
-    try { _backOff = N.setBack('j/boss', function() { _viewId = null; return false; }); } catch (e) { _backOff = null; }
+    // 시스템 뒤로: 보스 화면 기록을 걷어낸 뒤 부모(노드 시트 또는 홈)를 Nav가 다시 그린다(false = 기본 처리).
+    // 맞히기 화면('<노드>~id', M6-BOSS)의 부모가 보스 화면이면 그 화면을 직접 다시 그린다(보스 뷰 해시는 새로고침 때 홈으로 가는 일시 뷰라서)
+    try {
+      _backOff = N.setBack('j/boss', function(key, p, parentKey) {
+        _viewId = null;
+        var pk = String(parentKey || '');
+        if (String(key || '').indexOf('~id') >= 0 && pk.indexOf('j/boss/') === 0) {
+          var pid = pk.slice(7);
+          try { pid = decodeURIComponent(pid); } catch (e) { /* 그대로 */ }
+          if (_node(pid)) { show(pid); return 'done'; }
+        }
+        return false;
+      });
+    } catch (e) { _backOff = null; }
   }
   function _navOpen(id) {
     if (!_can('Nav', 'view')) return;
@@ -1443,8 +1745,267 @@ var Boss = (function() {
       if (scr && scr.id && scr.id !== 'screen-journey') return;
     }
     var opts = { result: res && res.pass ? res : null, eval: res ? res.eval : null, afterGame: true };
-    if (res && res.expired && !res.pass) _toast('48시간이 지나 실전 핸드를 처음부터 다시 세요(벌점 없음)', 3200);
+    if (res && res.expired && !res.pass) {
+      _toast(_idCond(_node(id)) ? '48시간이 지나 시험을 새로 시작해요. 숨은 좌석 관찰은 이어져요(벌점 없음)' : '48시간이 지나 실전 핸드를 처음부터 다시 세요(벌점 없음)', 3200);
+    }
     show(id, opts);
+  }
+
+  // ── 숨은 좌석 유형 맞히기(M6-BOSS, 계약 H4, H8, H9) ──────
+  var _idDraft = null;       // { node, key, guesses: { 좌석 이름: 분류 } }(화면에서 고른 것, 제출 전)
+  var _idJudge = null;       // { node, res } 맞히기 제출로 보스 시험까지 통과한 판정(결과 화면 버튼)
+  function _afTxt(o) { if (!o.aggr && !o.calls) return '-'; return o.calls ? String(_r1(o.aggr / o.calls)) : '콜 없음'; }
+  function _obsTxt(o) {
+    if (!o || !o.n) return '아직 관찰 0핸드';
+    return '관찰 ' + o.n + '핸드: VPIP ' + Math.round(o.vpip / o.n * 100) + '%, PFR ' + Math.round(o.pfr / o.n * 100) + '%, AF ' + _afTxt(o);
+  }
+  // 은닉 유형 구성(정답 배정과 무관한 상수): 5곳이면 '타이트 1, 정석 1, 루즈-공격 1, 루즈-패시브 2'
+  function _mixTxt(n) {
+    var T = _m('Journey') && Array.isArray(G.Journey.HIDDEN_TYPES) ? G.Journey.HIDDEN_TYPES : ['TAG', 'LAG', 'Fish', 'Nit', 'Station'];
+    if (n < T.length) return '';
+    var cnt = {};
+    T.forEach(function(t) { var k = _classOf(t); if (k) cnt[k] = (cnt[k] || 0) + 1; });
+    return ID_CLASSES.filter(function(k) { return cnt[k]; }).map(function(k) { return CLASS_LABEL[k].replace(/^\S+\s/, '') + ' ' + cnt[k] + '명'; }).join(', ');
+  }
+  // 받침이 있으면 '과', 없으면 '와'(한글 음절이 아니면 '와')
+  function _wa(word) {
+    var s = String(word || ''), c = s.charCodeAt(s.length - 1);
+    return (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 !== 0) ? '과' : '와';
+  }
+  function _castKeyOf(type) {
+    var list = _call('Journey', 'castList');
+    if (Array.isArray(list)) for (var i = 0; i < list.length; i++) if (list[i] && list[i].type === type) return list[i].key;
+    return null;
+  }
+  function _draftFor(id, asg) {
+    var key = asg ? asg.key : null;
+    if (!_idDraft || _idDraft.node !== id || _idDraft.key !== key) _idDraft = { node: id, key: key, guesses: {} };
+    return _idDraft;
+  }
+  // 제출 판정(화면 없이도 쓰는 입구). guesses = { 좌석 이름: 'tight'|'standard'|'loose-aggr'|'loose-passive' }
+  //   → { error: 'node'|'state'|'noassign'|'done'|'hands'|'incomplete', ... } 또는
+  //     { pass, correct, total, min, answers{이름: 분류}, types{이름: 유형}, guesses, early, hands, obs[], reshuffled, passed?, judge? }
+  function submitIdentify(id, guesses, now) {
+    now = _now(now);
+    var nd = _node(id), c = _idCond(nd);
+    if (!nd || !c) return { error: 'node' };
+    var st = _jst(); if (!st) return { error: 'state' };
+    var asg = _hiddenOf(st, id);
+    if (!asg) return { error: 'noassign' };
+    var need = _idNeed(nd, c);
+    if (_idPassed(_idRecOf(st, id), asg, need)) return { error: 'done' };
+    var obs = _seatObs(asg, _jsCast), lo = _obsMin(obs);
+    if (lo < need.gate) return { error: 'hands', hands: lo, gate: need.gate };
+    guesses = _isObj(guesses) ? guesses : {};
+    var miss = asg.names.filter(function(nm) { return ID_CLASSES.indexOf(guesses[nm]) < 0; });
+    if (miss.length) return { error: 'incomplete', missing: miss };
+    var answers = {}, types = {}, g = {}, correct = 0;
+    asg.names.forEach(function(nm) {
+      types[nm] = asg.seats[nm]; answers[nm] = _classOf(asg.seats[nm]); g[nm] = guesses[nm];
+      if (g[nm] === answers[nm]) correct++;
+    });
+    var total = asg.names.length, early = lo < need.full, pass = correct >= need.min;
+    var b = _bs(st);
+    if (!_isObj(b.identify)) b.identify = {};
+    b.identify[id] = { guesses: g, at: _iso(now), correct: correct, total: total, hands: lo, early: early, key: asg.key, ok: pass };
+    _save(st);
+    var out = { pass: pass, correct: correct, total: total, min: need.min, answers: answers, types: types, guesses: g, early: early,
+      hands: lo, obs: obs, reshuffled: false, key: asg.key };
+    _call('Badges', 'note', 'identify', { node: id, correct: correct, total: total }, now);
+    if (!pass) {
+      out.reshuffled = !!_call('Journey', 'reshuffleHidden', id, now);    // 정답을 본 배정으로 다시 찍지 못하게
+    } else if (nd.kind !== 'boss') {
+      var pr = _call('Journey', 'checkNode', id, now);
+      out.passed = !!pr || _recOf(_jst(), id).status === 'passed';
+    } else if (_activeFor(_jst(), id)) {
+      out.judge = judge(id, now);
+      out.passed = !!(out.judge && out.judge.pass);
+    }
+    return out;
+  }
+  // 1곳 은닉(s6-02): 함께 앉은 캐스트(성향을 아는 상대)의 누적 관찰 숫자(비교용, Journey.hiddenCast와 key 없는 JStats.castObs). 없으면 ''
+  function _castCmpHTML(id) {
+    var list = _call('Journey', 'hiddenCast', id);
+    if (!Array.isArray(list) || !list.length) return '';
+    var rows = list.map(function(c) {
+      var o = _seatObs({ names: [c.name], key: null }, function(nm) { return _jsCast(nm); })[0];
+      var cls = _classOf(c.type);
+      return '<li>' + _esc(c.name + (cls ? '(' + CLASS_LABEL[cls] + ')' : '') + ': ' + _obsTxt(o)) + '</li>';
+    });
+    return '<div class="j-crit"><div class="j-crit-t">비교: 같은 테이블 캐스트(성향을 아는 상대, 누적)</div><ul>' + rows.join('') + '</ul></div>';
+  }
+  function _revealHTML(res) {
+    return '<div class="j-crit"><div class="j-crit-t">좌석별 정답</div><ul>' + Object.keys(res.answers).map(function(nm) {
+      var ok = res.guesses[nm] === res.answers[nm];
+      var o = null; (res.obs || []).forEach(function(x) { if (x.name === nm) o = x; });
+      var ck = _castKeyOf(res.types[nm]);
+      return '<li>' + _esc((ok ? '✓ ' : '✗ ') + nm + ': 내 답 ' + (CLASS_LABEL[res.guesses[nm]] || '-') + ', 정답 ' + CLASS_LABEL[res.answers[nm]] +
+        (ck ? '(' + ck + _wa(ck) + ' 같은 성향)' : '') + (o ? '. ' + _obsTxt(o) : '')) + '</li>';
+    }).join('') + '</ul></div>';
+  }
+  // 판별 기준 한 줄(s6-02 레슨과 같은 VillainTracker.RULE, 로드맵 결정 21의 엔진 실측 재보정 값). 트래커가 없으면 ''(M6 통합 검증)
+  function _idRuleTxt() {
+    var V = _m('VillainTracker'), R = V && V.RULE;
+    if (!R || !isFinite(R.tightMax) || !isFinite(R.lpMin) || !isFinite(R.laMin)) return '';
+    return ' 이 앱 기준: VPIP ' + R.tightMax + ' 이하면 타이트, ' + R.lpMin + ' 이상이고 PFR이 VPIP의 ' + R.lpRatio + '배 미만이면 루즈-패시브, ' +
+      R.laMin + ' 이상이고 ' + R.laRatio + '배 이상이면 루즈-공격, 나머지 정석. 핸드가 적으면 숫자가 흔들려요.';
+  }
+  // 화면 문자열(유형 노출 없음: 제출 전 화면은 배정 유형과 무관하고 좌석별 관찰 숫자만 다르다)
+  function identifyHTML(id, opts) {
+    opts = opts || {};
+    var nd = _node(id), c = _idCond(nd);
+    var top = '<div class="j-sub-top"><button type="button" class="j-back" aria-label="뒤로" onclick="Boss._idBack(' + _q(id) + ')">↩</button>' +
+      '<h2 class="j-sub-t">🕵 숨은 좌석 유형 맞히기</h2></div>';
+    if (!nd || !c) return '<div class="j-sub">' + top + '<div class="j-card"><div class="j-card-d">이 노드에는 숨은 좌석이 없어요.</div></div></div>';
+    var st = _jst() || { nodes: {}, boss: { active: null } };
+    var asg = _hiddenOf(st, id), need = _idNeed(nd, c), rec = _idRecOf(st, id);
+    var body = [];
+    var res = opts.result;
+    if (res && !res.error) {
+      body.push('<div class="j-wrap-card"><div class="j-wrap-t">' + (res.pass ? '🎉 맞혔어요!' : '🔎 아쉬워요') + '</div>' +
+        '<div class="j-wrap-line">' + _esc(res.total + '곳 중 ' + res.correct + '곳 정답(통과 기준 ' + res.min + '곳)' + (res.early ? ', 조기 제출' : '')) + '</div></div>');
+      body.push(_revealHTML(res));
+      var next;
+      if (!res.pass) next = '좌석을 새로 섞었어요. 새 손님' + (need.seats > 1 ? '들' : '') + '을 처음부터 지켜봐요(벌점 없음). 오래 지켜볼수록 숫자가 믿을 만해져요.';
+      else if (res.passed && nd.kind === 'boss') next = '맞히기와 함께 승급 시험 기준을 모두 채웠어요!';
+      else if (res.passed) next = nd.title + ' 통과!';
+      else next = nd.kind === 'boss' ? '맞히기 기준은 채웠어요. 시험의 다른 기준을 마저 채우면 통과해요.' : '맞히기 기준은 채웠어요. 남은 기준은 노드 시트에서 확인해요.';
+      body.push('<div class="j-sum">💡 ' + _esc(next) + '</div>');
+      body.push(_acts([_btn(res.passed && nd.kind === 'boss' ? '🎉 결과 보기' : '돌아가기', 'Boss._idDone(' + _q(id) + ')', true)]));
+      return '<div class="j-sub">' + top + body.join('') + '</div>';
+    }
+    var mix = _mixTxt(need.seats);
+    body.push('<div class="j-block-card"><div class="j-block-k">' + _esc(nd.title + ', 보기 4개: 타이트, 정석, 루즈-공격, 루즈-패시브') + '</div>' +
+      '<div class="j-block-t">' + _esc(need.seats > 1 ? '숨은 좌석 ' + need.seats + '곳 중 ' + need.min + '곳 이상 맞히기' : '숨은 손님 1명의 유형 맞히기') + '</div>' +
+      '<div class="j-block-d">' + _esc((mix ? '이 테이블에는 ' + mix + '이 앉아 있어요(누가 누구인지는 비밀). 좌석끼리 숫자를 나란히 비교해 보세요. '
+        : '아래 같은 테이블 캐스트(성향을 아는 상대)의 누적 숫자와 나란히 비교해 보면 쉬워요. ') +
+        'VPIP는 팟에 들어온 비율, PFR이 VPIP보다 한참 낮으면 콜 위주(패시브), AF가 높으면 벳과 레이즈가 많아요. 피시와 콜링 스테이션은 같은 루즈-패시브예요.' +
+        _idRuleTxt()) + '</div></div>');
+    if (!asg) {
+      body.push('<div class="j-card"><div class="j-card-t">아직 숨은 좌석을 본 적이 없어요</div><div class="j-card-d">' + _esc(nd.kind === 'boss'
+        ? '승급 시험을 시작하고 숨은 테이블에서 실전을 치면 관찰이 쌓여요.'
+        : '노드 시트의 🃏 실전 시작(5핸드씩)으로 숨은 손님이 앉은 테이블에서 치면 관찰이 쌓여요.') + '</div></div>');
+      body.push(_acts([_btn('돌아가기', 'Boss._idBack(' + _q(id) + ')', true)]));
+      return '<div class="j-sub">' + top + body.join('') + '</div>';
+    }
+    var obs = _seatObs(asg, _jsCast), lo = _obsMin(obs);
+    if (_idPassed(rec, asg, need)) {
+      body.push('<div class="j-done-line is-ok">✅ ' + _esc('맞히기 통과(' + rec.total + '곳 중 ' + rec.correct + '곳' + (rec.early ? ', 조기 제출' : '') + ')') + '</div>');
+      var ans = {}, types = {};
+      asg.names.forEach(function(nm) { types[nm] = asg.seats[nm]; ans[nm] = _classOf(asg.seats[nm]); });
+      body.push(_revealHTML({ answers: ans, types: types, guesses: rec.guesses || {}, obs: obs }));
+      body.push(_acts([_btn('돌아가기', 'Boss._idDone(' + _q(id) + ')', true)]));
+      return '<div class="j-sub">' + top + body.join('') + '</div>';
+    }
+    if (_isObj(rec) && rec.key !== asg.key) {
+      body.push('<div class="j-done-line">ℹ ' + _esc('지난 제출은 ' + rec.total + '곳 중 ' + rec.correct + '곳이었어요. 좌석을 새로 섞어 관찰을 처음부터 해요') + '</div>');
+    }
+    var guesses = (opts.draft && _isObj(opts.draft)) ? opts.draft : _draftFor(id, asg).guesses;
+    obs.forEach(function(o, i) {
+      var picks = ID_CLASSES.map(function(k) {
+        var on = guesses[o.name] === k;
+        return '<button type="button" class="j-pick' + (on ? ' is-on' : '') + '" aria-pressed="' + on + '" onclick="Boss._pick(' + _q(id) + ',' + i + ',\'' + k + '\')">' +
+          _esc(CLASS_LABEL[k]) + '</button>';
+      }).join('');
+      body.push('<div class="j-card"><div class="j-card-t">' + _esc(o.name) + '</div><div class="j-card-d">' + _esc(_obsTxt(o)) + '</div>' +
+        '<div class="j-set-row"><span class="j-picks" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr))">' + picks + '</span></div></div>');
+    });
+    body.push(_castCmpHTML(id));
+    var all = asg.names.every(function(nm) { return ID_CLASSES.indexOf(guesses[nm]) >= 0; });
+    var ready = lo >= need.gate;
+    var rule = '좌석마다 ' + need.full + '핸드 지켜본 뒤 제출' + (need.early ? '(확신이 서면 ' + need.gate + '핸드부터 조기 제출)' : '') +
+      '. 기준에 못 미치면 정답을 보여 주고 좌석을 새로 섞어요(벌점 없음).';
+    var seen = (need.seats > 1 ? '가장 적게 본 좌석 ' : '관찰 ') + lo + '핸드';
+    var state = ready
+      ? (lo < need.full ? '지금 내면 조기 제출이에요(' + seen + '). ' : '관찰 충분(' + seen + '). ') + (all ? '' : (need.seats > 1 ? '모든 좌석을 고르면' : '유형을 고르면') + ' 제출할 수 있어요.')
+      : seen + ', ' + need.gate + '핸드부터 제출할 수 있어요.';
+    body.push('<div class="j-sum">💡 ' + _esc(state + ' ' + rule) + '</div>');
+    var can = ready && all;
+    body.push('<div class="j-acts"><button type="button" class="j-btn j-primary j-big"' + (can ? ' onclick="Boss._submit(' + _q(id) + ')"' : ' disabled aria-disabled="true"') + '>' +
+      _esc(ready && lo < need.full ? '조기 제출하기' : '제출하기') + '</button>' + _btn('나중에', 'Boss._idBack(' + _q(id) + ')') + '</div>');
+    return '<div class="j-sub">' + top + body.join('') + '</div>';
+  }
+  function _renderIdentify(id, opts) {
+    var v = _call('JourneyUI', 'mountView', 'identify', identifyHTML(id, opts));
+    if (!v) return false;
+    _viewId = id;
+    return true;
+  }
+  function _navIdentify(id) {
+    if (!_can('Nav', 'view')) return;
+    var want = '#j/boss/' + encodeURIComponent(String(id) + '~id');
+    if (typeof location !== 'undefined' && location && String(location.hash || '') === want) return;
+    _call('Nav', 'view', 'boss', String(id) + '~id');
+  }
+  // 노드 시트, 보스 화면의 '🕵 숨은 좌석 유형 맞히기'
+  function openIdentify(id) {
+    var nd = _node(id);
+    if (!nd || !_idCond(nd)) return false;
+    if (!_renderIdentify(id, {})) return false;
+    _ensureBack();
+    _navIdentify(id);
+    return true;
+  }
+  function _pick(id, idx, cls) {
+    var st = _jst(), asg = _hiddenOf(st, id);
+    if (!asg || ID_CLASSES.indexOf(cls) < 0) return;
+    var nm = asg.names[Math.floor(_num(idx, -1))];
+    if (!nm) return;
+    _draftFor(id, asg).guesses[nm] = cls;
+    _renderIdentify(id, {});
+  }
+  var ID_ERR = { hands: '아직 관찰이 모자라요', incomplete: '모든 좌석의 유형을 골라 주세요', done: '이미 맞히기를 통과했어요', noassign: '아직 숨은 좌석을 본 적이 없어요' };
+  function _submit(id) {
+    var nd = _node(id);
+    var st = _jst(), asg = _hiddenOf(st, id);
+    var res = submitIdentify(id, asg ? _draftFor(id, asg).guesses : {}, _now());
+    if (res.error) { _toast(ID_ERR[res.error] || '제출하지 못했어요'); _renderIdentify(id, {}); return res; }
+    _idDraft = null;
+    _idJudge = (res.judge && res.judge.pass) ? { node: id, res: res.judge } : null;
+    if (_idJudge) _passToast(id, res.judge);
+    else if (res.passed && nd) _toast('★ 통과! ' + nd.title, 3200);
+    _renderIdentify(id, { result: res });
+    return res;
+  }
+  // 결과 화면의 버튼: 보스는 시험 화면(맞히기로 통과했으면 결과 카드), 학습 노드는 노드 시트
+  function _idDone(id) {
+    var nd = _node(id);
+    _viewId = null;
+    if (nd && nd.kind === 'boss') {
+      if (_idJudge && _idJudge.node === id) { var j = _idJudge; _idJudge = null; show(id, { result: j.res }); return; }
+      start(id);
+      return;
+    }
+    _call('JourneyUI', 'open');
+    _call('JourneyUI', 'openNode', id);
+  }
+  // ↩, 나중에: 시스템 뒤로와 같다(Nav가 부모 화면을 다시 그린다). Nav가 없으면 결과 버튼과 같은 곳으로
+  function _idBack(id) {
+    _viewId = null;
+    if (_can('Nav', 'back')) { _call('Nav', 'back'); return; }
+    _idDone(id);
+  }
+  // 노드 시트 버튼 줄 뒤(계약 H11 b): 숨은 좌석 맞히기가 있는 노드에서만 버튼과 관찰 한 줄
+  function sheetActions(nodeId, rec, state) {
+    var nd = _node(nodeId), c = _idCond(nd);
+    if (!nd || !c) return '';
+    var st = _isObj(state) ? state : (_jst() || { nodes: {} });
+    rec = _isObj(rec) ? rec : _recOf(st, nodeId);
+    if (rec.status === 'passed') return '';
+    var asg = _hiddenOf(st, nodeId);
+    if (nd.kind !== 'boss' && rec.status === 'locked') return '';
+    if (nd.kind === 'boss' && !asg && !_activeFor(st, nodeId)) return '';       // 은닉 보스는 시험을 시작해야 관찰이 시작된다
+    var need = _idNeed(nd, c), rc = _idRecOf(st, nodeId), line;
+    if (!asg) line = '숨은 테이블에서 실전을 치면 관찰이 쌓여요(좌석마다 ' + need.full + '핸드 뒤 제출' + (need.early ? ', 조기 제출은 ' + need.gate + '핸드부터' : '') + ')';
+    else if (_idPassed(rc, asg, need)) line = '맞히기 통과(' + rc.total + '곳 중 ' + rc.correct + '곳)';
+    else {
+      var lo = _obsMin(_seatObs(asg, _jsCast));
+      line = (lo >= need.gate ? '제출할 수 있어요' + (lo < need.full ? '(조기 제출)' : '') + '. ' : '') + '가장 적게 본 좌석 ' + lo + '핸드, 기준 ' + need.full + '핸드' +
+        (need.early && lo < need.gate ? '(조기 제출은 ' + need.gate + '핸드부터)' : '') +
+        ((_isObj(rc) && rc.key !== asg.key) ? '. 지난 제출 ' + rc.total + '곳 중 ' + rc.correct + '곳, 새로 섞은 좌석' : '');
+    }
+    return '<div class="j-acts"><button type="button" class="j-btn j-act" onclick="Boss.openIdentify(' + _q(nodeId) + ')">🕵 숨은 좌석 유형 맞히기</button>' +
+      '<div class="j-why">' + _esc(line) + '</div></div>';
   }
   // ↩, 나중에: 한 단계 위(노드 시트 또는 홈)
   function back() {
@@ -1476,6 +2037,10 @@ var Boss = (function() {
     lockCoach: lockCoach, unlockCoach: unlockCoach, restoreStale: restoreStale,
     onSessionStart: onSessionStart, onSessionEnd: onSessionEnd, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd,
     start: start, show: show, viewHTML: viewHTML, back: back, home: home, current: current,
+    // M6-BOSS: 숨은 좌석 맞히기(계약 H9)와 주간 연속 계산
+    sheetActions: sheetActions, openIdentify: openIdentify, submitIdentify: submitIdentify, identifyHTML: identifyHTML,
+    weekStreak: weekStreak, classOf: _classOf, CLASSES: ID_CLASSES.slice(), CLASS_LABEL: CLASS_LABEL, EARLY_HANDS: EARLY_HANDS,
+    _pick: _pick, _submit: _submit, _idDone: _idDone, _idBack: _idBack,
     _go: _go, _setClock: _setClock, _setLater: _setLater
   };
   if (typeof module !== 'undefined') module.exports = api;

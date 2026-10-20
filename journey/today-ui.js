@@ -1,4 +1,4 @@
-// journey/today-ui.js (채우는 패키지: M1-P3, M2 연결: M2-P7, M5-P8 실수 핸드 단계)
+// journey/today-ui.js (채우는 패키지: M1-P3, M2 연결: M2-P7, M5-P8 실수 핸드 단계, M6-SEASON 월요일 주간 소개)
 // ▶ 오늘의 5분 진행 셸: 계획(Today.build) → 블록 실행(기존 화면 어댑터) → 복귀 시 결과 반영 → 다음 블록 카드 → 마무리 카드.
 // 계획과 진행은 poker_journey.daily[오늘].plan에 저장해 "여기까지" 뒤 다시 열면 남은 블록부터 이어간다.
 // 블록 하나라도 끝나면 Journey.markBlock + Journey.touchDay(활동일, 36h 스트릭). 다른 패키지 모듈은 전부 typeof 가드.
@@ -17,7 +17,12 @@
 //     Journey에 쌓인 편 수로 판정한다. 극장은 #screen-game을 쓰므로 여정 화면이 다시 보이면 결과를 받는다(inJourney false).
 //   'highlight': Journey.highlightOfDay(now) 카드를 TheaterUI.showCard({card, onDone})로 연다. 카드나 showCard가 없으면 자유 게임.
 //     카드 보기는 여정 화면 위에서 돌 수 있으므로 inJourney true(여정 화면이 보여도 자동 복귀하지 않음).
-//   'weeklyIntro': 주간 챌린지 소개 화면(M5) 전에는 이어 붙인 원래 재미 블록(follow)을 연다.
+//   'weeklyIntro'(M6-SEASON, 설계서 4.1절 3번, 계약 H5, H7): 월요일 재미 블록은 먼저 주간 챌린지 소개 화면을 그린다(Seasons.sync:
+//     이번 주 테마와 조건 3칸, 조건 문장 3개, 지난주 결과, 이번 달 시즌). TheaterUI.miniStatus(now).canStart면 '🏆 미니시즌 우승 예측'
+//     버튼(TheaterUI.openMini({ onDone }) → onDone에서, 열지 못하면 바로 이어서), '▶ 이어서 <원래 재미 블록>'은 introNext.
+//     둘 다 b.introDone을 계획에 남기고 runBlock으로 이어 붙인 원래 재미 블록(follow)을 연다(그 뒤 진행은 원래 재미 블록과 같다).
+//     소개를 그리면 Seasons.ack로 이번 주를 본 것으로 기록하고, 이번 주 소개를 이미 봤거나 Seasons가 없으면 바로 원래 재미 블록.
+//   마무리 카드는 Seasons.sync로 주간 챌린지 진행 한 줄('🏆 주간 챌린지(테마) n/3칸' 또는 완료와 XP)을 덧붙인다.
 //   마지막 블록의 결과 줄은 마무리 카드 위에 보인다(다음 블록 카드가 없으므로).
 //   가정(P5와 맞출 것): 편마다 recordTheater를 onDone보다 먼저 부른다. start와 showCard는 onDone을 부른 뒤 화면을 직접 옮기지
 //     않는다(다음 화면은 TodayUI가 그린다). 한 편도 못 보고 나오면 onDone({episodes:0, ...}), 열지 못할 때만 onDone(null).
@@ -266,12 +271,18 @@ var TodayUI = (function() {
       case 'drill': return '드릴 ' + t;
       case 'mission': return '미션 ' + t;
       case 'gto': return 'GTO 미러 ' + _num(b.hands, 5) + '핸드';
-      case 'theater': return '극장 ' + _num(b.episodes, 1) + '편';
+      case 'theater': return b.mini ? '미니시즌 ' + _miniNo(b) + '편' : '극장 ' + _num(b.episodes, 1) + '편';
       case 'highlight': return '오늘의 명장면';
       case 'rush': return '퍼즐 러시';
       case 'weeklyIntro': return (b.follow && typeof b.follow === 'object' && b.follow.kind) ? '주간 챌린지, ' + label({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands }) : '주간 챌린지';
       default: return '자유 게임 ' + _num(b.hands, 3) + '핸드';
     }
+  }
+
+  // 미니시즌 편 번호 'n/전체'(Today가 실은 b.episode = poker_journey.theater.mini 사본, M6 통합 검증)
+  function _miniNo(b) {
+    var m = (b && b.episode && typeof b.episode === 'object') ? b.episode : {};
+    return Math.max(1, Math.floor(_num(m.episode, 1))) + '/' + Math.max(1, Math.floor(_num(m.total, 3)));
   }
 
   // 홈 버튼과 칩: { state:'new'|'progress'|'done', left, estMin, chips }
@@ -693,7 +704,11 @@ var TodayUI = (function() {
 
   // 어댑터: 재미(극장 > 오늘의 명장면 > 자유 게임 3핸드, 주말 러시. 모듈이 없거나 열지 못하면 자유 게임)
   function _fun(b, i) {
-    var fb = (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') ? b.follow : b;   // 주간 소개 화면(M5) 전
+    if (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object' && !b.introDone) {
+      if (_weeklyIntro(b, i)) return true;
+      b.introDone = true;                     // 소개를 그릴 수 없거나 이번 주 소개를 이미 봤으면 원래 재미 블록으로
+    }
+    var fb = (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') ? b.follow : b;   // 소개 뒤 이어 붙인 원래 재미 블록
     if (b.fallback) delete b.fallback;
     if (fb.kind === 'theater') {
       if (_theaterStart(b, fb, i)) return true;
@@ -731,6 +746,113 @@ var TodayUI = (function() {
     _call('Journey', 'startSession', { kind: 'free', chunk: fallback ? FREE_HANDS : _num(hands, FREE_HANDS) });
     _call('App', 'selectVillains', 'sixmax');
     return true;
+  }
+
+  // ── 월요일 주간 챌린지 소개(M6-SEASON) ──
+  function _introSeen(now) { return _can('Seasons', 'seenWeek') && !!_call('Seasons', 'seenWeek', null, now); }
+  function _miniStatus(now) {
+    if (!_can('TheaterUI', 'miniStatus')) return null;
+    var st = _call('TheaterUI', 'miniStatus', now);
+    return (st && typeof st === 'object') ? st : null;
+  }
+  function _followLabel(b) {
+    var f = b.follow || {};
+    return label({ id: 'fun', kind: f.kind, episodes: f.episodes, hands: f.hands });
+  }
+  function _weeklyIntro(b, i) {
+    if (!_can('Seasons', 'sync')) return false;
+    var now = _now();
+    if (_introSeen(now)) return false;
+    var r = _call('Seasons', 'sync', now);
+    if (!r || !r.weekly || !r.weekly.def) return false;
+    var html = _introHTML(b, i, r, _miniStatus(now), now);
+    if (!html) return false;
+    _call('Seasons', 'ack', now, { render: false });
+    if (_can('JourneyUI', 'mountView')) JourneyUI.mountView('today', html);
+    return true;
+  }
+  function _md(key) { return Number(key.slice(5, 7)) + '월 ' + Number(key.slice(8, 10)) + '일'; }
+  // 소개 화면 문자열: 조건 3칸과 문장, 지난주 결과, 이번 달 시즌, 미니시즌, 이어서 버튼
+  function _introHTML(b, i, r, ms, now) {
+    var S = _m('Seasons'), w = r.weekly, d = w.def, s = r.season;
+    var cells = (S && typeof S.condsHTML === 'function') ? S.condsHTML(w.items || [], '이번 주 조건') : '';
+    var conds = '<ol class="j-intro-conds" style="margin:8px 0 0;padding-left:20px;font-size:.88rem;line-height:1.55">' +
+      (d.conds || []).map(function(c) { return '<li>' + _esc(c.text) + '</li>'; }).join('') + '</ol>';
+    var range = (d.from && d.to) ? ', ' + _md(d.from) + '부터 ' + _md(d.to) + '까지' : '';
+    var prev = '';
+    var pk = (S && typeof S.isoWeek === 'function') ? S.isoWeek(now - 7 * 864e5) : null;
+    var ph = (w.state && Array.isArray(w.state.hist)) ? w.state.hist.filter(function(h) { return h && h.key === pk; })[0] : null;
+    if (ph) {
+      var pd = (S && typeof S.weekly === 'function') ? S.weekly(pk) : null, pt = pd ? pd.icon + ' ' + pd.title : '챌린지';
+      prev = ph.done ? '지난주 ' + pt + ' 완료' + (w.prev && w.prev.key === pk && w.prev.xp ? ', XP +' + w.prev.xp + ' 받았어요' : '') + '. 잘했어요!'
+        : '지난주 ' + pt + '는 ' + _num(ph.n, 0) + '/3칸까지 했어요. 이번 주는 새로 시작해요';
+    }
+    var sea = '';
+    if (s && s.def) {
+      sea = '<div class="j-card" style="margin-top:12px"><div class="j-card-t">' + _esc('🗓 ' + Number(s.key.slice(5, 7)) + '월 시즌: ' + s.def.icon + ' ' + s.def.title) + '</div>' +
+        '<div class="j-card-d">' + _esc(s.def.desc) + '</div>' +
+        '<div class="j-card-d" style="margin-top:4px">' + _esc('시즌 퀘스트 ' + _num(s.count, 0) + '/' + (s.items || []).length + (s.done ? ' 완료' : ', 다 채우면 XP +' + s.def.xp)) + '</div></div>';
+    }
+    var canMini = !!(ms && ms.canStart === true && _can('TheaterUI', 'openMini'));
+    var mini = '';
+    if (canMini) mini = '<div class="j-card-d" style="margin-top:12px">🏆 극장 미니시즌: 캐릭터들이 며칠에 걸쳐 탈락전을 해요. 시작 전에 우승자를 골라 보세요.</div>';
+    else if (ms && ms.active && !ms.done) {
+      mini = '<div class="j-card-d" style="margin-top:12px">' + _esc('🏆 미니시즌 진행 중' + (ms.episode && ms.total ? ', ' + ms.episode + '/' + ms.total + '편' : '') +
+        (ms.pick ? ', 내 우승 예측은 ' + ms.pick : '')) + '</div>';
+    }
+    var p = plan() || { blocks: [] };
+    return '<div class="j-today j-week-intro">' +
+      '<div class="j-sub-top"><button type="button" class="j-back" aria-label="여기까지 하고 여정 홈으로" onclick="TodayUI.stopHere()">↩</button>' +
+        '<h2 class="j-sub-t">새 주 시작</h2>' + _dots(p, i) + '</div>' +
+      (prev ? '<div class="j-done-line' + (ph && ph.done ? ' is-ok' : '') + '">' + (ph && ph.done ? '✅ ' : 'ℹ ') + _esc(prev) + '</div>' : '') +
+      '<div class="j-block-card">' +
+        '<div class="j-block-k">' + _esc('🏆 이번 주 챌린지' + range) + '</div>' +
+        '<div class="j-block-t">' + _esc(d.icon + ' ' + d.title) + '</div>' +
+        '<div class="j-block-d">' + _esc(d.desc) + '</div>' +
+        '<div style="margin-top:10px">' + cells + '</div>' + conds +
+        '<div class="j-block-e">' + _esc(w.done ? '✅ 이번 주 챌린지 완료!' : '세 칸을 모두 채우면 XP +' + d.xp + '. 일요일 밤까지 이어서 쌓여요') + '</div>' +
+      '</div>' + sea + mini +
+      '<div class="j-today-acts">' +
+        (canMini ? '<button type="button" class="j-btn j-primary j-big" onclick="TodayUI.introMini(' + i + ')">🏆 미니시즌 우승 예측</button>' : '') +
+        '<button type="button" class="j-btn' + (canMini ? '' : ' j-primary') + ' j-big" onclick="TodayUI.introNext(' + i + ')">' + _esc('▶ 이어서 ' + _followLabel(b)) + '</button>' +
+        '<div class="j-row2"><button type="button" class="j-btn" onclick="TodayUI.skip(' + i + ')">건너뛰기</button>' +
+        '<button type="button" class="j-btn j-ghost" onclick="TodayUI.stopHere()">여기까지</button></div>' +
+      '</div></div>';
+  }
+  function _introBlock(i) {
+    var p = plan(), b = p && p.blocks[i];
+    if (!b || b.kind !== 'weeklyIntro') return null;
+    b.introDone = true;
+    _savePlan(p);
+    return b;
+  }
+  // '▶ 이어서': 이어 붙인 원래 재미 블록을 연다
+  function introNext(i) {
+    if (!_introBlock(i)) { show(); return; }
+    runBlock(i);
+  }
+  // '🏆 미니시즌 우승 예측': TheaterUI.openMini({ onDone }). 열면(true) onDone에서, 못 열면 바로 원래 재미 블록으로(한 번만)
+  function introMini(i) {
+    if (!_introBlock(i)) { show(); return; }
+    var fired = false;
+    var go = function() { if (fired) return; fired = true; runBlock(i); };
+    var opened = false;
+    if (_can('TheaterUI', 'openMini')) {
+      try { opened = TheaterUI.openMini({ onDone: function() { go(); } }) === true; }
+      catch (e) { if (typeof console !== 'undefined' && console.warn) console.warn('[TodayUI] TheaterUI.openMini 실패:', e && e.message ? e.message : e); opened = false; }
+    }
+    if (!opened) go();
+  }
+  // 마무리 카드의 주간 챌린지 한 줄(Seasons.sync: 완료 XP는 여기서 한 번 받을 수 있다)
+  function _seasonWrapLine() {
+    if (!_can('Seasons', 'sync')) return '';
+    var r = _call('Seasons', 'sync', _now());
+    if (!r || !r.weekly || !r.weekly.def) return '';
+    var w = r.weekly, s = r.season, out = [];
+    if (w.justDone) out.push('🏆 주간 챌린지 완료! XP +' + (w.xp > 0 ? w.xp : w.def.xp));
+    else if (!w.done && Array.isArray(w.items)) out.push('🏆 주간 챌린지(' + w.def.icon + ' ' + w.def.title + ') ' + _num(w.count, 0) + '/' + w.items.length + '칸');
+    if (s && s.justDone && s.def) out.push('🗓 시즌 퀘스트 완료! XP +' + (s.xp > 0 ? s.xp : s.def.xp));
+    return out.join(', ');
   }
 
   // ── 극장(계약 T8) ──
@@ -1044,10 +1166,15 @@ var TodayUI = (function() {
       case 'mission': return '6인 테이블 5핸드. 결정 기록이 미션 진행에 쌓여요';
       case 'gto': return '같은 카드를 3번 치며 정답과 비교해요(5핸드)';
       case 'rush': return '3분 동안 퍼즐을 연달아 풀어요. 연속으로 맞히면 시간이 늘고 틀리면 10초 줄어요(레이팅에는 반영 안 돼요)';
-      case 'theater': return '캐릭터 6명이 카드를 모두 펼친 채 치는 핸드를 봐요(' + Math.max(1, _num(b.episodes, 1)) + '편). 결정적인 순간에만 멈추니 다음 행동과 계획을 맞혀 봐요';
+      case 'theater':
+        if (b.mini) return '🏆 극장 미니시즌 ' + _miniNo(b) + '편: 캐릭터들의 탈락전 6~8핸드(약 3분)예요. 결정적인 순간에 멈추니 다음 행동과 계획을 맞혀 봐요';
+        return '캐릭터 6명이 카드를 모두 펼친 채 치는 핸드를 봐요(' + Math.max(1, _num(b.episodes, 1)) + '편). 결정적인 순간에만 멈추니 다음 행동과 계획을 맞혀 봐요';
       case 'highlight': return '극장에서 모은 명장면 카드 중 오늘의 한 장을 다시 봐요';
       case 'weeklyIntro':
-        if (b.follow && typeof b.follow === 'object' && b.follow.kind) return _desc({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands });
+        if (b.follow && typeof b.follow === 'object' && b.follow.kind) {
+          var fd = _desc({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands });
+          return (b.introDone || !_can('Seasons', 'sync') || _introSeen(_now())) ? fd : '이번 주 챌린지(조건 3개)를 먼저 보고 이어서 해요. ' + fd;
+        }
         break;
     }
     return '6인 테이블에서 가볍게 ' + _num(b.hands, FREE_HANDS) + '핸드. 끝나면 요약에서 돌아와요';
@@ -1180,7 +1307,7 @@ var TodayUI = (function() {
     p = plan() || p;
     _active = true;
     var all = _allDone(p);
-    var sl = _streakLine(), nl = _nextLine(), rl = ratingLine(p);
+    var sl = _streakLine(), nl = _nextLine(), rl = ratingLine(p), zl = _seasonWrapLine();
     // 마지막 블록(보통 재미 블록: '극장 1편, 예측 n번 중 m번 적중')의 결과 줄은 다음 블록 카드가 없으니 여기서 보인다
     var last = (_last && _last.ok) ? _resHTML(p) : '';
     var html = '<div class="j-today j-wrap">' +
@@ -1193,6 +1320,7 @@ var TodayUI = (function() {
         (rl ? '<div class="j-wrap-rating">🎯 ' + _esc(rl) + '</div>' : '') +
         (sl ? '<div class="j-wrap-streak">' + _esc(sl) + '</div>' : '') +
         (nl ? '<div class="j-wrap-next">🧭 ' + _esc(nl) + '</div>' : '') +
+        (zl ? '<div class="j-wrap-next j-wrap-season">' + _esc(zl) + '</div>' : '') +
       '</div>' +
       '<div class="j-today-acts"><button type="button" class="j-btn j-primary j-big" onclick="TodayUI.finish()">여정 홈으로</button></div></div>';
     if (_can('JourneyUI', 'mountView')) JourneyUI.mountView('today', html);
@@ -1214,6 +1342,8 @@ var TodayUI = (function() {
     puzzleTypes: puzzleTypes, reviewPlan: _reviewPlan, ratingLine: ratingLine, blockReady: _blockReady,
     // M4-P8 재미 블록(극장, 명장면) 결과 줄
     theaterLine: theaterLine,
+    // M6-SEASON 월요일 주간 소개(소개 화면 버튼)
+    introNext: introNext, introMini: introMini,
     _review: _review, _learn: _learn, _fun: _fun, _wrap: _wrap
   };
   if (typeof module !== 'undefined') module.exports = api;

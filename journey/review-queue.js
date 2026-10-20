@@ -17,7 +17,19 @@
 //   연습은 레이팅과 XP에 들어가지 않는다(Journey.afterDecision이 연습 결정을 거르고, 이 모듈은 XP를 주지 않는다).
 // 주간 리포트: weekly(now) = { week, top(최근 7일에 들어온 실수 중 evLoss 큰 순 3, estimated는 '큰 실수' 라벨), concepts(JStats
 //   최근 7일 대 그 앞 7일), added, fixed, due, graduated }. markReportView(now), reportWeeks()(ISO 주, M6 보스 weeks와 s6-05, s6-08).
-// 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다. 다른 모듈(Journey, App, JStats, Coach)은 typeof 가드.
+// (M6-L6B, 로드맵 결정 15와 계약 H10) 복기 이월 두 가지:
+//   1. weekly(now, { lastWeek:true }) = 지난 ISO 주 월요일 00:00 ~ 일요일 23:59:59.999(로컬) 범위의 리포트. top, added, fixed는
+//      그 범위, concepts는 JStats 지난주 7일(월~일) 대 그 앞 주 7일, due와 graduated와 total은 지금 기준. 결과에 lastWeek:true,
+//      week = 지난주 키, from과 to(ISO, 둘 다 범위 안 끝 시각). 월요일 강조 카드와 그 리포트(journey/views/weekly.js)가 쓴다.
+//      markReportView(now)는 그대로 '본 주'(now의 ISO 주)를 기록하고 reportWeeks()와 F4 키 형식도 그대로다(M6 보스 weeks 조건).
+//   2. 연습 연쇄(practice) 동안 코칭 레벨을 L1(결정 전 정답 가림)로 고정한다. 첫 핸드를 열기 전에 CoachUI.snapshot()을
+//      poker_journey.review.coach = { snap, level:1, at }에 저장하고 CoachUI.setLevel(1). 연쇄가 끝나면(onDone 전, onPracticeExit 마지막과
+//      다른 연습이 끼어든 뒤, abort, 새 연쇄로 바뀜, 시작 실패, 연쇄 중 일반 핸드의 실수가 들어옴 = 연쇄를 떠남) CoachUI.restore(snap)
+//      뒤 저장본을 지운다. 새로고침이나 앱 종료로 연쇄가 사라지면 window load 뒤 restoreStale()이 저장본으로 되돌린다.
+//      Boss가 코칭을 고정 중이면(poker_journey.boss.coachLock 또는 boss.active.coachSnap) 고정도 복원도 하지 않는다(복원은 보스가
+//      풀린 뒤 restoreStale 또는 releaseCoach로). CoachUI.snapshot, restore, setLevel 중 하나라도 없으면 아무것도 하지 않는다.
+// 로드 시 document, window(addEventListener 제외), localStorage, setTimeout에 접근하지 않는다. 다른 모듈(Journey, App, JStats, Coach,
+//   CoachUI)은 typeof 가드.
 var ReviewQueue = (function() {
   var DAY = 24 * 3600 * 1000;
   var INTERVALS = [1, 3, 7, 21];        // box 0~3의 다음 간격(일)
@@ -27,6 +39,7 @@ var ReviewQueue = (function() {
   var PRACTICE_MAX = 5;                  // 연습 연쇄 한 번에 여는 핸드 수
   var VIEWS_MAX = 260;                   // 리포트 열람 주 기록 상한(5년)
   var TOP_N = 3;
+  var LOCK_LEVEL = 1;                    // 연습 연쇄 동안 코칭 레벨(L1 먼저 판단 = 결정 전 정답 가림, 로드맵 결정 15)
   var STREET_KO = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
   var COACH_CONCEPTS = ['rfi', 'vs_rfi', 'blind_defense', 'vs_3bet', 'pot_odds', 'draws', 'cbet', 'value_bluff', 'board_texture', 'turn_river', 'actions'];
   var CONCEPT_LABEL = { rfi: '오픈', vs_rfi: '상대 오픈 대응', blind_defense: '블라인드 방어', vs_3bet: '3벳 대응', pot_odds: '팟 오즈',
@@ -127,6 +140,9 @@ var ReviewQueue = (function() {
   function add(mode, heroPos, seed, street, info, now) {
     var k = key(mode, heroPos, seed, street);
     if (!k) return null;
+    // 연습 핸드의 결정은 여기 오지 않는다(journey-core가 거름). 연쇄가 열려 있는데 일반 핸드의 실수가 들어오면 연쇄를 떠난 것이다:
+    // 조용히 정리하고 코칭을 되돌린다(▶ 없이 메뉴로 나가 자유 게임을 친 경우 등, H10)
+    if (_run && _run.launched) _leave();
     info = _isObj(info) ? info : {};
     var t = _now(now);
     var loss = Math.max(0, Math.round(Math.abs(_num(info.evLoss, 0)) * 100) / 100);
@@ -287,11 +303,11 @@ var ReviewQueue = (function() {
       return { n: n, pct: (n > 0 && a.pct != null && isFinite(a.pct)) ? Math.round(Number(a.pct)) : null };
     } catch (e) { return null; }
   }
-  // 개념별 정확도(초록 비율): 최근 7일 대 그 앞 7일. 둘 중 하나라도 결정이 있는 개념만, 결정 수가 많은 순
-  function _concepts(t) {
+  // 개념별 정확도(초록 비율): end(JStats 7일 창의 마지막 날) 대 prevEnd. 둘 중 하나라도 결정이 있는 개념만, 결정 수가 많은 순
+  function _concepts(end, prevEnd) {
     var out = [];
     COACH_CONCEPTS.forEach(function(c) {
-      var a = _acc(c, t), b = _acc(c, t - 7 * DAY);
+      var a = _acc(c, end), b = _acc(c, prevEnd);
       if (!a || !b || (a.n === 0 && b.n === 0)) return;
       out.push({ concept: c, label: CONCEPT_LABEL[c] || c, now: a, prev: b,
         delta: (a.pct != null && b.pct != null) ? a.pct - b.pct : null });
@@ -299,24 +315,44 @@ var ReviewQueue = (function() {
     out.sort(function(x, y) { return ((y.now.n + y.prev.n) - (x.now.n + x.prev.n)) || _cmp(x.concept, y.concept); });
     return out;
   }
-  function weekly(now) {
-    var t = _now(now), from = t - 7 * DAY;
-    var all = _list();
-    var inWin = function(v) { var m = _ms(v); return isFinite(m) && m > from && m <= t; };
-    var recent = all.filter(function(it) { return inWin(it.at); });
+  // 지난 ISO 주(로컬 날짜): from = 지난주 월요일 00:00, to = 이번 주 월요일 00:00(제외), sun = 지난주 일요일 정오(JStats 날짜 창의 끝)
+  // 날짜 생성자로 하루씩 빼므로 서머타임이 있는 지역에서도 자정이 밀리지 않는다
+  function lastWeekSpan(now) {
+    var d = new Date(_now(now));
+    var back = (d.getDay() + 6) % 7;                       // 월 0, 화 1, ... 일 6
+    var y = d.getFullYear(), m = d.getMonth(), day = d.getDate() - back;
+    return { from: new Date(y, m, day - 7).getTime(), to: new Date(y, m, day).getTime(),
+      sun: new Date(y, m, day - 1, 12).getTime(), prevSun: new Date(y, m, day - 8, 12).getTime() };
+  }
+  function _report(all, t, win, week, from, to, conc) {
+    var recent = all.filter(function(it) { return win(it.at); });
     var top = recent.slice().sort(function(a, b) {
       return (_num(b.evLoss, 0) - _num(a.evLoss, 0)) || (_ms(b.at) - _ms(a.at)) || _cmp(a.key, b.key);
     }).slice(0, TOP_N).map(_decorate);
     return {
-      week: weekKey(t), from: _iso(from), to: _iso(t),
+      week: week, from: _iso(from), to: _iso(to),
       top: top,
-      concepts: _concepts(t),
+      concepts: conc,
       added: recent.length,
-      fixed: all.filter(function(it) { return it.lastOk === true && inWin(it.lastAt); }).length,
+      fixed: all.filter(function(it) { return it.lastOk === true && win(it.lastAt); }).length,
       due: all.filter(function(it) { return _isDue(it, t); }).length,
       graduated: all.filter(function(it) { return _num(it.box, 0) >= GRAD_BOX; }).length,
       total: all.length
     };
+  }
+  // opts.lastWeek(H10): 지난 ISO 주 월~일 범위(위 머리 주석 1번). 없으면 지금까지의 최근 7일(F4 그대로)
+  function weekly(now, opts) {
+    var t = _now(now), all = _list();
+    if (_isObj(opts) && opts.lastWeek) {
+      var sp = lastWeekSpan(t);
+      var inWeek = function(v) { var x = _ms(v); return isFinite(x) && x >= sp.from && x < sp.to; };
+      var r = _report(all, t, inWeek, weekKey(sp.from), sp.from, sp.to - 1, _concepts(sp.sun, sp.prevSun));
+      r.lastWeek = true;
+      return r;
+    }
+    var from = t - 7 * DAY;
+    var inWin = function(v) { var m = _ms(v); return isFinite(m) && m > from && m <= t; };
+    return _report(all, t, inWin, weekKey(t), from, t, _concepts(t, t - 7 * DAY));
   }
   function markReportView(now) {
     var q = _q(), wk = weekKey(_now(now));
@@ -397,9 +433,63 @@ var ReviewQueue = (function() {
     if (_run) { if (_run.launched && !_run.foreign) _stale = _run.list[_run.i]; _hideToast(); _finish(true, false); }
     _run = { id: ++_seq, list: recs, i: 0, n: 0, ok: 0, results: [], opts: opts, tag: opts.tag || null,
       judged: false, launched: false, foreign: false, failed: false };
-    if (!_startAt(0, false)) { _run = null; return false; }
+    _lockCoach();                                            // 첫 핸드를 열기 전에(App.startPractice가 CoachUI.onNewHand를 부른다)
+    if (!_startAt(0, false)) { _run = null; _releaseCoach(); return false; }
     return true;
   }
+
+  // ── 연습 중 코칭 고정(H10, 머리 주석 2번) ──
+  function _coachApi() {
+    var C = (typeof CoachUI !== 'undefined') ? CoachUI : null;
+    return (C && _fn(C, 'snapshot') && _fn(C, 'restore') && _fn(C, 'setLevel')) ? C : null;
+  }
+  // 보스(또는 코칭 고정 미션)가 코칭을 쥐고 있나(journey/boss.js coachLock, active.coachSnap)
+  function _bossLocked() {
+    var b = _state().boss;
+    return !!(_isObj(b) && (b.coachLock || (_isObj(b.active) && b.active.coachSnap)));
+  }
+  function _lockCoach() {
+    var C = _coachApi();
+    if (!C) return false;
+    try {
+      if (_bossLocked()) return false;
+      var q = _q();
+      // 저장본이 이미 있으면(보스 때문에 미뤄진 복원 등) 그것이 원래 레벨이다. 지금 레벨(L1일 수 있음)을 다시 뜨지 않는다
+      if (!_isObj(q.coach) || !_isObj(q.coach.snap)) {
+        var snap = C.snapshot();
+        if (!_isObj(snap)) return false;
+        q.coach = { snap: _copy(snap), level: LOCK_LEVEL, at: _iso(Date.now()) };
+        _save();                                             // 고정 전에 저장(새로고침 뒤 load에서 되돌린다)
+      }
+      C.setLevel(LOCK_LEVEL);
+      return true;
+    } catch (e) { _warn(e); return false; }
+  }
+  // 저장된 스냅샷으로 되돌리고 지운다. 연쇄가 진행 중이거나 보스가 코칭을 쥐고 있으면 그대로 둔다(false)
+  function _releaseCoach() {
+    try {
+      var q = _q();
+      if (!_isObj(q.coach)) return false;
+      if (_run || _bossLocked()) return false;
+      var C = _coachApi();
+      if (!C) return false;
+      var snap = q.coach.snap;
+      delete q.coach;
+      _save();
+      if (_isObj(snap)) C.restore(_copy(snap));
+      return true;
+    } catch (e) { _warn(e); return false; }
+  }
+  // 연쇄를 떠났다(일반 핸드가 시작됨): 조용히 정리. 앱에 남은 연습이 없으므로 _stale도 비운다
+  function _leave() {
+    _run = null;
+    _stale = null;
+    _hideToast();
+    _releaseCoach();
+  }
+  // 새로고침, 앱 종료 뒤(window load) 또는 여정 화면(WeeklyView)에서: 진행 중 연쇄가 없는데 남은 고정이 있으면 되돌린다
+  function restoreStale() { return _run ? false : _releaseCoach(); }
+  function coachLock() { var c = _q().coach; return _isObj(c) ? _copy(c) : null; }
   // 결정 목록에서 한 스트리트의 판정: 결정이 없으면 reached false. 결정 신호등은 light, 없으면 EV 차이(app.js _decLight와 같은 임계)
   function _light(d) {
     if (d && (d.light === 'green' || d.light === 'yellow' || d.light === 'red')) return d.light;
@@ -455,7 +545,7 @@ var ReviewQueue = (function() {
     var run = _run;
     if (!run) return false;
     _hideToast();
-    if (run.foreign) { _run = null; return false; }
+    if (run.foreign) { _run = null; _releaseCoach(); return false; }
     _stale = null;
     var next = run.i + 1;
     if (next < run.list.length) {
@@ -469,6 +559,7 @@ var ReviewQueue = (function() {
     var run = _run;
     if (!run) return false;
     _run = null;
+    _releaseCoach();                                          // onDone(다음 화면, 새 연쇄)보다 먼저 원래 코칭으로
     var res = _result(run, viaExit);
     if (!silent && _fn(run.opts, 'onDone')) {
       try { run.opts.onDone(res); } catch (e) { _warn(e); }
@@ -491,6 +582,7 @@ var ReviewQueue = (function() {
     _run = null;
     _hideToast();
     if (run.launched && !run.foreign) _stale = run.list[run.i];
+    _releaseCoach();
     return _result(run, false);
   }
   function status() {
@@ -566,14 +658,28 @@ var ReviewQueue = (function() {
   // ── 테스트 주입 ──
   function _setScreenProbe(fn) { _probe = (typeof fn === 'function') ? fn : null; }
   function _setToastSink(fn) { _sink = (typeof fn === 'function') ? fn : null; }
-  function _reset() { _run = null; _stale = null; _mem = null; _probe = null; _sink = null; }
+  // 테스트 정리: 남은 코칭 고정이 있으면 먼저 되돌린다(같은 vm의 실제 CoachUI가 다음 테스트에 L1로 남지 않게)
+  function _reset() {
+    _run = null;
+    try { _releaseCoach(); } catch (e) { /* 무시 */ }
+    _stale = null; _mem = null; _probe = null; _sink = null;
+  }
+
+  // 새로고침 뒤: 다른 load 처리(Boss.restoreStale 등)가 끝난 다음 차례에 남은 고정을 되돌린다(H10)
+  if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+    window.addEventListener('load', function() {
+      var go = function() { try { restoreStale(); } catch (e) { _warn(e); } };
+      if (typeof setTimeout === 'function') setTimeout(go, 0); else go();
+    });
+  }
 
   var api = {
     INTERVALS: INTERVALS.slice(), MISS_DAYS: MISS_DAYS.slice(), GRAD_BOX: GRAD_BOX, CAP: CAP, PRACTICE_MAX: PRACTICE_MAX, STREET_KO: STREET_KO, CONCEPT_LABEL: CONCEPT_LABEL,
+    LOCK_LEVEL: LOCK_LEVEL,
     key: key, parseKey: parseKey, add: add, record: record, get: get, count: count, due: due, items: items, patternItems: patternItems,
     practice: practice, onPracticeHandEnd: onPracticeHandEnd, onPracticeExit: onPracticeExit, abort: abort, status: status, judge: judge,
-    weekly: weekly, markReportView: markReportView, reportWeeks: reportWeeks, weekKey: weekKey, lossLabel: lossLabel,
-    hintText: hintText, resultText: resultText,
+    weekly: weekly, lastWeekSpan: lastWeekSpan, markReportView: markReportView, reportWeeks: reportWeeks, weekKey: weekKey, lossLabel: lossLabel,
+    hintText: hintText, resultText: resultText, restoreStale: restoreStale, releaseCoach: restoreStale, coachLock: coachLock,
     _setScreenProbe: _setScreenProbe, _setToastSink: _setToastSink, _reset: _reset
   };
   if (typeof module !== 'undefined') module.exports = api;

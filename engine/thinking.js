@@ -6,6 +6,8 @@
 //     toCall = currentBetBefore - haveBefore, 팟 = potBefore로 계산한다.
 //     대사 변형은 opts.rnd가 있으면 그것으로, 없으면 (이름, 스트리트, 보드, 액션, 홀카드, 핸드 번호) 해시로 고른다.
 //     같은 입력이면 같은 문장이다. 리버에는 '드로우' 문구를 쓰지 않는다(스트리트 분기).
+//     opts.label('올인')이면 액션 낱말이 올인. opts.plan{key, kor, step}(M6-MINI, 극장 코어만 넘긴다)이면 포스트플랍의 계획 걸음
+//     (PLAN_STEP)에서 계획에 맞는 문장과 꼬리표 '(계획 이름)'을 쓰고 반환에 plan(계획키)을 더한다. 없으면 기존 문장 그대로.
 //   readOf(reader, target, state, opts{action, amount, label?, snapshot?, table?, prev?}) → { grade, text, conf, examples } | null
 //     grade는 'strong'|'medium'|'weak'|'air'(T5 4단계, 보드 3장 미만이면 null). 상대 유형 + 액션으로 추정한다.
 //     opts.table === 'theater'면 극장 계획 AI 실측 표(THEATER_READ, M5-THEATER)를 쓰고 확신이 낮은 장면은 null이다.
@@ -426,8 +428,121 @@ var Thinking = (function() {
       function(c) { return '리버, ' + _j(c.h, '이라', '라') + ' 쇼다운하면 이길 수도 있어. 체크.'; },
       function(c) { return _ro(c.h) + ' 싸게 끝내자. 체크.'; },
       function(c) { return '벳하면 더 좋은 손만 받을 거야. ' + _ro(c.h) + ' 체크.'; }
+    ],
+    // ── 아래는 극장 계획 걸음 전용(PLAN_STEP, M6-MINI). 게임 경로는 쓰지 않는다 ──
+    // 체크해 두었다가 벳을 맞고 올리는 순간(체크레이즈 함정 발동)
+    springTrap: [
+      function(c) { return '기다리던 벳이 왔어. ' + _j(c.h, '이니', '니') + ' 이제 ' + _ro(c.aw) + ' 키운다.'; },
+      function(c) { return '체크해 둔 보람이 있네. ' + _ro(c.h) + ' ' + c.aw + '.'; },
+      function(c) { return '걸렸어. ' + c.h + ', 이제 숨기지 않고 ' + _ro(c.aw) + ' 간다.'; }
+    ],
+    // 슬로플레이로 숨기다 리버에서 꺼내는 순간
+    springSlow: [
+      function(c) { return '여기까지 조용히 숨겼어. 이제 ' + _ro(c.h) + ' ' + c.aw + '.'; },
+      function(c) { return '숨겨 둔 ' + _j(c.h, '을', '를') + ' 꺼낼 때야. ' + c.aw + '.'; },
+      function(c) { return '끝까지 약한 척했으니 상대는 모를 거야. ' + _ro(c.h) + ' ' + c.aw + '.'; }
+    ],
+    // 블러프캐치: 먼저 치지 않고 상대 벳을 받을 생각
+    checkCatch: [
+      function(c) { return _ro(c.h) + ' 먼저 치진 않아. 상대가 치면 받아 줄 생각이야.'; },
+      function(c) { return '체크로 넘기자. 저 사람이 블러프로 치면 ' + _ro(c.h) + ' 잡는다.'; },
+      '내가 치면 더 좋은 손만 따라와. 체크하고 상대 벳을 기다린다.'
+    ],
+    checkCatchRiver: [
+      function(c) { return '리버, ' + _ro(c.h) + ' 먼저 치진 않아. 상대가 치면 받는다.'; },
+      '마지막까지 체크로 기다린다. 블러프가 나오면 잡는다.',
+      function(c) { return _j(c.h, '이라', '라') + ' 벳하면 더 좋은 손만 받아. 체크하고 블러프를 기다린다.'; }
+    ],
+    callCatch: [
+      function(c) { return '저 사람 블러프가 많아. ' + _ro(c.h) + ' 받는다.'; },
+      function(c) { return c.need ? '블러프만 이기면 돼. 필요 승률 ' + c.need + '%라 ' + _ro(c.h) + ' 콜.' : null; },
+      function(c) { return _ro(c.h) + ' 끝까지 본다. 쳐도 따라간다.'; }
+    ],
+    callCatchRiver: [
+      function(c) { return '리버에서도 받는다. 블러프라면 ' + _j(c.h, '이', '가') + ' 이긴다.'; },
+      function(c) { return c.need ? '필요 승률 ' + c.need + '%. 블러프가 그만큼만 섞여 있어도 콜이 맞아.' : null; },
+      function(c) { return '여기까지 따라왔으니 ' + _ro(c.h) + ' 쇼다운까지 간다.'; }
+    ],
+    // 팟컨트롤의 작은 벳
+    smallBet: [
+      function(c) { return _ro(c.h) + ' 작게 한 번. 팟을 크게 키울 손은 아니야.'; },
+      function(c) { return '작은 벳으로 싸게 정리하자. ' + _j(c.h, '은', '는') + ' 큰 팟이 부담스러워.'; },
+      function(c) { return c.h + ', 작게 쳐서 약한 손만 접게 하자.'; }
+    ],
+    // 포기 계획의 체크(손이 있어도 더 넣지 않는다)
+    checkGiveUp: [
+      function(c) { return _ro(c.h) + '는 여기서 더 넣지 않아. 체크.'; },
+      '이번 팟은 욕심내지 않는다. 체크.',
+      function(c) { return '여기선 접을 준비. ' + _ro(c.h) + ' 돈을 더 쓰지 않는다. 체크.'; }
+    ],
+    checkGiveUpRiver: [
+      function(c) { return '리버, ' + _ro(c.h) + '는 더 넣지 않아. 체크.'; },
+      '마지막 카드까지 왔지만 욕심내지 않는다. 체크.',
+      function(c) { return _ro(c.h) + ' 여기서 돈을 더 쓰지 않는다. 체크하고 끝내자.'; }
+    ],
+    // 벳폴드: 내 벳에 레이즈가 와서 계획대로 접는다
+    foldPlan: [
+      '한 번 쳤으니 됐어. 반격이 왔으니 계획대로 접는다.',
+      function(c) { return _ro(c.h) + ' 레이즈까지 받을 순 없어. 폴드.'; },
+      '내 벳에 레이즈가 왔어. 여기서 버티면 손해야. 접는다.'
     ]
   };
+
+  // ── 극장 계획 걸음 → 속마음(M6-MINI, 로드맵 M4 남은 것 3, 결정 14) ──
+  // opts.plan = { key, kor, step }은 극장 코어가 극장 AI가 계획대로 둔 걸음(theater/cast-ai.js RUN의 step)일 때만 넘긴다.
+  // 포스트플랍에서 아래 표의 걸음이고 액션 갈래(act)가 맞으면 그 계획에 맞는 문장 풀과 의도를 쓰고 괄호 꼬리표를 계획 이름으로 한다
+  //   (예: 체크레이즈 함정의 체크가 '(팟컨트롤)'이 아니라 '체크로 숨기자 ... (체크레이즈 함정)'). 표에 없는 걸음(엔진 폴백, c벳,
+  //   계획 밖의 콜과 폴드 등), 프리플랍, opts.plan이 없으면 기존 규칙 그대로다(게임 문구 불변, j-thinking 17).
+  //   값 { act: 'check'|'call'|'aggro'|'fold', intent, pool: 풀 이름 | fn(s, pst, ctx) → 풀 이름|null(null이면 기존 규칙),
+  //        gen: true면 문장은 기존 규칙(그 의도가 keep 목록일 때만 계획 꼬리표), tag: 꼬리표 뒤에 붙는 말(예 '멈춤') }
+  function _riv(name) { return function(s, pst) { return pst === 'river' ? name + 'River' : name; }; }
+  function _valuePool(s, pst, x) { return pst === 'river' ? 'valueRiver' : (x.wet ? 'valueWet' : 'valueDry'); }
+  var _HAS_HAND = { nut: true, strong: true, medium: true, 'weak-pair': true };
+  var PLAN_STEP = {
+    'trap-check': { act: 'check', intent: 'trap', pool: _riv('checkTrap') },
+    'trap-call': { act: 'call', intent: 'trap', pool: _riv('callTrap') },
+    'trap-raise': { act: 'aggro', intent: 'trap', pool: 'springTrap' },
+    'slow-check': { act: 'check', intent: 'trap', pool: _riv('checkTrap') },
+    'slow-call': { act: 'call', intent: 'trap', pool: _riv('callTrap') },
+    'slow-spring': { act: 'aggro', intent: 'trap', pool: 'springSlow' },
+    'bc-check': { act: 'check', intent: 'pot-control', pool: _riv('checkCatch') },
+    'bc-call': { act: 'call', intent: 'call-odds', pool: _riv('callCatch') },
+    'vm-bet': { act: 'aggro', intent: 'value', pool: _valuePool },
+    'vm-raise': { act: 'aggro', intent: 'value', pool: _valuePool },
+    'vm-reraise': { act: 'aggro', intent: 'value', pool: _valuePool },
+    'vm-call': { act: 'call', gen: true, keep: { trap: true, 'call-odds': true } },
+    'bf-bet': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return _HAS_HAND[s] && s !== 'weak-pair' ? _valuePool(s, pst, x) : null; } },
+    'bf-fold': { act: 'fold', intent: 'give-up', pool: function(s, pst, x) { return x.bet ? 'foldPlan' : null; } },
+    'pc-small': { act: 'aggro', intent: 'pot-control', pool: function(s) { return _HAS_HAND[s] ? 'smallBet' : null; } },
+    'pc-thin': { act: 'aggro', intent: 'value', pool: function(s, pst) { return pst === 'river' && _HAS_HAND[s] ? 'valueRiver' : null; } },
+    'pc-check': { act: 'check', intent: 'pot-control', pool: function(s, pst) { return _HAS_HAND[s] ? (pst === 'river' ? 'checkMidRiver' : 'checkMid') : null; } },
+    'pc-call': { act: 'call', intent: 'call-odds', pool: function(s, pst) { return _HAS_HAND[s] ? (pst === 'river' ? 'callMidRiver' : 'callMid') : null; } },
+    'gu-check': { act: 'check', intent: 'give-up', pool: _riv('checkGiveUp') },
+    'gu-fold': { act: 'fold', gen: true, keep: { 'give-up': true } },
+    'barrel': { act: 'aggro', gen: true, keep: { bluff: true, semibluff: true } },
+    'barrel-raise': { act: 'aggro', gen: true, keep: { bluff: true, semibluff: true } },
+    'barrel-stop': { act: 'check', intent: 'give-up', tag: '멈춤', pool: function(s, pst) { return s === 'air' ? (pst === 'river' ? 'checkAirRiver' : 'checkAir') : (pst === 'river' ? 'checkGiveUpRiver' : 'checkGiveUp'); } },
+    'sp-bet': { act: 'aggro', gen: true, keep: { semibluff: true, bluff: true } },
+    'sp-raise': { act: 'aggro', gen: true, keep: { semibluff: true, bluff: true } },
+    'sp-bluff': { act: 'aggro', gen: true, keep: { bluff: true } }
+  };
+  function _actGroup(a) {
+    if (a === 'fold' || a === 'check' || a === 'call') return a;
+    return _isAggro(a) ? 'aggro' : null;
+  }
+  // gen = 기존 규칙의 { intent, pool, conf } → 계획 걸음이면 { intent, pool, conf, label } | null(기존 그대로)
+  function _planCase(pl, gen, s, action, pst, x) {
+    var d = PLAN_STEP[pl.step];
+    if (!d || d.act !== _actGroup(action)) return null;
+    var label = String(pl.kor || pl.key || '');
+    if (!label) return null;
+    if (d.tag) label += ' ' + d.tag;   // 계획 안의 멈춤(3배럴 블러프 멈춤)
+    if (d.gen) return d.keep && d.keep[gen.intent] ? { intent: gen.intent, pool: gen.pool, conf: gen.conf, label: label } : null;
+    var pool = typeof d.pool === 'function' ? d.pool(s, pst, x) : d.pool;
+    if (!pool || !PO[pool]) return null;
+    var made = s === 'nut' || s === 'strong';
+    return { intent: d.intent, pool: pool, conf: d.intent === 'give-up' ? 'mid' : (made ? 'high' : 'mid'), label: label };
+  }
 
   function _actWord(action, label) {
     if (action === 'allin' || label === '올인') return '올인';
@@ -518,6 +633,12 @@ var Thinking = (function() {
       var s = strength(hole, board);
       var wet = _isWet(board);
       r = _postflopCase(type, s, action, pst, wet);
+      // 극장 계획 걸음이면 계획에 맞는 풀과 꼬리표(opts.plan은 극장 코어만 넘긴다)
+      var pl = (opts.plan && typeof opts.plan === 'object' && opts.plan.step) ? opts.plan : null;
+      if (pl) {
+        var pc = _planCase(pl, r, s, action, pst, { wet: wet, bet: !!(snap && (snap.haveBefore || 0) > 0) });
+        if (pc) r = pc;
+      }
       var c = {
         h: _handTxt(hole, board, s),
         tex: pst === 'river' ? '' : (wet ? '보드에 드로우가 많아' : '보드가 드라이해서'),
@@ -526,9 +647,11 @@ var Thinking = (function() {
       body = _fromPool(PO[r.pool], c, pick);
     }
     var tail = _tone(type, r.intent, pick, { hide: hide, name: name });
-    var text = '💭 ' + name + ': ' + body + tail + ' (' + INTENT_KOR[r.intent] + ')';
-    return { name: name, street: street, text: text, intent: r.intent, conf: r.conf,
+    var text = '💭 ' + name + ': ' + body + tail + ' (' + (r.label || INTENT_KOR[r.intent]) + ')';
+    var out = { name: name, street: street, text: text, intent: r.intent, conf: r.conf,
       body: body, tail: tail, calc: { toCall: toCall, pot: pot, need: need } };
+    if (r.label) out.plan = pl.key;   // 계획 걸음 문장(극장 전용)
+    return out;
   }
 
   // ── 레인지 대표 조합 ──
@@ -1111,7 +1234,7 @@ var Thinking = (function() {
     INTENT_KOR: INTENT_KOR, STREET_KOR: STREET_KOR, READ_KOR: READ_KOR, CONF_KOR: CONF_KOR, TRUTH: TRUTH,
     POOLS: { preflop: PF, postflop: PO, read: READ_POOLS }, TAILS: TAILS, NEUTRAL_TAIL: NEUTRAL_TAIL, TAIL_GROUPS: TAIL_GROUPS, READ_TABLE: READ_TABLE, READ_KEYS: READ_KEYS,
     THEATER_READ: THEATER_READ, THEATER_READ_SRC: THEATER_READ_SRC, THEATER_READ_KEYS: THEATER_READ_KEYS,
-    THEATER_STREETS: THEATER_STREETS, THEATER_MIN_P: THEATER_MIN_P, THEATER_WHY: THEATER_WHY,
+    THEATER_STREETS: THEATER_STREETS, THEATER_MIN_P: THEATER_MIN_P, THEATER_WHY: THEATER_WHY, PLAN_STEP: PLAN_STEP,
     _tone: _tone, _rangeOf: _rangeOf
   };
   if (typeof module !== 'undefined') module.exports = api;

@@ -1,5 +1,5 @@
 // puzzles/gen-math.js (채우는 패키지: M2-P2b)
-// 수학 퍼즐 생성기 10종: outs, outs-x4, potodds, eqbucket, mdf, alpha, bluffratio, spr, geosize, variance.
+// 수학 퍼즐 생성기 11종: outs, outs-x4, potodds, eqbucket, mdf, alpha, bluffratio, spr, geosize, variance, toygame(M6-WIDGET).
 // 계약: puzzles/puzzle-core.js 머리 주석 C1(생성기), C2(문항), C3(장면), C9(eqbucket 은행).
 // 정확성 규칙(설계서 3.2절 출제 제외 5번, 8.3절 2(b), 8.4절):
 //   아웃츠 = 남은 덱(플랍 47장, 턴 46장) 중 다음 1장으로 스트레이트 이상이 되는 카드 수. HandEval 열거로 센다.
@@ -9,6 +9,7 @@
 //   MDF = 팟/(팟+벳), 알파 = 벳/(팟+벳), 블러프 비율 = 벳/(팟+2벳), 여기서 팟은 벳 전 팟.
 //   SPR은 계산값만 exact이고 구간 해석은 '참고' 한 줄. 기하 사이즈 b = ((1+2S/P)^(1/n) - 1)/2.
 //   분산 95% 구간 = 승률 x N/100 ± 1.96 x 90 x sqrt(N/100) (SD 90bb/100, 설계서 1.3절).
+//   토이 게임(A/K/Q 리버, M6-WIDGET): 무차별 블러프 몫 = 벳/(팟+2벳), 콜 무차별(MDF) = 팟/(팟+벳), 팟은 벳 전 팟. 키 = 벳 비율.
 //   eqbucket은 PUZZLE_SEEDS.eqbucket(또는 opts.bank) 항목에서만 낸다. 은행이 비면 ready() false, next null. 즉석 MC 없음.
 // verify(q)는 next와 다른 경로로 정답을 다시 계산한다(아웃츠는 evaluateIdx 정수 경로, 공식은 대수적으로 다른 식).
 // 로드 시 DOM, window, localStorage 접근 없음. HandEval, Puzzles, PUZZLE_SEEDS는 호출 시점에 typeof 가드.
@@ -788,6 +789,78 @@ var GenMath = (function() {
     };
   }
 
+  // ── 11. toygame(A/K/Q 리버 토이 게임, M6-WIDGET. 키 = 벳 비율, 정답 = 벳/(팟+2벳), 팟 = 벳 전 팟) ──
+  // 나(벳하는 쪽)는 A(넛) 또는 Q(블러프), 상대는 K(블러프캐처: A에 지고 Q에 이김)만 든다. 벳 전 팟 P, 내 벳 B.
+  //   상대 K의 콜 EV(폴드 = 0 기준, 내 벳 중 블러프 몫 f) = f x (P+B) - (1-f) x B → 0이 되는 f = B/(P+2B)(무차별 블러프 몫).
+  //   내 Q 블러프의 EV(체크 = 0 기준, 상대 콜 빈도 c) = (1-c) x P - c x B → 0이 되는 c = P/(P+B)(콜 무차별 = MDF).
+  // 레슨 위젯 toyGame(lessons/widgets/toy-game.js)도 이 함수로 숫자를 낸다(계약 H1).
+  function toyCallEV(P, B, f) { return f * (P + B) - (1 - f) * B; }
+  function toyBluffEV(P, B, c) { return (1 - c) * P - c * B; }
+  function toyGame(P, B) {
+    P = Number(P); B = Number(B);
+    if (!(P > 0) || !(B > 0) || !isFinite(P) || !isFinite(B)) return null;
+    return { P: P, B: B, bluffShare: B / (P + 2 * B), callFreq: P / (P + B), alpha: B / (P + B), ratio: B / P };
+  }
+  var TOY_SIZES = ['1/4', '1/3', '1/2', '2/3', '3/4', '1', '1.5', '2'];
+  function _toyPrompt(P, B, sz) {
+    return '토이 게임: 나는 A 또는 Q, 상대는 K. 벳 전 팟 ' + _num(P) + 'bb, 내 벳 ' + _num(B) + 'bb(' + sz.kor + '). K의 콜이 본전이 되는 내 벳 중 Q 몫은?';
+  }
+  function _buildToy(sz, rnd) {
+    var pots = _potsFor(sz);
+    if (!pots.length) return null;
+    var P = _pick(pots, rnd), B = Math.round(P * sz.v * 2) / 2, t = toyGame(P, B);
+    var c = t.bluffShare;
+    // 흔한 착각: 알파(벳/(팟+벳)), K의 콜 빈도(MDF), 벳/팟, 밸류 몫, 반반
+    var cands = [t.alpha, t.callFreq, B / P, (P + B) / (P + 2 * B), 0.5, c + 0.08, c - 0.08, c + 0.12];
+    var wrongs = _wrongs(c, cands, _pct0, 0.03, 3, 0.05, 0.01, 0.99);
+    if (wrongs.length < 3) return null;
+    var op = _options({ v: c, label: _pct0(c) }, wrongs, rnd);
+    return _base('toygame', {
+      key: sz.k, prompt: _toyPrompt(P, B, sz), scene: { potTotal: P, note: 'A/K/Q 토이 게임, 내 벳 ' + _num(B) + 'bb' },
+      options: op.options, answer: op.answer, difficulty: BASE.toygame + (sz.v > 1 ? 50 : 0),
+      data: { P: P, B: B, size: sz.k, values: op.values }
+    });
+  }
+  function _verifyToy(q) {
+    if (!_commonOk(q, 'toygame') || q.options.length !== 4) return false;
+    var d = q.data, sz = _sizeByKey(d.size);
+    if (!sz || TOY_SIZES.indexOf(sz.k) < 0 || q.key !== sz.k || !(d.P > 0) || !_close(d.B, d.P * sz.v)) return false;
+    if (q.prompt !== _toyPrompt(d.P, d.B, sz)) return false;
+    // 독립 경로: K의 콜 EV를 블러프 몫의 함수로 직접 적고 0이 되는 점을 이분 탐색으로 찾는다(공식 B/(P+2B)를 쓰지 않음)
+    function ev(f) { var win = f * (d.P + d.B), lose = (1 - f) * d.B; return win - lose; }
+    var lo = 0, hi = 1;
+    if (!(ev(lo) < 0 && ev(hi) > 0)) return false;
+    for (var k = 0; k < 60; k++) { var mid = (lo + hi) / 2; if (ev(mid) < 0) lo = mid; else hi = mid; }
+    var f = (lo + hi) / 2;
+    if (_answerLabel(q) !== _pct0(f)) return false;
+    var pc = Math.round(f * 100);
+    return q.options.every(function(o) { return /^\d+%$/.test(o.label) && (o.id === q.answer || Math.abs(parseInt(o.label, 10) - pc) >= 2); });
+  }
+  function _explainToy(q) {
+    var d = q.data, t = toyGame(d.P, d.B);
+    return {
+      line: 'K의 콜 EV = Q 몫 × (팟+벳) - A 몫 × 벳 = 0 → Q 몫 = 벳 ÷ (팟+2벳) = ' + _num(d.B) + ' ÷ (' + _num(d.P) + '+' + _num(2 * d.B) + ') = ' +
+        _pct0(t.bluffShare) + '(팟은 벳 전). 이보다 블러프가 많으면 K는 콜, 적으면 폴드가 이득이에요.\n' +
+        '거꾸로 K가 팟 ÷ (팟+벳) = ' + _pct0(t.callFreq) + '만큼 콜하면(MDF) 내 Q 블러프도 본전이라, 서로 상대를 무차별로 만드는 지점이에요.'
+    };
+  }
+  var genToy = {
+    title: '토이 게임',
+    next: function(rnd) {
+      rnd = _rnd(rnd);
+      return _retry(function() { return _buildToy(_sizeByKey(_pick(TOY_SIZES, rnd)), rnd); }, _verifyToy);
+    },
+    fromKey: function(key, rnd) {
+      rnd = _rnd(rnd);
+      var sz = _sizeByKey(String(key));
+      if (!sz || TOY_SIZES.indexOf(sz.k) < 0) return null;
+      return _retry(function() { return _buildToy(sz, rnd); }, _verifyToy);
+    },
+    verify: _verifyToy,
+    explain: _explainToy,
+    ready: function() { return true; }
+  };
+
   // ── 8. spr(계산값 exact, 구간 해석은 참고 한 줄) ──
   // 프리플랍 줄거리 템플릿: pot(o) = 플랍 팟, inv(o) = 한 사람이 넣은 칩. o = 오픈 크기
   function _half(x) { return Math.round(x * 2) / 2; }
@@ -1029,15 +1102,16 @@ var GenMath = (function() {
     'alpha': { stage: 4, group: 'math', concept: 'alpha' },        // s4-06, s4-09
     'bluffratio': { stage: 4, group: 'math', concept: 'value_bluff' }, // s4-06
     'geosize': { stage: 5, group: 'math', concept: 'spr' },        // s5-06
-    'variance': { stage: 6, group: 'math', concept: 'variance' }   // s6-06
+    'variance': { stage: 6, group: 'math', concept: 'variance' },  // s6-06
+    'toygame': { stage: 5, group: 'math', concept: 'value_bluff' }  // s5-04(M6-WIDGET)
   };
   // 기본 난이도(부록 C). 정본은 Puzzles.TYPE_META(M2-P1)이고 이 값은 문항의 difficulty 기준점
-  var BASE = { 'outs': 1300, 'outs-x4': 1350, 'potodds': 1200, 'eqbucket': 1300, 'spr': 1450, 'mdf': 1700, 'alpha': 1700, 'bluffratio': 1700, 'geosize': 2100, 'variance': 2000 };
+  var BASE = { 'outs': 1300, 'outs-x4': 1350, 'potodds': 1200, 'eqbucket': 1300, 'spr': 1450, 'mdf': 1700, 'alpha': 1700, 'bluffratio': 1700, 'geosize': 2100, 'variance': 2000, 'toygame': 2000 };
 
   var GENS = {
     'outs': genOuts, 'outs-x4': genX4, 'potodds': genPotodds, 'eqbucket': genEq,
     'mdf': _makeRatioGen('mdf'), 'alpha': _makeRatioGen('alpha'), 'bluffratio': _makeRatioGen('bluffratio'),
-    'spr': genSpr, 'geosize': genGeo, 'variance': genVar
+    'spr': genSpr, 'geosize': genGeo, 'variance': genVar, 'toygame': genToy
   };
 
   if (typeof Puzzles !== 'undefined' && Puzzles && typeof Puzzles.register === 'function') {
@@ -1049,7 +1123,8 @@ var GenMath = (function() {
 
   var api = {
     GENS: GENS, META: META, BASE: BASE, OUTS_TABLE: OUTS_TABLE, OUTS_LIST: OUTS_LIST, EQ_BUCKETS: EQ_BUCKETS,
-    countOuts: countOuts, outsPct: outsPct, bucketOf: bucketOf, geoSize: geoSize, varianceBand: varianceBand, oddsLabel: oddsLabel
+    countOuts: countOuts, outsPct: outsPct, bucketOf: bucketOf, geoSize: geoSize, varianceBand: varianceBand, oddsLabel: oddsLabel,
+    toyGame: toyGame, toyCallEV: toyCallEV, toyBluffEV: toyBluffEV, TOY_SIZES: TOY_SIZES
   };
   if (typeof module !== 'undefined' && module) module.exports = api;
   return api;

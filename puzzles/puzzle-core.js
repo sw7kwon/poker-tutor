@@ -68,10 +68,14 @@
 //   verify(q) -> bool: 형식 검사(보기, 정답, key) + gen.verify(q)(독립 재계산).
 //   fromKey(type, key, rnd, opts) -> q|null(q.review = true: 복습이라 Rating.record가 레이팅에서 뺀다), available(type), isRated(q), explain(q) -> {line, scene?}
 //   label(q) -> {kind:'engine'|'given-range'|'chart'|'appdef'|'approx'|'character', text}: 설계서 8.2절 문구 그대로.
+//     (M6-PAINT, 계약 H12) 유형 'lesson'(레슨 복습)만 q.labelKind('chart' | 'appdef' | 'approx'(레슨 장면 label '참고'), gen-lesson fromKey가 채움)를 따른다.
+//     다른 유형은 q.labelKind가 있어도 무시한다(라벨은 유형 정본 TYPE_META가 정한다).
 //   dailySeed(dayKey) -> uint32: 결정론 해시('YYYY-MM-DD', 'YYYYMMDD', 타임스탬프 모두 같은 날이면 같은 값).
 //   daily5(dayKey, stage) -> q 5개: 단계+1 이하, 레이팅 대상 exact/chart만, opts.noReview:true로 생성.
 //     구성 프리플랍 2, 수학 1, 그 외 2(S1은 그 외 2를 showdown/order/tocall로). 모자라면 가용 유형으로 채워 5문항 유지.
-//   pickType(stage, rating, rnd, opts{concept, exclude, rated}) -> type|null: 단계+1 이하에서 window(r) 근처 유형.
+//   pickType(stage, rating, rnd, opts{concept, exclude, rated, paint}) -> type|null: 단계+1 이하에서 window(r) 근처 유형.
+//     (M6-PAINT) ui 'paint' 유형(rangepaint)은 opts.paint가 true일 때만 후보다. 러시, 서바이벌, 구형 채움은 보기 문항만 고른다
+//     (PuzzleUI.can('rangepaint')가 true가 되어도 점수 모드에 색칠 문항이 섞이지 않게).
 //   window(r) -> [r-300, r-200]
 //   preflop 어댑터: PreflopDrill.next/explain/parseKey를 감싸 'preflop'을 등록한다(key 'rfi|UTG|AJo' 그대로).
 //     cold3bet|POS, vs4bet|POS 스팟(s3-05, s3-11)은 PreflopDrill이 다루지 않아 이 어댑터가 차트 모델로 직접 낸다.
@@ -93,6 +97,7 @@ var Puzzles = (function() {
     character: '이 캐릭터의 생각이고 정답이 아님'
   };
   var LABEL_KIND = { 'facingbet-river': 'given-range', intent: 'character' };
+  var LESSON_LABEL = { chart: 'chart', appdef: 'appdef', approx: 'approx' };   // 계약 H12(+ '참고' 장면은 approx): 레슨 복습 문항이 따를 수 있는 라벨
 
   function _m(confidence, rated, srs, stage, group, base, concept, extra) {
     var o = { confidence: confidence, appDef: false, rated: rated, srs: srs, stage: stage, group: group, base: base, concept: concept };
@@ -326,6 +331,7 @@ var Puzzles = (function() {
     else if (appDef) kind = 'appdef';
     else if (conf === 'chart') kind = 'chart';
     else kind = LABEL_KIND[t] === 'given-range' ? 'given-range' : 'engine';
+    if (t === 'lesson' && kind === 'engine' && q && Object.prototype.hasOwnProperty.call(LESSON_LABEL, q.labelKind)) kind = LESSON_LABEL[q.labelKind];
     return { kind: kind, text: LABEL_TEXT[kind] };
   }
 
@@ -437,7 +443,7 @@ var Puzzles = (function() {
     var ex = Array.isArray(opts.exclude) ? opts.exclude : (opts.exclude ? [opts.exclude] : []);
     var base = types().filter(function(t) {
       var m = _metaOf(t);
-      return available(t) && m && m.stage <= stage + 1 && ex.indexOf(t) < 0;
+      return available(t) && m && m.stage <= stage + 1 && ex.indexOf(t) < 0 && (m.ui !== 'paint' || opts.paint === true);
     });
     var pool = opts.rated === false ? base : base.filter(function(t) { return _ratedMeta(_metaOf(t)); });
     if (opts.concept) {

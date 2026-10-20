@@ -1,4 +1,4 @@
-// theater/theater-core.js (채우는 패키지: M4-P1)
+// theater/theater-core.js (채우는 패키지: M4-P1, M6에서는 M6-MINI만 고친다)
 //
 // ===== M4 그룹 간 계약 정본 T1~T9 (M4-P0 사전 등록) =====
 // 설계서(docs/JOURNEY_DESIGN.md 9절 M4, 7.3절, 부록 E)와 다르면 이 주석이 우선한다.
@@ -129,6 +129,15 @@
 //     JStats.record('theater', {ep:1, pred, hit}), touchDay를 한다.
 //   Journey.highlightOfDay(now) → card|null(날짜 시드).
 //
+// M6-MINI 보강(로드맵 M6 계약 H7, 결정 14, M4 남은 것 3)
+//   newEpisode spec 추가 키: seats[{name, type, pos}](정해진 좌석, 이름과 자리가 겹치면 무시하고 시드 셔플), stacks{이름: bb}(이어받은
+//     스택, 0보다 큰 값만). 블라인드를 다 못 내는 짧은 스택은 가진 만큼만 내고 올인한다(콜 금액은 1bb 그대로). 둘 다 없으면 기존 그대로.
+//   event 추가: planStep(극장 AI 걸음, 예 'trap-check'), fallback(엔진 폴백이면 true). 속마음은 극장 AI가 계획대로 둔 걸음이고 엔진이
+//     액션 갈래를 바꾸지 않았을 때만 Thinking.villainThought(..., {plan:{key, kor, step}, label})로 계획에 맞춘다(Thinking.PLAN_STEP).
+//   미니시즌 API: miniSeason(spec{seed?, cast?, total?}) → mini, miniEpisode(mini, opts) → mep, miniHand(mep) → ep|null,
+//     miniHandDone(mep, ep) → {hand, busts, stacks}, miniClose(mep) → {mini, no, out, forced, standings, winner, done},
+//     miniRun(mini, opts), miniSimulate(mini|seed, opts), miniAlive(mini), miniStandings(mini, blinds). 규칙은 아래 미니시즌 절.
+//
 // 머지 뒤 메인 통합 단계(병렬 그룹은 하지 않음): P1, P2, P6 머지 뒤 node tools/seed-bank.js --theater로 은행 500개를
 //   만들고 --verify-theater를 돌려 커밋한다. 극장 AI 1000핸드 지표(포스트플랍 레이즈 8% 이상, 함정 3% 이상)는
 //   관전 6인으로 다시 잰다. mobile-check에 theater 장면을 추가한다.
@@ -205,6 +214,12 @@ var Theater = (function() {
       return added >= BIG_BET * (a.potBefore || 0) ? 'bet_b' : 'bet_s';
     }
     return act || null;
+  }
+  // 액션 갈래(극장 AI 결정과 엔진이 실제로 처리한 액션이 같은 갈래인지 볼 때)
+  function _actClass(a) {
+    if (a === 'fold' || a === 'check' || a === 'call') return a;
+    if (a === 'bet' || a === 'raise' || a === '3bet' || a === 'allin') return 'aggro';
+    return null;
   }
   function _actionOptions(snap) {
     if (snap.toCall > 0) return ['fold', 'call', 'raise'];
@@ -289,14 +304,52 @@ var Theater = (function() {
     return null;
   }
 
+  // 정해진 좌석(미니시즌): [{name, type, pos}] 이름과 자리가 겹치지 않고 2명 이상이면 그대로(캐스트 원본 src를 이름으로 붙인다),
+  //   아니면 null(시드 셔플로 돌아간다)
+  function _fixedSeats(list, spec) {
+    if (!Array.isArray(list) || list.length < 2 || list.length > 6) return null;
+    var byName = {};
+    _castSource(spec).forEach(function(c) { byName[c.name] = c; });
+    var names = {}, poss = {}, out = [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i] || {}, name = c.name != null ? String(c.name) : '';
+      if (!name || !c.type || POS6.indexOf(c.pos) < 0 || names[name] || poss[c.pos]) return null;
+      names[name] = true; poss[c.pos] = true;
+      out.push({ name: name, type: c.type, pos: c.pos, src: byName[name] ? byName[name].src : null });
+    }
+    return out;
+  }
+  // 블라인드를 다 내지 못하는 짧은 스택(미니시즌): 가진 만큼만 내고 올인(엔진은 블라인드를 그대로 빼서 음수가 된다).
+  //   콜 금액(currentBet = 1bb)은 그대로라 다른 사람은 큰 블라인드 전체를 맞춰야 하고, 남는 몫은 쇼다운 사이드팟이 돌려준다.
+  function _shortBlinds(state) {
+    state.names.forEach(function(n) {
+      var st = state.stacks[n];
+      if (!(st < 0)) return;
+      var over = -st;
+      state.stacks[n] = 0;
+      state.playerBets[n] = Math.max(0, (state.playerBets[n] || 0) - over);
+      state.totalContrib[n] = Math.max(0, (state.totalContrib[n] || 0) - over);
+      state.pot = Math.max(0, state.pot - over);
+    });
+  }
+
   // ── 에피소드 ─────────────────────────────────
   function newEpisode(spec) {
     spec = spec || {};
     if (typeof GameState === 'undefined') return null;
     var seed = (spec.seed != null && isFinite(Number(spec.seed))) ? Number(spec.seed) : _pickSeed(spec.now);
-    var seats = _seat(_castSource(spec), seed);
+    var seats = _fixedSeats(spec.seats, spec) || _seat(_castSource(spec), seed);
     var playersSpec = seats.map(function(c) { return { name: c.name, type: _playable(c.type), pos: c.pos }; });
-    var state = GameState.buildInitialState(playersSpec, null, seed, null, { spectator: true });
+    // spec.stacks{이름: bb}(미니시즌 이어받기): 0보다 큰 값만 넘긴다(엔진은 없거나 0이면 100bb로 앉힌다)
+    var prev = null;
+    if (spec.stacks && typeof spec.stacks === 'object') {
+      seats.forEach(function(c) {
+        var v = Number(spec.stacks[c.name]);
+        if (isFinite(v) && v > 0) (prev = prev || {})[c.name] = v;
+      });
+    }
+    var state = GameState.buildInitialState(playersSpec, null, seed, prev, { spectator: true });
+    if (prev) _shortBlinds(state);
     state.revealAll = spec.revealAll !== false;
     if (spec.hideTypes) state.hideTypes = true;
     seats.forEach(function(c) { if (state.players[c.name]) state.players[c.name].castType = c.type; });
@@ -439,11 +492,19 @@ var Theater = (function() {
       }
       ev.options = { actions: _actionOptions(snap), plans: planOpts };
     }
-    // 속마음(결정론, 본 스트림 미사용)
+    // 극장 AI의 걸음(계획 어휘의 한 단계, 예 'trap-check')과 엔진 폴백 여부. 속마음 문장이 계획을 따르게 넘긴다(M6-MINI)
+    if (decision.step != null) ev.planStep = String(decision.step);
+    if (decision.fallback) ev.fallback = true;
+    // 속마음(결정론, 본 스트림 미사용). 계획(opts.plan)은 극장 AI가 그 계획대로 둔 걸음일 때만 넘긴다: 엔진 폴백이거나
+    //   엔진이 액션을 바꿨으면(민레이즈 미달 레이즈가 콜로 강등 등) 기존 규칙(손 세기와 액션)으로 쓴다(로드맵 M4 남은 것 3)
     if (typeof Thinking !== 'undefined' && _has(Thinking, 'villainThought')) {
+      var topt = { snapshot: { potBefore: snap.potBefore, currentBetBefore: snap.currentBetBefore, haveBefore: snap.haveBefore } };
+      if (va.label) topt.label = va.label;
+      if (planNow && decision.step != null && !decision.fallback && _actClass(decision.action) === _actClass(va.action)) {
+        topt.plan = { key: planNow.key, kor: planNow.kor || _planKor(planNow.key) || planNow.key, step: String(decision.step) };
+      }
       try {
-        var th = Thinking.villainThought(before, name, va.action, va.amount,
-          { snapshot: { potBefore: snap.potBefore, currentBetBefore: snap.currentBetBefore, haveBefore: snap.haveBefore } });
+        var th = Thinking.villainThought(before, name, va.action, va.amount, topt);
         if (th) ev.thought = { text: th.text, intent: th.intent };
       } catch (e) { ev.thought = null; }
     }
@@ -592,11 +653,247 @@ var Theater = (function() {
     return { hitAction: hitAction, hitPlan: hitPlan, w: w };
   }
 
+  // ── 미니시즌(M6-MINI, 계약 H7, 설계서 3.4절 4번) ──────────
+  // 캐스트 6인 싯앤고 3편(하루 1편은 TheaterUI가 지킨다). 칩은 1편 기준 bb로 센다(시작 100칩 = 100bb).
+  //   편 k의 블라인드 배수 = 2^(k-1): 엔진(game-state.js, 블라인드 0.5/1 고정)에는 칩 / 배수를 bb 스택으로 넘기고,
+  //   핸드가 끝나면 bb x 배수로 칩에 되돌린다(100 → 50 → 25bb 체감). 2의 거듭제곱이라 나누고 곱해도 값이 그대로다.
+  //   탈락: 핸드가 끝나 칩이 0이면 버스트 탈락, 마지막 편이 아닌 편이 끝나면 가장 적은 칩이 강제 탈락(남은 사람이 3명 이상일 때만,
+  //   마지막 편에 2명 이상이 남게). 마지막 편이 끝나면(또는 1명만 남으면) 칩이 가장 많은 사람이 우승.
+  //   좌석: 시드로 섞은 원형 순서를 시즌 내내 쓰고, 핸드마다 버튼이 한 칸씩 돈다(탈락자는 빠지고 5인 이하는 UTG부터 빈다).
+  //   핸드 시드와 편당 핸드 수(6~8)는 시즌 시드에서만 나온다: 같은 시드면 3편이 그대로 재현된다.
+  var MINI_TOTAL = 3, MINI_START = 100, MINI_HANDS = [6, 8], MINI_KEEP = 3;
+  var K_MINI = 0x4D4D, K_MINI_SEAT = 0x5E5E;
+
+  function _miniHandSeed(seed, no, h) {
+    var r = _rng(((seed >>> 0) ^ Math.imul(no * 16 + h + 1, 0x9E3779B1)) >>> 0);
+    return 1 + Math.floor(r() * 2147483646);
+  }
+  // miniSeason(spec{seed?, cast?, total?(3~5, 기본 3), now?}) → 새 시즌 상태(JSON, poker_journey.theater.mini에 그대로 저장)
+  //   { v, id:'mini-<seed>', seed, total, hands[편마다 6~8], cast[{name, type}](좌석 원형 순서), stacks{이름: 칩}, blinds(다음 편 배수),
+  //     episode(다음에 볼 편, 1부터), played(본 편 수), handNo(지금까지 친 핸드 수, 버튼 위치), pick, eliminated[], done, winner, lastDay }
+  //   시드가 없으면 극장 은행(THEATER_SEEDS)에서 고른다.
+  function miniSeason(spec) {
+    spec = spec || {};
+    var seed = (spec.seed != null && isFinite(Number(spec.seed))) ? (Math.floor(Number(spec.seed)) >>> 0) : _pickSeed(spec.now);
+    var src = _castSource(spec);
+    if (src.length < 2) return null;
+    var arr = src.slice(), r = _rng((seed ^ K_MINI_SEAT) >>> 0);
+    for (var i = arr.length - 1; i > 0; i--) { var j = Math.floor(r() * (i + 1)); var t = arr[i]; arr[i] = arr[j]; arr[j] = t; }
+    var total = Math.max(3, Math.min(5, Math.floor(Number(spec.total)) || MINI_TOTAL));
+    var rh = _rng((seed ^ K_MINI) >>> 0), hands = [];
+    for (var k = 0; k < total; k++) hands.push(MINI_HANDS[0] + Math.floor(rh() * (MINI_HANDS[1] - MINI_HANDS[0] + 1)));
+    var stacks = {};
+    arr.forEach(function(c) { stacks[c.name] = MINI_START; });
+    return { v: 1, id: 'mini-' + seed, seed: seed, total: total, hands: hands,
+      cast: arr.map(function(c) { return { name: c.name, type: c.type }; }), stacks: stacks, blinds: 1, episode: 1, played: 0,
+      handNo: 0, pick: null, eliminated: [], done: false, winner: null, lastDay: null };
+  }
+  function _miniOut(m) {
+    var out = {};
+    (m.eliminated || []).forEach(function(e) { if (e && e.name != null) out[e.name] = true; });
+    return out;
+  }
+  function _miniAlive(m) {
+    var out = _miniOut(m);
+    return (m.cast || []).filter(function(c) { return c && !out[c.name] && (Number(m.stacks[c.name]) || 0) > 0; });
+  }
+  function _castIdx(m, name) {
+    for (var i = 0; i < (m.cast || []).length; i++) if (m.cast[i].name === name) return i;
+    return 99;
+  }
+  // 칩 많은 순(같으면 좌석 순서)
+  function _byStack(m, list) {
+    return list.slice().sort(function(a, b) {
+      return ((Number(m.stacks[b.name]) || 0) - (Number(m.stacks[a.name]) || 0)) || (_castIdx(m, a.name) - _castIdx(m, b.name));
+    });
+  }
+  function _miniStandings(m, blinds) {
+    return _byStack(m, _miniAlive(m)).map(function(c) {
+      var chips = Number(m.stacks[c.name]) || 0;
+      return { name: c.name, type: c.type, stack: Math.round(chips * 100) / 100, bb: Math.round(chips / blinds * 10) / 10 };
+    });
+  }
+
+  // miniEpisode(mini, opts{resample?, readOf?, ai?, revealAll?, hideTypes?}) → mep(이번 편 진행기) | null(끝난 시즌, 잘못된 값)
+  //   mep = { mini(입력의 깊은 사본, 진행하며 바뀐다), no(편 번호), total, final, blinds, handsTotal, handIdx, hands[], out[], forced,
+  //           done, result }. 입력 mini는 바꾸지 않는다. 핸드는 miniHand로 하나씩 만든다.
+  function miniEpisode(mini, opts) {
+    if (!mini || typeof mini !== 'object' || mini.done || !Array.isArray(mini.cast) || typeof GameState === 'undefined') return null;
+    var m = _clone(mini);
+    if (!m.stacks || typeof m.stacks !== 'object') return null;
+    if (!Array.isArray(m.eliminated)) m.eliminated = [];
+    m.total = Math.max(1, Math.floor(Number(m.total)) || MINI_TOTAL);
+    var no = Math.max(1, Math.min(m.total, Math.floor(Number(m.episode)) || 1));
+    if (_miniAlive(m).length < 2) return null;
+    var blinds = Math.pow(2, no - 1);
+    m.episode = no;
+    m.blinds = blinds;
+    var hn = Array.isArray(m.hands) ? Math.floor(Number(m.hands[no - 1])) : NaN;
+    var mep = { mini: m, no: no, total: m.total, final: no >= m.total, blinds: blinds,
+      handsTotal: (hn >= 1 && hn <= 20) ? hn : 7, handIdx: 0, hands: [], out: [], forced: null, done: false, result: null };
+    Object.defineProperty(mep, '_x', { enumerable: false, value: { opts: opts || {}, cur: null, logs: [] } });
+    return mep;
+  }
+
+  // miniHand(mep) → 다음 핸드의 ep(newEpisode 모양, ep.mini = {id, no, total, hand, hands, blinds, final}) | null(이번 편 끝)
+  //   진행 중인 핸드가 끝나지 않았으면 그 ep를 그대로 돌려준다. 끝났는데 miniHandDone을 부르지 않았으면 먼저 반영한다.
+  function miniHand(mep) {
+    if (!mep || !mep._x || mep.done) return null;
+    var x = mep._x;
+    if (x.cur && !x.cur.done) return x.cur;
+    if (x.cur && !x.cur._miniDone) miniHandDone(mep, x.cur);
+    var m = mep.mini, alive = _miniAlive(m);
+    if (alive.length < 2 || mep.handIdx >= mep.handsTotal) return null;
+    var n = alive.length, pos = n === 2 ? ['BTN', 'BB'] : POS6.slice(6 - n), g = Math.max(0, Math.floor(Number(m.handNo)) || 0);
+    var seats = [], stacks = {};
+    for (var i = 0; i < n; i++) {
+      var c = alive[(i + g) % n];
+      seats.push({ name: c.name, type: c.type, pos: pos[i] });
+      stacks[c.name] = (Number(m.stacks[c.name]) || 0) / mep.blinds;
+    }
+    var o = x.opts, spec = { seed: _miniHandSeed(m.seed, mep.no, mep.handIdx), seats: seats, stacks: stacks };
+    ['resample', 'readOf', 'ai', 'revealAll', 'hideTypes', 'cast'].forEach(function(k) { if (o[k] !== undefined) spec[k] = o[k]; });
+    var ep = newEpisode(spec);
+    if (!ep) return null;
+    ep.mini = { id: m.id, no: mep.no, total: m.total, hand: mep.handIdx + 1, hands: mep.handsTotal, blinds: mep.blinds, final: mep.final };
+    x.cur = ep;
+    return ep;
+  }
+
+  // 결정적 속마음: 버스트는 그 핸드에서 그 사람의 마지막 속마음(올인이나 콜 순간), 강제 탈락(또는 블라인드만 내다 버스트)은 이번 편에서
+  //   칩을 가장 많이 잃은 핸드의 마지막 속마음(없으면 이번 편 마지막 속마음).
+  //   → { text('💭 이름: ' 접두를 뗀 문장), street, act(공개 라벨) } | null
+  function _lastThought(log, name) {
+    for (var i = (log || []).length - 1; i >= 0; i--) {
+      var e = log[i];
+      if (e && e.kind === 'action' && e.name === name && e.thought && e.thought.text) return e;
+    }
+    return null;
+  }
+  function _thoughtOf(e) {
+    if (!e) return null;
+    var text = String(e.thought.text).replace(/^\s*💭\s*[^:：]{1,24}[:：]\s*/, '').trim();
+    var act = e.label ? String(e.label) : (ACTION_KOR[e.actionKey] || e.action || '');
+    var amt = Number(e.amount) || 0;
+    if (e.action !== 'fold' && e.action !== 'check' && amt > 0) act += ' ' + (Math.round(amt * 10) / 10).toFixed(1) + 'bb';
+    return { text: text, street: e.street || null, act: act };
+  }
+  function _decisive(mep, name, by, ep) {
+    if (by === 'bust' && ep) { var own = _thoughtOf(_lastThought(ep.log, name)); if (own) return own; }
+    var logs = mep._x.logs, worst = null;
+    logs.forEach(function(h) {
+      var d = h.delta[name];
+      if (typeof d === 'number' && d < 0 && _lastThought(h.log, name) && (!worst || d < worst.d)) worst = { d: d, h: h };
+    });
+    if (worst) return _thoughtOf(_lastThought(worst.h.log, name));
+    for (var i = logs.length - 1; i >= 0; i--) { var e = _lastThought(logs[i].log, name); if (e) return _thoughtOf(e); }
+    return null;
+  }
+  function _eliminate(mep, name, by, ep, hand) {
+    var m = mep.mini;
+    var c = m.cast.filter(function(x) { return x.name === name; })[0] || { name: name, type: null };
+    var place = m.cast.length - m.eliminated.length;
+    var th = _decisive(mep, name, by, ep);
+    var e = { name: name, type: c.type || null, no: mep.no, hand: hand || null, by: by, place: place,
+      stack: Math.round((Number(m.stacks[name]) || 0) * 100) / 100, thought: th ? th.text : null,
+      street: th ? th.street : null, act: th ? th.act : null };
+    if (by === 'bust' && ep && ep.result) {
+      var w = (ep.result.winners || []).filter(function(n) { return n !== name; })[0];
+      if (w) e.killer = w;
+    }
+    m.eliminated.push(e);
+    mep.out.push(e);
+    return e;
+  }
+
+  // miniHandDone(mep, ep?) → { hand, busts[탈락 항목], stacks{이름: 칩} } | null. ep가 끝나지 않았으면 끝까지 돌린다.
+  //   칩 = 핸드 끝 bb 스택 x 블라인드 배수. 0이면 버스트 탈락(같은 핸드에서 둘이면 핸드 전 칩이 적은 사람이 낮은 순위).
+  function miniHandDone(mep, ep) {
+    if (!mep || !mep._x || mep.done) return null;
+    ep = ep || mep._x.cur;
+    if (!ep || !ep._x || ep._miniDone) return null;
+    if (!ep.done) run(ep);
+    Object.defineProperty(ep, '_miniDone', { enumerable: false, value: true });
+    var m = mep.mini, s = ep.state, before = {}, delta = {};
+    s.names.forEach(function(n) {
+      before[n] = Number(m.stacks[n]) || 0;
+      var chips = (Number(s.stacks[n]) || 0) * mep.blinds;
+      m.stacks[n] = chips < 0.005 ? 0 : chips;
+      delta[n] = m.stacks[n] - before[n];
+    });
+    var hand = mep.handIdx + 1;
+    mep._x.logs.push({ hand: hand, log: ep.log, delta: delta });
+    var bust = s.names.filter(function(n) { return m.stacks[n] === 0 && before[n] > 0; })
+      .sort(function(a, b) { return (before[b] - before[a]) || (_castIdx(m, a) - _castIdx(m, b)); });
+    var busts = bust.map(function(n) { return _eliminate(mep, n, 'bust', ep, hand); });
+    var pot = ep.result ? (Number(ep.result.pot) || 0) * mep.blinds : 0;
+    var summary = { hand: hand, seed: ep.seed, winners: ep.result ? (ep.result.winners || []).slice() : [],
+      pot: Math.round(pot * 100) / 100, busts: bust.slice() };
+    mep.hands.push(summary);
+    mep.handIdx = hand;
+    m.handNo = (Math.max(0, Math.floor(Number(m.handNo)) || 0)) + 1;
+    var stacks = {};
+    m.cast.forEach(function(c) { stacks[c.name] = Number(m.stacks[c.name]) || 0; });
+    return { hand: summary, busts: busts, stacks: stacks };
+  }
+
+  // miniClose(mep) → 이번 편 결과 { mini(다음 상태), no, out[이번 편 탈락 항목], forced(강제 탈락|null), standings[{name, type, stack, bb}],
+  //   winner, done }. 진행 중인 핸드가 있으면 끝까지 돌려 반영한다. 두 번 부르면 같은 결과.
+  function miniClose(mep) {
+    if (!mep || !mep._x) return null;
+    if (mep.done) return mep.result;
+    var x = mep._x;
+    if (x.cur && !x.cur._miniDone) miniHandDone(mep, x.cur);
+    var m = mep.mini, alive = _miniAlive(m), forced = null;
+    if (!mep.final && alive.length >= MINI_KEEP) {
+      var low = _byStack(m, alive);
+      forced = _eliminate(mep, low[low.length - 1].name, 'min', null, null);
+      alive = _miniAlive(m);
+    }
+    m.played = mep.no;
+    var done = mep.final || alive.length <= 1;
+    if (done) {
+      m.done = true;
+      m.winner = alive.length ? _byStack(m, alive)[0].name : null;
+    } else {
+      m.episode = mep.no + 1;
+      m.blinds = Math.pow(2, mep.no);
+    }
+    mep.done = true;
+    mep.result = { mini: m, no: mep.no, out: mep.out.slice(), forced: forced,
+      standings: _miniStandings(m, done ? mep.blinds : m.blinds), winner: m.winner || null, done: done };
+    return mep.result;
+  }
+
+  // miniRun(mini, opts) → 다음 한 편을 끝까지 돌린 miniClose 결과(테스트, 시뮬레이션). miniSimulate(mini|seed, opts) → 시즌 끝까지
+  //   { mini(최종), episodes[편마다 결과] }
+  function miniRun(mini, opts) {
+    var mep = miniEpisode(mini, opts);
+    if (!mep) return null;
+    for (var guard = 0, ep; guard < 30 && (ep = miniHand(mep)); guard++) { run(ep); miniHandDone(mep, ep); }
+    return miniClose(mep);
+  }
+  function miniSimulate(miniOrSeed, opts) {
+    var m = (miniOrSeed && typeof miniOrSeed === 'object') ? miniOrSeed : miniSeason({ seed: miniOrSeed });
+    var eps = [];
+    for (var guard = 0; m && !m.done && guard < 10; guard++) {
+      var res = miniRun(m, opts);
+      if (!res) break;
+      eps.push(res);
+      m = res.mini;
+    }
+    return { mini: m, episodes: eps };
+  }
+
   var api = {
     RESAMPLE: RESAMPLE, PMAX: PMAX, BIG_POT_BB: BIG_POT_BB, MAX_STOPS: MAX_STOPS,
     ACTION_KOR: ACTION_KOR, ACTION_HINT: ACTION_HINT, REASON_KOR: REASON_KOR, DEFAULT_CAST: DEFAULT_CAST,
     newEpisode: newEpisode, step: step, run: run, predict: predict, isDecisive: isDecisive,
-    withSeededRandom: withSeededRandom, truthGrade: truthGrade, actionKey: actionKey
+    withSeededRandom: withSeededRandom, truthGrade: truthGrade, actionKey: actionKey,
+    MINI_TOTAL: MINI_TOTAL, MINI_START: MINI_START, MINI_HANDS: MINI_HANDS.slice(), MINI_KEEP: MINI_KEEP,
+    miniSeason: miniSeason, miniEpisode: miniEpisode, miniHand: miniHand, miniHandDone: miniHandDone, miniClose: miniClose,
+    miniRun: miniRun, miniSimulate: miniSimulate, miniAlive: function(m) { return m ? _miniAlive(m).map(function(c) { return c.name; }) : []; },
+    miniStandings: function(m, blinds) { return m ? _miniStandings(m, blinds || m.blinds || 1) : []; }
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

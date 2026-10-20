@@ -322,6 +322,7 @@ var BackupUI = (function() {
       a.click();
       setTimeout(function() { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 2000);
       _msg('ok', '파일을 저장했어요: ' + name + '. 다운로드 폴더(브라우저 다운로드 목록)에서 찾을 수 있어요.');
+      if (typeof Badges !== 'undefined' && Badges && typeof Badges.note === 'function') { try { Badges.note('backup', { name: name }, Date.now()); } catch (e2) { /* 배지 기록 실패는 백업에 영향 없음(M6-COLLECT, 계약 H8) */ } }
     } catch (e) {
       _msg('err', '내보내기에 실패했어요. (' + (e && e.message) + ')');
     }

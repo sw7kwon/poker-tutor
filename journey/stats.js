@@ -5,6 +5,9 @@
 // M3-P4a: 핸드 순번 hseq(집계한 'handEnd' 수)와 링 결정의 h(그 결정이 나온 핸드 순번 = 기록 당시 hseq)를 더했다.
 //   미션/보스의 "최근 n핸드" 창은 h ≥ hseq - n 인 결정이다(진행 중 핸드는 h === hseq). h가 없는 예전 결정은 핸드 창에서 빠진다.
 // M5-BOSS(계약 F2): 'dec' 링 항목에 mw(boolean), oop(boolean, 프리플랍은 기록 안 함), pt('limp'|'srp'|'3bet'|'4bet')를 보존한다.
+// M6-BOSS(계약 H9): 'cast' payload { name, key?, hand{vpip, pfr, tb}, post{aggr, calls, folds, facing} }. key는 은닉 좌석 배정 키
+//   (journey-core가 만든 '노드:시드')이고, 저장된 기록의 key와 다르면 그 좌석 기록을 새로 시작한다(since = 지금, 좌석 배정이 바뀌면
+//   관찰을 처음부터). castObs(name, key?)는 key를 주면 같은 배정의 기록만 돌려준다(다르면 null).
 var JStats = (function() {
   var KEY = 'poker_journey_stats';
   var V = 1;
@@ -254,7 +257,11 @@ var JStats = (function() {
       case 'cast': {
         if (!p || !p.name) return;
         var o = st.castObs[p.name];
-        if (!_isObj(o)) o = st.castObs[p.name] = { hands: 0, vpip: 0, pfr: 0, tb: 0, aggr: 0, calls: 0, folds: 0, facing: 0, since: _date(now).toISOString() };
+        var ck = (p.key != null && p.key !== '') ? String(p.key) : null;
+        if (!_isObj(o) || (ck && o.key !== ck)) {                       // 처음 보거나 좌석 배정이 바뀜 → 관찰을 처음부터
+          o = st.castObs[p.name] = { hands: 0, vpip: 0, pfr: 0, tb: 0, aggr: 0, calls: 0, folds: 0, facing: 0, since: _date(now).toISOString() };
+          if (ck) o.key = ck;
+        }
         if (p.hand) {
           o.hands++;
           if (p.hand.vpip) o.vpip++;
@@ -452,9 +459,12 @@ var JStats = (function() {
   // 집계한 핸드 수(핸드 순번). 진행 중 핸드의 결정은 h === handSeq()
   function handSeq() { return _num(load().hseq); }
 
-  function castObs(name) {
+  // key를 주면 그 좌석 배정의 기록만(배정이 바뀐 뒤 아직 한 핸드도 못 본 좌석은 null)
+  function castObs(name, key) {
     var o = load().castObs[name];
-    return _isObj(o) ? o : null;
+    if (!_isObj(o)) return null;
+    if (key != null && key !== '' && o.key !== String(key)) return null;
+    return o;
   }
 
   var api = {

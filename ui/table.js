@@ -102,9 +102,13 @@ var Table = (function() {
     var out = {};
     if (list.length === 2) {
       var spare = [1, 2, 4, 5];
+      // 관전 헤즈업(히어로 없음, 극장 미니시즌 마지막 두 명): BTN(없으면 앞 포지션)을 아래 가운데 0, 다른 사람을 3에 둔다
+      // (둘 다 3이면 세로 폰에서 두 좌석이 겹친다, M6-MINI)
+      var low = hero || list.find(function(q) { return q.pos === 'BTN'; }) ||
+        list.slice().sort(function(a, b) { return POSITIONS.indexOf(a.pos) - POSITIONS.indexOf(b.pos); })[0];
       POSITIONS.forEach(function(pos) {
         var p = list.find(function(q) { return q.pos === pos; });
-        out[pos] = p ? (p.isHero ? 0 : 3) : spare.shift();
+        out[pos] = p ? (p === low ? 0 : 3) : spare.shift();
       });
       return out;
     }

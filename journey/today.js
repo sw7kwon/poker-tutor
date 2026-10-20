@@ -24,8 +24,8 @@
 // est는 블록별 분(소수 1자리), estMin은 블록 초 합계를 분으로 바꾼 값.
 var Today = (function() {
   // 추정 시간 단위(초): 레슨 장면 20, 퍼즐 25, 복습 드릴 10, 극장 1편 90, 게임 1핸드 60(4.1절).
-  // 러시와 배치 고사는 이름 그대로 3분(5.5절 "3분 러시", 2.6절 "실력 확인 3분").
-  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180, mistake: 60 };
+  // 러시와 배치 고사는 이름 그대로 3분(5.5절 "3분 러시", 2.6절 "실력 확인 3분"). 미니시즌 1편(6~8핸드)은 3분(M6 통합 검증).
+  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180, mistake: 60, mini: 180 };
   // 복습 상한: 전체 8/15/25, 성숙(box 4 이상) 3/5/8
   var CAPS = { 5: { total: 8, mature: 3 }, 10: { total: 15, mature: 5 }, 15: { total: 25, mature: 8 } };
   var MATURE_BOX = 4;
@@ -385,17 +385,21 @@ var Today = (function() {
   }
 
   // ── 블록 3: 재미 ──
-  function _funBase(ctx, wd, goal, avail) {
+  function _funBase(ctx, wd, goal, avail, day) {
     if ((wd === 0 || wd === 6) && avail.rush) return { kind: 'rush' };
     if (avail.theater) {
-      return { kind: 'theater', episodes: ((wd === 3 || wd === 5) && goal >= 10) ? 2 : 1, episode: _copy(ctx.theaterEpisode) };
+      // mini: 진행 중인 미니시즌에 오늘 안 본 편이 있음(TheaterUI.start가 그 편을 연다, 계약 H7). 이름과 추정 시간이 그 편을 따른다
+      var ep = ctx.theaterEpisode, mini = !!(ep && typeof ep === 'object' && !ep.done && ep.lastDay !== day);
+      var tb = { kind: 'theater', episodes: ((wd === 3 || wd === 5) && goal >= 10) ? 2 : 1, episode: _copy(ep) };
+      if (mini) tb.mini = true;
+      return tb;
     }
     if (avail.highlights) return { kind: 'highlight' };
     return { kind: 'free', hands: HANDS.free };
   }
 
-  function _funBlock(ctx, wd, goal, avail) {
-    var base = _funBase(ctx, wd, goal, avail);
+  function _funBlock(ctx, wd, goal, avail, day) {
+    var base = _funBase(ctx, wd, goal, avail, day);
     var b;
     if (wd === 1 && avail.weekly) {
       // 월요일: 주간 챌린지 소개(와 우승 예측 카드)를 앞에 두고 원래 재미 블록을 이어 붙인다.
@@ -422,7 +426,7 @@ var Today = (function() {
       case 'lesson': return _num(b.scenes, 0) * SEC.scene;
       case 'drill': return _num(b.count, 0) * SEC.puzzle;
       case 'mission': case 'gto': case 'free': return _num(b.hands, 0) * SEC.hand;
-      case 'theater': return _num(b.episodes, 1) * SEC.theater;
+      case 'theater': return b.mini ? SEC.mini : _num(b.episodes, 1) * SEC.theater;
       case 'highlight': return SEC.theater;
       case 'rush': return SEC.rush;
       case 'placement': return SEC.placement;
@@ -456,7 +460,7 @@ var Today = (function() {
     var blocks = [
       rv.block,
       learn,
-      _funBlock(ctx, wd, goal, avail),
+      _funBlock(ctx, wd, goal, avail, day),
       { id: 'wrap' }
     ];
     blocks.forEach(function(b) {

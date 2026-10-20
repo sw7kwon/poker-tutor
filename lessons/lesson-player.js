@@ -18,6 +18,11 @@
 //     모든 장면의 caption 줄, label '참고' 회색 칩, calc가 있는 장면의 '엔진 계산'(chart, rangePct, band는 '이 앱 차트 기준') 칩.
 //     (M5-P0) 등록 calc 유형(계약 L9)은 def.chip으로 칩을 고르고('appdef'는 '이 앱의 분류 기준'), SceneRender.render(obj, v)에
 //     LessonCore.vars(scene)를 넘긴다(bar kind 'pct'의 줄 값). M5에서 그룹은 이 파일을 고치지 않는다.
+//   (M6-P0, 계약 H1) widget 장면은 <div class="lp-widget" data-widget="이름" data-nogesture> 안에 LessonWidgets[이름].html(params).
+//     DOM이 있으면 그 장면을 그린 뒤 mount(el, params, api)(있을 때, 장면에 들어올 때마다 1번), 장면을 떠날 때와 stop, exit,
+//     완료 때 unmount()(있을 때). api = { note(kind, data) → Badges.note(kind, data, now)(typeof 가드), toast(msg) }.
+//     [data-nogesture] 안의 touchstart는 스와이프 시작으로 보지 않고, click은 장면 탭 넘기기와 플레이어 버튼 동작에서 빼고,
+//     키(숫자, Enter, 화살표)도 위젯 몫으로 둔다(Esc는 그대로 종료). M6에서 그룹은 이 파일을 고치지 않는다.
 //   용어 밑줄: GLOSSARY {term, easy, same[]}가 있으면 caption과 say 문장에서 장면마다 용어별 첫 번째만 밑줄, 누르면 easy 팁.
 //   '이상해요': Journey.load()의 flags[레슨 id]에 {at(ISO), scene} 추가 후 Journey.save(레슨당 최근 30개).
 //   스타일은 css/journey.css 끝의 lp- 절(css/lesson.css는 장면 그림 sr- 전용).
@@ -160,12 +165,60 @@ var LessonPlayer = (function() {
     return '<div class="lp-soon" role="note"><span class="lp-soon-i" aria-hidden="true">🧩</span><b>' + _esc(name) + _eun(name) + ' 다음 업데이트에서 볼 수 있어요</b>' +
       '<span>지금은 아래 설명을 읽고 다음으로 넘어가요</span></div>';
   }
+  // ── 위젯 장면(계약 H1, M6-P0) ──────────────────────────
+  // LessonWidgets[name] = { html(params) → 순수 문자열, mount?(el, params, api), unmount?() }. html이 비거나 예외면 안내 카드.
+  function _widgetDef(name) {
+    var W = _m('LessonWidgets');
+    if (!W || typeof name !== 'string' || !name || !Object.prototype.hasOwnProperty.call(W, name)) return null;
+    var w = W[name];
+    return (w && typeof w.html === 'function') ? w : null;
+  }
+  function _widgetParams(sc) { return _isObj(sc.params) ? sc.params : {}; }
   function _widgetHTML(sc) {
-    var W = _m('LessonWidgets'), w = W && sc.name ? W[sc.name] : null;
-    if (w && typeof w.html === 'function') {
-      try { var h = w.html(sc.params || {}); if (h) return String(h); } catch (e) { _warn('widget ' + sc.name, e); }
+    var w = _widgetDef(sc.name);
+    if (w) {
+      try {
+        var h = w.html(_widgetParams(sc));
+        if (h) return '<div class="lp-widget" data-widget="' + _esc(sc.name) + '" data-nogesture>' + String(h) + '</div>';
+      } catch (e) { _warn('widget ' + sc.name, e); }
     }
     return _soon('widget');
+  }
+  // mount의 세 번째 인자: 배지 기록(COLLECT의 Badges.note, 없으면 무시)과 토스트
+  function _widgetApi() {
+    return {
+      note: function(kind, data) { return _call('Badges', 'note', kind, data, _now()); },
+      toast: function(msg, ms) { _toast(String(msg == null ? '' : msg), ms); }
+    };
+  }
+  function _widgetLeave() {
+    var w = S && S.wg;
+    if (!w) return;
+    S.wg = null;
+    if (w.def && typeof w.def.unmount === 'function') {
+      try { w.def.unmount(); } catch (e) { _warn('widget ' + w.name + ' unmount', e); }
+    }
+  }
+  // _render 뒤: 위젯 장면에 들어왔으면 mount 1번, 떠났으면 unmount. 같은 장면을 다시 그리면 mount한 위젯 DOM을 그대로 옮겨 둔다.
+  function _widgetSync(st) {
+    var sc = st.scene || {};
+    var cur = sc.t === 'widget' ? st.idx : -1;
+    if (S.wg && S.wg.idx !== cur) _widgetLeave();
+    if (cur < 0 || !_rootEl || typeof _rootEl.querySelector !== 'function') return;
+    var el = _rootEl.querySelector('.lp-widget');
+    if (!el) return;                       // 위젯 모듈이 없거나 html이 비어 안내 카드를 그렸다
+    if (S.wg) {
+      var old = S.wg.el;
+      if (old && old !== el && el.parentNode && typeof el.parentNode.replaceChild === 'function') {
+        try { el.parentNode.replaceChild(old, el); } catch (e) { _warn('widget ' + S.wg.name + ' keep', e); }
+      }
+      return;
+    }
+    var def = _widgetDef(sc.name);
+    S.wg = { idx: cur, name: sc.name, def: def, el: el };
+    if (def && typeof def.mount === 'function') {
+      try { def.mount(el, _widgetParams(sc), _widgetApi()); } catch (e) { _warn('widget ' + sc.name + ' mount', e); }
+    }
   }
   // 장면 그림(L2 렌더 분담)
   function sceneHTML(sc, v, sel, used) {
@@ -270,9 +323,11 @@ var LessonPlayer = (function() {
     var html = view(st, { title: S.lesson.title, sel: S.sel, kbdHint: st.idx === 0 && !S.wasDone });
     S.html = html;
     if (!_rootEl) return;
+    if (S.wg && S.wg.idx !== st.idx) _widgetLeave();   // 위젯 장면을 떠날 때는 화면을 바꾸기 전에 unmount
     _rootEl.innerHTML = html;
     _rootEl.setAttribute('data-scene', String(st.idx));
     _rootEl.setAttribute('data-t', String((st.scene && st.scene.t) || ''));
+    _widgetSync(st);
     if (S.scrollTop) {
       S.scrollTop = false;
       var scr = _hasDom() ? document.getElementById('screen-journey') : null;
@@ -350,6 +405,7 @@ var LessonPlayer = (function() {
   function _finish(res, viaNav) {
     if (!S) return;
     var cb = S.onDone;
+    _widgetLeave();
     S.core.destroy();
     S = null;
     _rootEl = null;
@@ -360,11 +416,12 @@ var LessonPlayer = (function() {
   // 다른 화면이 여정 뷰를 덮어써 레슨 화면이 사라졌으면 조용히 내려놓는다(장면 위치는 이미 저장됨, onDone 없음)
   function _alive() {
     if (!S) return false;
-    if (_rootEl && _rootEl.isConnected === false) { S.core.destroy(); S = null; _rootEl = null; return false; }
+    if (_rootEl && _rootEl.isConnected === false) { _widgetLeave(); S.core.destroy(); S = null; _rootEl = null; return false; }
     return true;
   }
   function stop() {
     if (!S) return false;
+    _widgetLeave();
     S.core.destroy(); S = null; _rootEl = null;
     return true;
   }
@@ -406,6 +463,8 @@ var LessonPlayer = (function() {
       }
       return;
     }
+    // 위젯 안([data-nogesture])의 탭은 위젯 몫이다. 장면 넘기기와 플레이어 버튼 동작에 쓰지 않는다(계약 H1)
+    if (_closest(t, '[data-nogesture]')) return;
     var a = _closest(t, '[data-act]');
     if (!a) return;
     var act = a.getAttribute('data-act');
@@ -433,7 +492,7 @@ var LessonPlayer = (function() {
   function _onTouchStart(e) {
     if (!S || !e.touches || e.touches.length !== 1) { _touch = null; return; }
     var t = e.touches[0];
-    if (_closest(e.target, '.sr-zcells, input, textarea, select')) { _touch = null; return; }
+    if (_closest(e.target, '.sr-zcells, input, textarea, select, [data-nogesture]')) { _touch = null; return; }   // 위젯 드래그는 스와이프 아님
     _touch = { x: t.clientX, y: t.clientY, at: _now() };
   }
   function _onTouchEnd(e) {
@@ -458,6 +517,7 @@ var LessonPlayer = (function() {
     if (tg === 'input' || tg === 'textarea' || tg === 'select') return;
     var k = e.key;
     if (k === 'Escape') { e.preventDefault(); exit(); return; }
+    if (_closest(e.target, '[data-nogesture]')) return;   // 위젯 안에 포커스가 있으면 숫자, Enter, 화살표는 위젯 몫
     var st = S.core.state();
     if (/^[1-4]$/.test(k)) {
       if (st.scene && st.scene.t === 'ask' && st.phase === 'show') { e.preventDefault(); _kbd = true; answer(Number(k) - 1); }
@@ -537,7 +597,7 @@ var LessonPlayer = (function() {
     _seq++;
     var token = _seq;
     S = { token: token, lesson: lesson, node: node, onDone: onDone, wasDone: wasDone, n: n, sel: null, flagged: {}, xp: 0,
-      html: '', scrollTop: true, startedAt: _now(), core: null };
+      html: '', scrollTop: true, startedAt: _now(), core: null, wg: null };
     S.core = C.create(lesson, idx, {
       timer: function(fn, ms) {
         return _later(function() { if (!S || S.token !== token) return; fn(); _render(); }, ms);
@@ -556,7 +616,7 @@ var LessonPlayer = (function() {
   // ── 테스트 전용 ────────────────────────────────────────
   function _setEnv(env) { _env = env || {}; }
   function _reset() {
-    if (S) S.core.destroy();
+    if (S) { _widgetLeave(); S.core.destroy(); }
     S = null; _rootEl = null; _env = {}; _kbd = false; _touch = null; _swipeAt = 0;
     if (_backOff) { try { _backOff(); } catch (e) { /* 무시 */ } }
     _backOff = null; _backNav = null; _gloss = null; _glossSrc = null; _askXp = {};

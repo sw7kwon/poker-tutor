@@ -4,7 +4,8 @@
 //   rangehit   레인지 적중 분포(exact, once). 차트 레인지 + 플랍 → Villain._handStrength 범주 분포, 4지 구간. variant 'compare' = 두 레인지 비교
 //              variant 'steps'(M5-WEEKLY, 노드 s4-02 용의자 명단): 이 앱의 지우기 규칙 v1(계약 F10)로 상대가 플랍, 턴, 리버에서
 //              계속할 때마다 레인지를 지우고 단계 1~3 뒤 남은 콤보 수 구간(4지)을 묻는다. 규칙이 이 앱의 정의라 rated false(3.2절 앱 정의 원칙)
-//   rangepaint 레인지 색칠(chart, srs, ui 'paint'). 정답 칸 집합 + Jaccard 채점 score(spot, cells) → 0~1. 색칠 위젯은 M6-P1c
+//   rangepaint 레인지 색칠(chart, srs, ui 'paint'). 정답 칸 집합 + Jaccard 채점 score(spot, cells) → 0~1. 색칠 화면은 M6-PAINT
+//              (lessons/widgets/range-paint.js의 RangePaint, PuzzleUI 색칠 문항). spotLabel(spot)은 지문과 같은 스팟 이름
 //   rangeshape 레인지 모양(앱 정의, rated false, srs). 폴라, 머지드, 컨덴스드, 캡드 판정 규칙은 아래 SHAPE_TIERS, SHAPES 상수
 // 정답 경로와 verify 경로를 일부러 나눈다(C1 "독립 경로").
 //   combos: 생성은 랭크와 무늬별 남은 카드 공식, verify는 52장 1326조합 전수 열거 + Range.parse
@@ -1095,6 +1096,8 @@
     return out;
   }
 
+  function _paintPct(score) { return Math.max(0, Math.min(100, Math.floor(score * 100 + 1e-9))); }
+
   function _jaccard(target, mine) {
     var tset = {}, inter = 0, uni = 0;
     target.forEach(function(l) { tset[l] = true; uni++; });
@@ -1168,8 +1171,9 @@
     var d = q.data;
     var line = _paintLabel(_paintSpot(d.spot)) + ' = ' + d.cells.length + '칸, ' + d.combos + '콤보(전체의 약 ' + d.pct + '%)';
     if (cells) {
+      // (M6-PAINT) 표시 %는 내림(69.6%를 70%로 보이면 기준 70% 미달인데 통과처럼 읽힌다), 말은 색칠 화면과 같게 놓친 칸, 넘친 칸
       var r = paintCheck(q, cells);
-      line += ', 내 겹침 ' + Math.round(r.score * 100) + '%(빠진 칸 ' + r.missing.length + ', 더 칠한 칸 ' + r.extra.length + ')';
+      line += ', 내 겹침 ' + _paintPct(r.score) + '%(놓친 칸 ' + r.missing.length + ', 넘친 칸 ' + r.extra.length + ')';
     }
     return {
       line: line + '\n겹침 = 같이 칠한 칸 ÷ 둘 중 하나라도 칠한 칸(이 앱 차트 기준)',
@@ -1381,6 +1385,8 @@
       ready: function() { return _ready(['Range', 'HandEval', 'Villain', 'Gto', 'GtoChart']); } },
     rangepaint: { title: '🖌 레인지 색칠', next: rangepaintNext, verify: rangepaintVerify, explain: rangepaintExplain,
       fromKey: rangepaintFromKey, score: paintScore, check: paintCheck, target: function(spot) { var t = _paintTarget(spot); return t ? t.slice() : null; },
+      // (M6-PAINT) 스팟 이름(지문과 같은 말, 색칠 위젯 머리에 쓴다), 차트가 없는 스팟은 null
+      spotLabel: function(spot) { var sp = _paintSpot(spot); return (sp && _paintTarget(spot)) ? _paintLabel(sp) : null; },
       ready: function() { return _ready(['Range', 'Gto', 'GtoChart']); } },
     rangeshape: { title: '🔷 레인지 모양', next: rangeshapeNext, verify: rangeshapeVerify, explain: rangeshapeExplain,
       fromKey: rangeshapeFromKey, classify: shapeClassify,

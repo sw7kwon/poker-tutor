@@ -141,9 +141,15 @@ var App = (function() {
     return [];
   }
 
+  // 적응형 빌런과 시즌 캐스트 변형(M6-READ, 계약 H6): 오버레이가 있으면 { decide }, 없거나 제외(연습, 은닉, 보스, 관전)면 undefined = 원래 경로
+  function _villainOpts() {
+    if (typeof VillainAdaptive === 'undefined' || !VillainAdaptive.opts || !_state) return undefined;
+    return VillainAdaptive.opts({ state: _state, mode: _villainConfig, practice: !!_practice, sessionId: _sessionId }) || undefined;
+  }
+
   function _processVillainActions() {
     if (_state.street === 'showdown') { _showResult(); return; }
-    var result = GameState.applyVillainActions(_state);
+    var result = GameState.applyVillainActions(_state, _villainOpts());
     if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount, a); }); // WP8 (액션 전 상태, a에 potBefore 등 스냅샷)
     _state = result.newState;
     if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, result.villainActions);
@@ -1029,6 +1035,7 @@ var App = (function() {
         '칩 손익에는 운이 섞여 있어요.</div>';
     }
     if (statsEl && typeof HeroStats !== 'undefined' && HeroStats.renderSession) HeroStats.renderSession(statsEl, { sessionId: _sessionId, hands: _sessionHands.length }); // 거울 HUD 칩, 이번 세션 운 미터(M5-HUD)
+    if (statsEl && typeof VillainAdaptive !== 'undefined' && VillainAdaptive.summaryLine) { var adl = VillainAdaptive.summaryLine(_sessionId); if (adl) statsEl.insertAdjacentHTML('beforeend', '<div class="adapt-line" style="font-size:0.8rem;color:#c9d1d9;margin-top:0.4rem">' + String(adl).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }) + '</div>'); } // 적응형 빌런, 시즌 한 줄(M6-READ, H6)
     if (!st.decisions) {
       handsEl.innerHTML = '<div style="text-align:center;color:#8b949e;padding:1rem">평가할 결정이 없었어요</div>';
       return;
@@ -1122,6 +1129,7 @@ var App = (function() {
     _sessionLossText: _sessionLossText,
     _practiceAttempt: _practiceAttempt,
     _handGoalText: _handGoalText,
-    _curriculumSpotKey: _curriculumSpotKey
+    _curriculumSpotKey: _curriculumSpotKey,
+    _villainOpts: _villainOpts
   };
 })();

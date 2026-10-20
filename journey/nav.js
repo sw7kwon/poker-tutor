@@ -508,6 +508,19 @@ var Nav = (function() {
     var ps = _paramStr(params);
     _nav('j/' + _enc(name) + (ps ? '/' + _enc(ps) : ''), params === undefined ? null : params);
   }
+  // 맨 위가 같은 이름의 뷰면 그 항목을 새 파라미터로 바꾼다(기록을 쌓지 않음, 노드 시트 안 선행 칩으로 다른 노드 시트).
+  // 논리 스택과 브라우저 기록을 함께 바꿔야 그 위에 쌓인 뷰(맞히기 화면 등)에서 뒤로 왔을 때 바뀐 노드로 돌아온다(M6 통합 검증).
+  // 맨 위가 다른 뷰나 화면이면 view와 같다. 반환 true = 바꿈
+  function replaceView(name, params) {
+    if (name == null || name === '') return false;
+    var t = _top();
+    if (!_inited || _silent || !t || !_isView(t.k) || parse('#' + t.k).view !== String(name)) { view(name, params); return false; }
+    var ps = _paramStr(params);
+    t.k = 'j/' + _enc(name) + (ps ? '/' + _enc(ps) : '');
+    t.p = params === undefined ? null : params;
+    _sync();
+    return true;
+  }
   // 화면 안의 ↩ 버튼용: 시스템 뒤로와 똑같이 한 단계 위로
   function back() {
     var h = _hist();
@@ -558,7 +571,7 @@ var Nav = (function() {
 
   var api = {
     TAG: TAG, EXIT_MS: EXIT_MS, GO: GO.slice(), EXIT_MSG: EXIT_MSG, GAME_MSG: GAME_MSG,
-    init: init, onShow: onShow, view: view, back: back, parse: parse, shouldPush: shouldPush,
+    init: init, onShow: onShow, view: view, replaceView: replaceView, back: back, parse: parse, shouldPush: shouldPush,
     exitDecision: exitDecision, startParam: startParam, onPop: onPop,
     closeView: closeView, setBack: setBack, current: current,
     _reset: _reset, _setEnv: _setEnv, _state: _state

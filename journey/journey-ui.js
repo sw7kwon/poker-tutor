@@ -7,6 +7,10 @@
 // M5-WEEKLY: 카드 영역의 📅 주간 리포트 카드(WeeklyView.cardInfo가 리포트 내용이 있다고 할 때만, 월요일에 이번 주 리포트를 아직 안
 //        봤으면 맨 앞에 강조), 서브뷰 제목 weekly = '📅 주간 리포트'(뷰는 WeeklyView.open, 계약 F8), 노드 시트 롤링 줄의 판정 전 항목
 //        (Boss.evaluate item.wait, 계약 F3)은 '⏳ ' 접두와 '판정 전(기준 ...)'.
+// M6-P0(계약 H11, docs/JOURNEY_ROADMAP.md M6): (a) 카드 영역 공급자 Seasons, TheaterUI, Badges 순 M.homeCard(state, now) →
+//        { html, emph? } | null(emph는 카드 영역 맨 앞, 나머지는 데일리 5 카드 뒤), (b) 노드 시트 버튼 줄 뒤 Boss.sheetActions(nodeId,
+//        rec, state) → html, (c) 홈을 그린 뒤 Badges.onHome(now), (d) 빠른 줄 자유 게임 세션 요약 정적 버튼 '↩ 여정 홈으로'(결정 15).
+//        M6에서 그룹은 이 파일을 고치지 않는다(필요하면 보고).
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 패키지 모듈은 전부 typeof 가드로 부르고,
 //       없거나 실패하면 화면이 깨지지 않게 대체 표시로 내려간다(병렬 구현 중 스텁일 수 있음).
 // 화면 구조: #journey-root > .j-view(홈 또는 서브뷰, TodayUI 셸) + .j-layer(노드 시트). 토스트는 body의 #journey-toast.
@@ -57,6 +61,8 @@ var JourneyUI = (function() {
     settings: '⚙ 설정', rush: '⚡ 퍼즐 러시', theater: '🎭 속마음 극장' };
   var HABITS = [ { id: '출근길', text: '출근길에' }, { id: '점심 후', text: '점심 먹고' }, { id: '자기 전', text: '자기 전에' } ];
   var SETTINGS_KEY = 'poker_journey_settings';
+  var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서
+  var SUMMARY_HOME = '↩ 여정 홈으로';                        // (M6-P0, 계약 H11 d) 빠른 줄 자유 게임 세션 요약 정적 버튼
 
   var _inited = false;
   var _mem = null;          // Journey.load 불가 시 메모리 상태(저장 안 함)
@@ -284,6 +290,8 @@ var JourneyUI = (function() {
       html = _fallbackHTML();
     }
     v.innerHTML = html;
+    // (M6-P0, 계약 H11 c) 홈을 그린 뒤 배지 깜짝 해금 확인(COLLECT). 예외는 경고만 남기고 홈은 그대로
+    if (_can('Badges', 'onHome')) _call('Badges', 'onHome', _now());
   }
 
   function _fallbackHTML() {
@@ -498,7 +506,7 @@ var JourneyUI = (function() {
   function quick(name) {
     if (name === 'game') { _setOrigin(); if (_can('App', 'startGame')) _call('App', 'startGame'); return; }
     if (name === 'review') { _setOrigin(); if (_can('App', 'showHistory')) _call('App', 'showHistory'); return; }
-    if (name === 'more') { _origin = false; if (_can('App', 'showScreen')) _call('App', 'showScreen', 'screen-menu'); return; }
+    if (name === 'more') { _origin = false; _syncSummaryBtn(); if (_can('App', 'showScreen')) _call('App', 'showScreen', 'screen-menu'); return; }
     if (name === 'stats') { view('dashboard'); return; }
     if (name === 'rush') {
       var PM = _m('PuzzleModes');
@@ -518,16 +526,19 @@ var JourneyUI = (function() {
     }
   }
 
-  // (5) 카드 영역: 첫 완주 뒤 설정 카드, (월요일 강조면) 주간 리포트, 데일리 5, 오늘의 명장면, 주간 리포트, 실력 확인(건너뛴 경우),
-  //     월초 백업 안내
+  // (5) 카드 영역: 공급자 강조 카드(M6, H11 a), 첫 완주 뒤 설정 카드, (월요일 강조면) 주간 리포트, 데일리 5, 공급자 카드(시즌, 미니시즌,
+  //     배지 순), 오늘의 명장면, 주간 리포트, 실력 확인(건너뛴 경우), 월초 백업 안내
   function _cardsHTML(s, sm) {
     var out = [];
+    var pc = providerCards(s);
+    out = out.concat(pc.emph);   // (M6-P0, H11 a) 공급자 강조 카드는 카드 영역 맨 앞
     var sc = settingsCard();
     if (sc) out.push(sc);
     var wk = _weeklyInfo(), wkHTML = weeklyCard(wk);
     if (wkHTML && wk.emph) out.push(wkHTML);
     var d5 = daily5Card();
     if (d5) out.push(d5);
+    out = out.concat(pc.rest);   // 나머지 공급자 카드는 데일리 5 카드 뒤
     var hl = highlightCard();
     if (hl) out.push(hl);
     if (wkHTML && !wk.emph) out.push(wkHTML);
@@ -543,6 +554,22 @@ var JourneyUI = (function() {
         '<div class="j-card-acts"><button type="button" class="j-btn" onclick="BackupUI.open()">백업하기</button></div></div>');
     }
     return out.join('');
+  }
+
+  // (M6-P0, 계약 H11 a) 카드 영역 공급자: CARD_PROVIDERS 순으로 M.homeCard(state, now) → { html, emph? } | null.
+  // typeof 가드, 예외나 html이 빈 문자열이면 그 카드만 뺀다. emph 카드는 카드 영역 맨 앞, 나머지는 데일리 5 카드 뒤(공급자 순서 유지).
+  function providerCards(s) {
+    var out = { emph: [], rest: [] }, now = _now();
+    s = s || state();
+    CARD_PROVIDERS.forEach(function(name) {
+      var M = _m(name);
+      if (!M || typeof M.homeCard !== 'function') return;
+      var c = null;
+      try { c = M.homeCard(s, now); } catch (e) { _warn(name + '.homeCard', e); return; }
+      if (!c || typeof c !== 'object' || typeof c.html !== 'string' || !c.html) return;
+      (c.emph ? out.emph : out.rest).push(c.html);
+    });
+    return out;
   }
 
   // 📅 주간 리포트 카드(M5-WEEKLY): WeeklyView.cardInfo(ReviewQueue, now)가 내용이 있다고 할 때만. 없으면 빈 문자열(홈 출력 그대로).
@@ -676,9 +703,13 @@ var JourneyUI = (function() {
     if (!layer) return;
     var swap = !!_sheetId && !(opts && opts.fromNav);   // 시트 안에서 다른 노드로(선행 칩): 히스토리를 쌓지 않고 교체
     _sheetId = id;
-    if (swap && typeof history !== 'undefined' && history.replaceState && typeof location !== 'undefined' &&
-        String(location.hash || '').indexOf('#j/node/') === 0) {
-      try { history.replaceState(history.state, '', '#j/node/' + id); opts = { fromNav: true }; } catch (e) { /* 해시 교체 불가: 그냥 push */ }
+    // 교체는 Nav 논리 스택과 함께(Nav.replaceView). 브라우저 기록만 바꾸면 그 위에 쌓인 뷰(맞히기 화면 등)에서 뒤로 올 때
+    // 예전 노드 시트가 다시 열린다(M6 통합 검증). Nav가 없으면 예전처럼 해시만 교체
+    if (swap && typeof location !== 'undefined' && String(location.hash || '').indexOf('#j/node/') === 0) {
+      if (_can('Nav', 'replaceView')) { _call('Nav', 'replaceView', 'node', id); opts = { fromNav: true }; }
+      else if (typeof history !== 'undefined' && history.replaceState) {
+        try { history.replaceState(history.state, '', '#j/node/' + id); opts = { fromNav: true }; } catch (e) { /* 해시 교체 불가: 그냥 push */ }
+      }
     }
     layer.innerHTML = '<div class="j-sheet-bg" onclick="JourneyUI.closeSheet()"></div>' + _sheetHTML(id);
     layer.classList.add('is-open');
@@ -742,10 +773,21 @@ var JourneyUI = (function() {
     if (sumTxt) parts.push('<div class="j-sum">💡 ' + _esc(sumTxt) + '</div>');
     // 버튼
     parts.push(_actsHTML(nd, st, rec, s));
+    // (M6-P0, 계약 H11 b) 버튼 줄 뒤에 Boss.sheetActions(nodeId, rec, state) → html(S6 은닉 보스 유형 맞히기 등, 없으면 '')
+    var extra = _bossSheetActions(id, rec, s);
+    if (extra) parts.push(extra);
     var meta = 'S' + nd.stage + ' ' + _esc(stage.name) + (nd.est ? ', 약 ' + nd.est + '분' : '') + ', ' + stInfo.icon + ' ' + stInfo.label + (rec.skipped ? '(건너뜀)' : '');
     return '<div class="j-sheet' + (isBoss ? ' is-boss' : '') + '" role="dialog" aria-modal="true" aria-labelledby="j-sheet-t">' +
       _sheetHead(id, st, (isBoss ? '👑 ' : '') + nd.title) +
       '<p class="j-goal">' + _esc(nd.goal || '') + '</p><div class="j-meta">' + meta + '</div>' + parts.join('') + '</div>';
+  }
+  function _bossSheetActions(id, rec, s) {
+    var B = _m('Boss');
+    if (!B || typeof B.sheetActions !== 'function') return '';
+    try {
+      var h = B.sheetActions(id, rec, s);
+      return (typeof h === 'string') ? h : '';
+    } catch (e) { _warn('Boss.sheetActions', e); return ''; }
   }
   function _sheetHead(id, st, title) {
     return '<div class="j-sheet-grip" aria-hidden="true"></div><div class="j-sheet-head">' +
@@ -774,7 +816,7 @@ var JourneyUI = (function() {
         (m.approx ? '(체험, 참고 기준)' : '') + (m.coach != null ? ', 코칭 L' + m.coach + (COACH_NAME[m.coach] ? '(' + COACH_NAME[m.coach] + ')' : '') : ''));
       (m.conditions || []).forEach(function(c) {
         if (c && c.kind === 'hands' && _num(c.min, 0) <= _num(m.hands, 0)) return;   // 위 핸드 수 줄과 같은 말
-        var t = _condText(c); if (t) out.push(t);
+        var t = _condText(c, m); if (t) out.push(t);
       });
     }
     return out;
@@ -800,7 +842,7 @@ var JourneyUI = (function() {
     return (P && P.label) || PATTERN_FALLBACK[k] || k;
   }
   // 조건 DSL 1개 → 통과 기준 문장(비율 min/max, 개수 maxCount, 판정 창 window/minOpp, per, ref 의미 그대로)
-  function _condText(c) {
+  function _condText(c, m) {
     if (!c || !c.kind) return '';
     if (c.kind === 'light') {
       var lights = _arr(c.light && c.light.length ? c.light : ['green']).map(function(l) { return LIGHT_LABEL[l] || l; }).join(' 또는 ');
@@ -834,7 +876,9 @@ var JourneyUI = (function() {
     }
     if (c.kind === 'identify') {
       var seats = _num(c.seats, 5), need = _num(c.min, seats);
-      return '숨은 좌석 ' + seats + '곳' + (need < seats ? ' 중 ' + need + '곳' : '') + '의 유형 맞히기(관찰 ' + _num(c.minHands, 100) + '핸드 뒤)';
+      // 조기 제출(mission.earlySubmit, s6-boss)은 좌석마다 30핸드부터(journey/boss.js EARLY_HANDS). 시트에도 적어 100핸드 x 5좌석만 보이지 않게(M6 통합 검증)
+      return '숨은 좌석 ' + seats + '곳' + (need < seats ? ' 중 ' + need + '곳' : '') + '의 유형 맞히기(관찰 ' + _num(c.minHands, 100) + '핸드 뒤' +
+        (m && m.earlySubmit ? ', 확신이 서면 30핸드부터 조기 제출' : '') + ')';
     }
     if (c.kind === 'weeks') return _num(c.min, 1) > 1 ? '주간 복기 ' + c.min + '주 연속' : '주간 복기 1번';
     if (c.kind === 'overlap') return '레인지 색칠 ' + _num(c.spots, 3) + '스팟 겹침 ' + _pctTxt(c.min) + '% 이상';
@@ -1070,7 +1114,13 @@ var JourneyUI = (function() {
   function _unlockName(u) {
     var p = String(u).split(':');
     var k = { tableColor: '테이블 색', cardBack: '카드 뒷면', castFrame: '캐스트 테두리', cardBorder: '명장면 카드 테두리' }[p[0]] || p[0];
-    return k + (p[1] ? ' ' + p[1] : '');
+    var nm = p[1] || '';
+    // 외형 이름은 Badges.looks의 한국어 이름(남색, 다이아 무늬 등)으로. 없으면 id 그대로(M6 통합 검증)
+    var L = _call('Badges', 'looks');
+    if (L && Array.isArray(L.kinds)) L.kinds.forEach(function(x) {
+      if (x && x.kind === p[0] && Array.isArray(x.options)) x.options.forEach(function(o) { if (o && o.id === nm && o.name) nm = o.name; });
+    });
+    return k + (nm ? ' ' + nm : '');
   }
 
   // ── 열기, 복귀 ─────────────────────────────────────────
@@ -1142,10 +1192,12 @@ var JourneyUI = (function() {
     var pend = hasPending();
     var scr = document.querySelector('.screen.active');
     var id = scr ? scr.id : '';
+    _syncSummaryBtn(pend);
     if (!pend) {
       _cleanupContinue();
       if (_origin && (id === 'screen-menu' || id === 'screen-journey')) {
         _origin = false;
+        _syncSummaryBtn(pend);
         if (id === 'screen-menu') open();
       }
       if (!_origin) watchReturn(false);
@@ -1174,6 +1226,36 @@ var JourneyUI = (function() {
         if (mb) box.insertBefore(b, mb); else box.appendChild(b);
       }
     }
+  }
+  // (M6-P0, 계약 H11 d, 로드맵 결정 15) 여정 홈 빠른 줄에서 연 자유 게임(_origin, 대기 블록 없음)의 세션 요약 정적 버튼
+  // '↩ 메뉴로'는 실제로 여정 홈으로 가므로 글자를 '↩ 여정 홈으로'로, 다른 진입에서는 원래 글자로 되돌린다(동작은 그대로 App.showMenu).
+  // summaryButton(btn, home)은 글자만 바꾸는 순수에 가까운 함수(테스트용 공개): 원래 글자는 data-j-orig에 두고 같은 상태면 건드리지 않는다.
+  function summaryButton(btn, home) {
+    if (!btn) return false;
+    var cur = String(btn.textContent == null ? '' : btn.textContent);
+    var orig = btn.getAttribute ? btn.getAttribute('data-j-orig') : null;
+    if (home) {
+      if (cur !== SUMMARY_HOME) {
+        if (btn.setAttribute) btn.setAttribute('data-j-orig', cur);
+        btn.textContent = SUMMARY_HOME;
+      }
+      return true;
+    }
+    if (orig != null) {
+      if (cur === SUMMARY_HOME) btn.textContent = orig;
+      if (btn.removeAttribute) btn.removeAttribute('data-j-orig');
+    }
+    return false;
+  }
+  function _summaryStaticBtn() {
+    var scr = _el('screen-session-summary');
+    var box = scr && scr.firstElementChild;
+    return (box && typeof box.querySelector === 'function') ? box.querySelector(':scope > .menu-btn:not(.j-continue)') : null;
+  }
+  function _syncSummaryBtn(pend) {
+    if (!_hasDom()) return;
+    try { summaryButton(_summaryStaticBtn(), _origin && !(pend === undefined ? hasPending() : pend)); }
+    catch (e) { _warn('summaryButton', e); }
   }
   function _contBtn(label) {
     var b = document.createElement('button');
@@ -1301,6 +1383,8 @@ var JourneyUI = (function() {
     highlightCard: highlightCard,
     // M5-WEEKLY 연결(주간 리포트 카드 문자열, 노드 시트 롤링 줄)
     weeklyCard: weeklyCard, rollLines: _rollLines,
+    // M6-P0 훅(계약 H11): 카드 공급자, 노드 시트 문자열(Boss.sheetActions 포함), 세션 요약 정적 버튼 글자
+    providerCards: providerCards, sheetHTML: _sheetHTML, summaryButton: summaryButton, CARD_PROVIDERS: CARD_PROVIDERS.slice(),
     // 인라인 onclick 핸들러
     _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _act: _act,
     _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings,

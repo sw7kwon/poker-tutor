@@ -6,7 +6,8 @@
 //         띵킹 일치율과 속마음 적중률 추세(데이터가 있을 때만).
 //         이상해요 표시한 레슨 목록(설계서 8.3절 4번, poker_journey.flags가 있을 때만).
 //   습관: 활동 달력 90일, 스트릭(현재, 최장, 프리즈), 데일리 목표(최근 7일), 월별 XP(6개월).
-//   수집: M6에서 열린다(안내 카드).
+//   수집(M6-COLLECT): 배지 수, 명장면 카드 수, 도감 열린 쪽, 외형 열린 수 요약(CollectionView.summary)과 '🗂 수집 열기'
+//         (JourneyUI.view('collection')). 수집 화면 자체는 journey/views/collection.js.
 //   하단: 💾 기록 백업(BackupUI.open).
 // 구조: collect(now)가 JStats, Journey, Rating, HeroStats에서 평범한 객체(input)를 모으고, 순수 함수 weeksFrom, conceptsFrom,
 //   skillModel, habitModel이 화면 모델을, lineSVG, html이 문자열을 만든다(tests/j-dashboard.test.js). 그림은 인라인 SVG와 HTML만.
@@ -64,6 +65,7 @@ var DashboardView = (function() {
     if (name === 'HeroStats') return (typeof HeroStats !== 'undefined' && HeroStats) ? HeroStats : null;
     if (name === 'JourneyUI') return (typeof JourneyUI !== 'undefined' && JourneyUI) ? JourneyUI : null;
     if (name === 'BackupUI') return (typeof BackupUI !== 'undefined' && BackupUI) ? BackupUI : null;
+    if (name === 'CollectionView') return (typeof CollectionView !== 'undefined' && CollectionView) ? CollectionView : null;
     return null;
   }
 
@@ -513,15 +515,27 @@ var DashboardView = (function() {
     return out.join('');
   }
 
-  function _collectHTML() {
-    return _card('🗂 수집', '<p class="db-line"><b>M6에서 열려요.</b></p>' +
-      '<p class="db-d">배지, 명장면 카드, 캐릭터 도감, 레벨로 연 외형이 여기에 모여요. 명장면 카드는 지금도 극장에서 저장돼요.</p>');
+  // 수집 탭 요약(M6-COLLECT). col = CollectionView.summary 결과 { badges, cards, castOpen, castTotal, looksOpen, looksTotal, lines }
+  function _collectHTML(col) {
+    col = _isObj(col) ? col : {};
+    var rows = [
+      ['🏅', '배지', _n(col.badges) + '개', '조건은 미리 알리지 않아요. 얻은 배지만 보여요.'],
+      ['🎬', '명장면 카드', _n(col.cards) + '장', '극장에서 드라마가 큰 핸드가 나오면 생겨요(최대 100장).'],
+      ['👥', '캐릭터 도감', _n(col.castOpen) + '/' + (_n(col.castTotal) || 6) + '쪽', '단계가 오르면 새 쪽이 열려요.'],
+      ['💭', '속마음 아카이브', _n(col.lines) + '줄', '명장면 카드의 속마음 한 줄을 인물별로 모아요.'],
+      ['🎨', '외형', _n(col.looksOpen) + '/' + (_n(col.looksTotal) || 5) + '개 열림', '레벨 3, 6, 10, 15, 20에서 외형이 열려요.']
+    ];
+    return _card('🗂 수집', '<ul class="db-col">' + rows.map(function(r) {
+      return '<li class="db-col-row"><span class="db-col-ic" aria-hidden="true">' + r[0] + '</span><span class="db-col-k">' + r[1] + '</span>' +
+        '<b class="db-col-v">' + _esc(r[2]) + '</b><span class="db-col-d">' + r[3] + '</span></li>';
+    }).join('') + '</ul>' +
+      '<button type="button" class="j-btn j-primary db-col-open" onclick="JourneyUI.view(\'collection\')">🗂 수집 열기</button>');
   }
 
   // 화면 문자열(순수: input과 탭만으로 만든다)
   function html(input, tab) {
     tab = (tab === 'habit' || tab === 'collect') ? tab : 'skill';
-    var body = tab === 'habit' ? _habitHTML(habitModel(input)) : tab === 'collect' ? _collectHTML() : _skillHTML(skillModel(input));
+    var body = tab === 'habit' ? _habitHTML(habitModel(input)) : tab === 'collect' ? _collectHTML(input && input.col) : _skillHTML(skillModel(input));
     var tabs = '<div class="db-tabs" role="tablist" aria-label="내 실력 탭">' + TABS.map(function(t) {
       var on = t[0] === tab;
       return '<button type="button" role="tab" class="db-tab' + (on ? ' is-on' : '') + '" aria-selected="' + on + '" id="db-tab-' + t[0] + '"' +
@@ -553,6 +567,8 @@ var DashboardView = (function() {
     var luck = [];
     try { if (HS && typeof HS.luckCards === 'function') luck = HS.luckCards(20); } catch (e) { luck = []; }
     var streak = _isObj(js.streak) ? js.streak : {};
+    var CV = _m('CollectionView'), col = null;
+    try { if (CV && typeof CV.summary === 'function') col = CV.summary(js); } catch (e) { col = null; }
     return {
       now: now, days: _days,
       weeks: weeksFrom(stats, now, WEEKS),
@@ -563,7 +579,8 @@ var DashboardView = (function() {
       streak: { cur: sm ? sm.streak : _n(streak.cur), best: _n(streak.best), freezes: _n(streak.freezes),
         frozenDays: Array.isArray(streak.frozenDays) ? streak.frozenDays : [] },
       goalMinutes: (_isObj(js.goal) && js.goal.minutes) || 5,
-      xp: _n(js.xp), level: sm ? sm.level : (_n(js.level) || 1)
+      xp: _n(js.xp), level: sm ? sm.level : (_n(js.level) || 1),
+      col: col
     };
   }
 

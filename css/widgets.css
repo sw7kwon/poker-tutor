@@ -1,0 +1,91 @@
+/* css/widgets.css (채우는 그룹: M6-WIDGET)
+   lw- : 레슨 위젯 토이 게임(toyGame), 분산 콘(varianceCone). 위젯 루트는 LessonPlayer가 감싸는 .lp-widget[data-nogesture](계약 H1).
+   기준: 412x915와 360x780 글자 130%에서 가로 넘침 0, 탭 요소 44px 이상, 색 + 글자 2중 표시, 모션 줄이기면 전환 없음.
+   슬라이더는 touch-action: pan-y(가로 끌기는 슬라이더, 세로 끌기는 장면 스크롤). */
+
+.lp-widget { min-width: 0; max-width: 100%; cursor: default; }
+.lw { display: flex; flex-direction: column; gap: 7px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; }
+.lw, .lw * { word-break: keep-all; overflow-wrap: anywhere; }
+.lw-title { font-weight: 800; color: var(--gold); margin-right: 2px; }
+.lw-sub { font-size: .84rem; line-height: 1.5; color: #c9d1d9; }
+.lw-sub b { color: var(--text); }
+.lw-row { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 2px 8px; min-width: 0; font-size: .88rem; color: #c9d1d9; }
+.lw-val { font-size: 1.12rem; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* 칩과 탭(엄지 탭 44px) */
+.lw-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.lw-chip { flex: 1 1 0; min-width: 58px; min-height: 44px; padding: 4px 6px; border-radius: 10px; cursor: pointer; font: inherit; font-size: .84rem; font-weight: 700;
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; line-height: 1.15;
+  background: #161b22; color: var(--text); border: 1px solid var(--hud-border); -webkit-tap-highlight-color: transparent; }
+.lw-chip small { font-size: .7rem; font-weight: 600; color: var(--text-dim); }
+.lw-chip.is-on { border-color: var(--gold); background: rgba(212,175,55,.16); box-shadow: inset 0 0 0 1px var(--gold); }
+.lw-chip.is-on small { color: #e3c766; }
+.lw-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.lw-tab { min-height: 44px; padding: 6px 8px; border-radius: 10px; cursor: pointer; font: inherit; font-size: .88rem; font-weight: 700; line-height: 1.2;
+  background: #11161d; color: var(--text-dim); border: 1px solid var(--hud-border); -webkit-tap-highlight-color: transparent; }
+.lw-tab.is-on { color: var(--text); border-color: var(--gold); background: rgba(212,175,55,.12); }
+.lw-panel { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lw-panel[hidden] { display: none; }
+.lw-btn { align-self: flex-start; min-height: 44px; padding: 0 14px; border-radius: 10px; cursor: pointer; font: inherit; font-size: .86rem;
+  background: #21262d; color: var(--text); border: 1px solid var(--hud-border); -webkit-tap-highlight-color: transparent; }
+.lw-chip:focus-visible, .lw-tab:focus-visible, .lw-btn:focus-visible, .lw-range:focus-visible { outline: 2px solid #79c0ff; outline-offset: 2px; }
+
+/* 슬라이더: 요소 높이 44px(트랙은 얇게) */
+.lw-range { display: block; width: 100%; height: 44px; margin: 0; accent-color: var(--gold); touch-action: pan-y; cursor: pointer; background: transparent; }
+
+/* 벳 레인지 구성 막대(A 밸류, Q 블러프) */
+.lw-mix { display: flex; height: 24px; border-radius: 6px; overflow: hidden; border: 1px solid var(--hud-border); background: #0d1117; }
+.lw-mix span { display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden; white-space: nowrap;
+  font-size: .74rem; font-weight: 800; color: #0d1117; transition: width .12s ease-out; }
+.lw-mix-a { background: #3fb950; }
+.lw-mix-q { background: #f0883e; }
+
+/* 그림(SVG). 글자 크기는 viewBox 단위라 화면 글자 확대와 무관하게 폭에 맞춰 줄어든다 */
+.lw-chart { width: 100%; min-width: 0; }
+.lw-svg { display: block; width: 100%; height: auto; max-height: 170px; overflow: hidden; }
+.lw-svg-pos { fill: rgba(63,185,80,.10); }
+.lw-svg-neg { fill: rgba(248,81,73,.10); }
+.lw-svg-zero { stroke: #8b949e; stroke-width: 1; stroke-dasharray: 4 3; }
+.lw-svg-star { stroke: var(--gold); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.lw-svg-line { stroke: #e6edf3; stroke-width: 2.5; stroke-linecap: round; fill: none; }
+.lw-svg-dot { stroke: #0d1117; stroke-width: 2; fill: var(--gold); }
+.lw-svg-dot.is-pos { fill: #3fb950; }
+.lw-svg-dot.is-neg { fill: #f85149; }
+.lw-svg-t { font-size: 12px; font-weight: 700; font-family: inherit; }
+.lw-svg-tp { fill: #56d364; }
+.lw-svg-tn { fill: #ff7b72; }
+.lw-svg-ts { fill: #e3c766; }
+.lw-svg-ax { fill: #8b949e; font-weight: 600; }
+.lw-cone { fill: rgba(88,166,255,.18); stroke: rgba(88,166,255,.55); stroke-width: 1; }
+.lw-path { fill: none; stroke-width: 1.4; stroke-linejoin: round; opacity: .9; }
+.lw-path-1 { stroke: #d2a8ff; }
+.lw-path-2 { stroke: #f0883e; }
+.lw-path-3 { stroke: #56d364; }
+
+/* 결과 문구(색 + 글자) */
+.lw-msg { font-size: .9rem; line-height: 1.4; min-height: 2.8em; }
+.lw-out { font-weight: 700; }
+.lw-out.is-pos { color: #56d364; }
+.lw-out.is-neg { color: #ff7b72; }
+.lw-out.is-zero { color: #e3c766; }
+.lw-key { font-size: .8rem; line-height: 1.45; color: var(--text-dim); }
+.lw-key b { color: var(--text); }
+.lw-key:empty { display: none; }
+.lw-big { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 2px 8px; padding: 8px 10px; border-radius: 10px;
+  background: #11161d; border: 1px solid var(--hud-border); }
+.lw-big span { font-size: .82rem; color: var(--text-dim); }
+.lw-big b { font-size: 1.08rem; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* 100핸드당 구간 막대 */
+.lw-p100 { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lw-pbar { position: relative; height: 18px; border-radius: 6px; background: #0d1117; border: 1px solid var(--hud-border); overflow: hidden; }
+.lw-pbar-band { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; background: rgba(88,166,255,.55); transition: left .12s ease-out, width .12s ease-out; }
+.lw-pbar-zero { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #8b949e; }
+.lw-pbar-dot { position: absolute; top: 3px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--gold); border: 1px solid #0d1117; }
+.lw-pbar-ax { display: flex; justify-content: space-between; font-size: .72rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* 모션 줄이기(설정 또는 OS) */
+.reduce-motion .lw-mix span, .reduce-motion .lw-pbar-band { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  html:not(.motion-full) .lw-mix span, html:not(.motion-full) .lw-pbar-band { transition: none; }
+}

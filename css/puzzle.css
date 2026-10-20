@@ -1,4 +1,4 @@
-/* css/puzzle.css (채우는 패키지: M2-P4bc)
+/* css/puzzle.css (채우는 패키지: M2-P4bc, 끝의 rp- 레인지 색칠 절은 M6-PAINT)
    퍼즐 세트, 해설 오버레이, 러시, 서바이벌, 데일리 5. 클래스는 전부 pz- 접두(#screen-journey .j-view 안).
    기준: 세로 폰 412px에서 가로 넘침 0, 탭 요소 44px 이상, 결정과 다음 버튼은 하단 엄지 영역, 상단은 정보 전용.
    표시는 색 + 글자 + 아이콘 3중(정답 ✔ 정답, 내 선택 ✖ 내 선택, 라벨 배지 아이콘 + 글자). */
@@ -180,3 +180,83 @@ html.four-color .pz-card[data-suit=c] { color: #17803d; }
 html.reduce-motion .pz-ov-card { animation: none; }
 html.reduce-motion .pz-time-bar i { transition: none; }
 html.reduce-motion .pz-opt:active:not([aria-disabled="true"]) { transform: none; }
+
+/* ── 레인지 색칠(M6-PAINT, 계약 H1, H2): rp- = lessons/widgets/range-paint.js의 RangePaint(레슨 위젯 rangePaint와 퍼즐 색칠 문항 공용)
+   작은 격자(약 27px 칸)는 보기와 줄 고르기 전용이고, 칠하기는 아래 '크게 보기' 줄(칸 44px 이상)에서 손가락으로 끈다(설계서 5.9절 6번).
+   크게 보기 줄은 touch-action: none이라 끄는 동안 화면이 움직이지 않는다. 칠한 칸 = 파랑 + ✔, 채점 = 초록 꽉 찬 칸(맞게 칠함),
+   노란 귀퉁이와 테두리(놓친 칸), 빨강 빗금(넘친 칸) + 범례 글자(색 + 무늬 + 글자 3중). */
+.rp { display: flex; flex-direction: column; gap: 8px; min-width: 0; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.rp-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; min-width: 0; }
+.rp-title { min-width: 0; font-size: .95rem; color: #e6edf3; }
+.rp-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: .76rem; font-weight: 700;
+  color: #79c0ff; border: 1px solid #388bfd; background: #11161d; white-space: nowrap; }
+.rp-grid { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 1px; width: min(100%, 380px); margin: 0 auto; padding: 1px; touch-action: manipulation;
+  border-radius: 6px; background: #30363d; }
+.rp--lesson { gap: 6px; }
+.rp--lesson .rp-grid { width: min(100%, 240px); }
+.rp--lesson .rp-c { font-size: .5rem; letter-spacing: -.04em; }
+.rp-c { display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; min-width: 0; overflow: hidden; border-radius: 2px;
+  background: #2b3138; color: #8b949e; font-style: normal; font-size: .58rem; font-weight: 600; line-height: 1; letter-spacing: -.02em; cursor: pointer;
+  white-space: nowrap; word-break: normal; overflow-wrap: normal; }
+.rp-c.is-p { background: #353d47; }
+.rp-c.is-on { background: #2f6feb; color: #fff; font-weight: 800; }
+.rp-c.is-row { box-shadow: inset 0 2px 0 #f0b429, inset 0 -2px 0 #f0b429; }
+.rp-zoom { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px; border-radius: 10px; background: #161b22; border: 1px solid rgba(240,180,41,.55); }
+.rp--lesson .rp-zoom { padding: 4px; gap: 4px; }
+.rp-zhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.rp-zt { flex: 0 1 auto; min-width: 0; font-size: .9rem; color: #f2cc60; white-space: nowrap; }
+.rp-nav { flex: 0 0 auto; min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--hud-border); background: #21262d;
+  color: var(--text); font: inherit; font-size: 1rem; cursor: pointer; touch-action: manipulation; }
+.rp-nav:disabled { opacity: .35; cursor: default; }
+/* 412px에서 7칸 x 2줄, 좁은 화면은 칸 44px을 지키며 줄 수가 는다 */
+.rp-zcells { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; touch-action: none; }
+.rp--lesson .rp-zcells { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 3px; }
+.rp--lesson .rp-z { min-height: 44px; }
+.rp-z { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 0; min-height: 48px; padding: 2px;
+  border-radius: 8px; border: 2px solid #484f58; background: #2b3138; color: #e6edf3; font: inherit; font-size: .9rem; cursor: pointer;
+  touch-action: none; -webkit-tap-highlight-color: transparent; }
+.rp-z b { font-weight: 800; }
+.rp-z small { min-height: .9em; font-size: .72rem; line-height: 1; }
+.rp-z.is-p { border-style: dashed; }
+.rp-z.is-on { background: #2f6feb; border-color: #a5d6ff; border-style: solid; color: #fff; }
+.rp-z:focus-visible, .rp-nav:focus-visible, .rp-btn:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.rp-count { font-size: .84rem; color: #c9d1d9; text-align: center; }
+.rp-hint { font-size: .78rem; line-height: 1.45; color: var(--text-dim); text-align: center; }
+.rp--lesson .rp-hint { font-size: .74rem; }
+.rp--lesson .rp-res .rp-grid { width: min(100%, 240px); }
+.rp-acts { display: flex; gap: 6px; min-width: 0; }
+.rp-acts--zoom { margin-left: auto; }
+.rp-acts--end { justify-content: center; flex-wrap: wrap; }
+.rp-btn { min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--hud-border); background: #21262d; color: var(--text);
+  font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; white-space: nowrap; touch-action: manipulation; }
+.rp-btn--go { background: linear-gradient(135deg, #1f6b35, #2d8a47); border-color: var(--gold); color: #fff; }
+/* 채점 격자 */
+.rp-res { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; }
+.rp-grid--res .rp-c { cursor: default; }
+.rp-c.is-hit { background: #1e7d32; color: #fff; font-weight: 800; }
+.rp-c.is-miss { background: linear-gradient(135deg, #f0b429 0 26%, #2e2810 26%); color: #f2cc60; box-shadow: inset 0 0 0 1px #f0b429; font-weight: 800; }
+.rp-c.is-extra { background: repeating-linear-gradient(45deg, #b62324 0 3px, #5a1414 3px 6px); color: #fff; font-weight: 800; }
+.rp-score { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.rp-score b { font-size: 2rem; line-height: 1; }
+.rp-score span { font-size: .9rem; color: #c9d1d9; }
+.rp-score em { font-style: normal; font-weight: 800; }
+.rp-score.is-ok b, .rp-score.is-ok em { color: #7ee787; }
+.rp-score.is-bad b, .rp-score.is-bad em { color: #ffa198; }
+.rp-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; font-size: .8rem; color: #c9d1d9; }
+.rp-lg { display: inline-flex; align-items: center; gap: 5px; }
+.rp-lg .rp-c { width: 14px; height: 14px; aspect-ratio: auto; border-radius: 3px; cursor: default; }
+.rp-lists { display: flex; flex-direction: column; gap: 2px; font-size: .8rem; line-height: 1.45; color: #c9d1d9; }
+.rp-lists b { color: #e6edf3; margin-right: 4px; }
+.rp-note { font-size: .8rem; line-height: 1.5; color: var(--text-dim); }
+/* 퍼즐 색칠 문항: 하단 엄지 영역 버튼(지우기, 채점하기), 채점 오버레이 */
+.pz-body--paint .pz-prompt { font-size: 1rem; }
+.pz-pacts .pz-pbtn { min-width: 0; min-height: 52px; padding: 8px 10px; border-radius: 12px; border: 2px solid var(--hud-border); background: #161b22;
+  color: var(--text); font: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+.pz-pacts .pz-pbtn--go { background: linear-gradient(135deg, #1f6b35, #2d8a47); border-color: var(--gold); color: #fff; }
+.pz-pacts .pz-pbtn.is-arm { border-color: var(--red); border-style: dashed; color: #ffa198; }
+.pz-pacts .pz-pbtn:disabled { opacity: .45; cursor: default; }
+.pz-pacts .pz-pbtn:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.pz-ov--paint .pz-ov-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pz-ov-paint .rp-grid { width: min(100%, 320px); }
+/* 색칠 문항의 지우기, 채점하기는 데스크톱에서도 아래에 붙여 둔다(격자와 크게 보기 줄이 길어 버튼이 화면 밖으로 밀리지 않게) */
+.pz-opts.pz-pacts { position: sticky; bottom: 0; padding: 10px 0 calc(6px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(rgba(10,14,20,0), #0a0e14 14px); }

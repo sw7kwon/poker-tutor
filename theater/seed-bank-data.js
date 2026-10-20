@@ -1,11 +1,11 @@
 // theater/seed-bank-data.js (채우는 패키지: M4-P6, 생성: node tools/seed-bank.js --theater, 손으로 고치지 않는다)
 // 극장 시드 은행(설계서 3.3절 시드 은행 문단, 8.1절 5번, 10절 22번, 계약 T7). 에피소드는 이 시드에서 뽑는다.
 // 항목 { seed, score(드라마 점수 0~100), street(도달 스트리트), pot(최종 팟, bb) }, 점수 높은 순(같으면 시드 작은 순).
-// 엔진 해시 fnv1a2x32:071165f1acb49c52, 실제 의존 파일 16개(줄바꿈 LF 기준): data/equity-preflop.js, engine/deck.js, engine/hand-eval.js, engine/range.js, engine/gto.js, engine/game-state.js, ai/villain-profiles.js, ai/villain.js, engine/postflop-guide.js, engine/thinking.js, drills/drill-core.js, journey/cast.js, theater/plans.js, theater/cast-ai.js, theater/highlight.js, theater/theater-core.js
+// 엔진 해시 fnv1a2x32:976d1a79ce56ebea, 실제 의존 파일 16개(줄바꿈 LF 기준): data/equity-preflop.js, engine/deck.js, engine/hand-eval.js, engine/range.js, engine/gto.js, engine/game-state.js, ai/villain-profiles.js, ai/villain.js, engine/postflop-guide.js, engine/thinking.js, drills/drill-core.js, journey/cast.js, theater/plans.js, theater/cast-ai.js, theater/highlight.js, theater/theater-core.js
 //   이 파일들이 바뀌면 tests/j-highlight.test.js가 실패한다. 그때는 --theater로 다시 만들고 --verify-theater로 확인한다.
 // 생성일 2026-10-21, 시드 1~100000 가운데 상위 500개, 점수 78~96, 임계 60 이상 500개.
 var THEATER_SEEDS = {
-  meta: {"version":1,"engineHash":"fnv1a2x32:071165f1acb49c52","hashFiles":["data/equity-preflop.js","engine/deck.js","engine/hand-eval.js","engine/range.js","engine/gto.js","engine/game-state.js","ai/villain-profiles.js","ai/villain.js","engine/postflop-guide.js","engine/thinking.js","drills/drill-core.js","journey/cast.js","theater/plans.js","theater/cast-ai.js","theater/highlight.js","theater/theater-core.js"],"created":"2026-10-21","generator":"tools/seed-bank.js --theater","range":[1,100000],"top":500,"threshold":60},
+  meta: {"version":1,"engineHash":"fnv1a2x32:976d1a79ce56ebea","hashFiles":["data/equity-preflop.js","engine/deck.js","engine/hand-eval.js","engine/range.js","engine/gto.js","engine/game-state.js","ai/villain-profiles.js","ai/villain.js","engine/postflop-guide.js","engine/thinking.js","drills/drill-core.js","journey/cast.js","theater/plans.js","theater/cast-ai.js","theater/highlight.js","theater/theater-core.js"],"created":"2026-10-21","generator":"tools/seed-bank.js --theater","range":[1,100000],"top":500,"threshold":60},
   items: [
     { seed: 5673, score: 96, street: 'showdown', pot: 300.5 },
     { seed: 40052, score: 96, street: 'showdown', pot: 201 },

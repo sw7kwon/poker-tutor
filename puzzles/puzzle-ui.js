@@ -5,21 +5,32 @@
 //   review(spec)  복습 블록(레이팅 미반영). spec = {items:[{type, key, box, fill?, concept?, spots?}], onDone(r)}
 //                 srs 항목은 Puzzles.fromKey로 같은 key를 다시 내고, 채움 항목(fill)은 레이팅 창을 넣어 Puzzles.next로 만든다.
 //                 type이 'puzzle'인 구형 채움 항목은 concept로 Puzzles.pickType을 불러 유형을 정한다.
-//   can(typeOrSpec) 모든 유형이 Puzzles.available이고 ui가 'paint'가 아닐 때만 true.
+//   can(typeOrSpec) 모든 유형이 Puzzles.available이고, ui 'paint' 유형은 색칠 화면(RangePaint, lessons/widgets/range-paint.js)과
+//                 채점기(Puzzles.get(type).check, score)가 있을 때만 true(M6-PAINT, 계약 H2: can('rangepaint') true).
 //   run(hooks)    PuzzleModes(러시, 서바이벌, 데일리 5)가 같이 쓰는 러너. hooks 명세는 run 위 주석.
 //   r = {n, ok, xp, rated, ratingDelta, mode, aborted, results:[{type, key, ok, ms, pick, near, rated}]}
 //       rated = 레이팅에 들어간 문항 수, ratingDelta = Rating.commit 결과의 delta(없으면 null).
 // 기록(문항마다): Drills.record(type, key, ok, ms), JStats.record('puzzle', {ok, rated}), XP(JourneyUI.xp, 없으면 Journey.addXp),
-//   효과 A11y.fx. 레이팅 세트에서만 Rating.record(q, ok, now), 끝 또는 중간 나가기에서 Rating.commit(now) 1회(세트 1회 = 레이팅 기간 1회).
+//   Badges.note('puzzle', {type, ok, key, answer, overlap?}, now)(M6, 계약 H2와 H8, answer = 정답 보기 id, 색칠 문항은 스팟 키,
+//   이미 푼 문항 연습 hooks.noRecord는 기록과 같이 빼다), 효과 A11y.fx. 레이팅 세트에서만 Rating.record(q, ok, now), 끝 또는 중간 나가기에서 Rating.commit(now) 1회(세트 1회 = 레이팅 기간 1회).
 // 화면: #screen-journey 안 JourneyUI.mountView('puzzle', html). Nav.view('puzzle', 이름)와 Nav.setBack('j/puzzle')로 ↩와 안드로이드 뒤로를
 //   처리하고, 중간에 나가면 그때까지의 결과만 반영한다(끝 카드 없이 onDone).
 // 장면: 문제 단계에서는 scene.ring(필요 승률을 계산해 그리는 해설 그림, 팟 오즈 정답과 같다)을 빼고 해설 오버레이에서만 그린다.
 // 한 문항도 만들지 못한 세트는 빈 끝 카드 대신 안내 후 onDone(r: n 0, empty true).
+// (M6-PAINT, 계약 H2) 색칠 문항(q.ui 'paint', 유형 rangepaint): 보기 대신 RangePaint 격자(줄 탭 → 크게 보기 줄에서 손가락으로 끌어
+//   칠하기와 지우기)와 하단 엄지 영역의 '지우기', '채점하기'. 채점 = Puzzles.get(type).check(q, 칠한 칸)의 score(= .score, Jaccard),
+//   문항 ok = 겹침 ≥ 기준(spec.overlap → q.data.overlap, 기본 0.7). 채점 뒤에는 늘 해설 오버레이(겹침 %, 맞게 칠함, 놓친 칸,
+//   넘친 칸 격자와 '이 앱 차트 기준'). start({type:'rangepaint', count})는 count를 10~20으로 늘리지 않고 그대로(1~20, 기본 3) 쓴다.
+//   r.paint = [{spot, overlap}](색칠 문항을 푼 차례, 없으면 []), r.results 항목에도 overlap, spot. 보스는 r.paint를 쌓아 판정한다.
+//   API: grade() → info | null, paint(칸|[칸], on?) → 칠한 칸 수, paintRow(r), paintClear(), paintState() → {spot, cells, row, n} | null.
+//   Puzzles.pickType은 paint 유형을 기본으로 빼므로(opts.paint) 러시, 서바이벌, 데일리 5에는 색칠 문항이 섞이지 않는다.
 // 로드 시 DOM 접근 없음. 다른 모듈은 호출 시점에 전역에서 찾는다(typeof 가드, 병렬 구현 중 스텁이어도 화면이 깨지지 않음).
 var PuzzleUI = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
 
   var SET_MIN = 10, SET_MAX = 20, SET_DEFAULT = 10;
+  var PAINT_DEFAULT = 3;    // 색칠 문항 세트 기본 문항 수
+  var PAINT_GOAL = 0.7;     // 색칠 겹침 기준 기본값(gen-range PAINT_OVERLAP과 같은 값)
   var AUTO_MS = 700;        // 정답 표시 뒤 다음 문항까지
   var FLASH_MS = 1300;      // 오답 플래시(러시) 표시 시간
   var TRIES = 4;            // 문항 1개를 만들 때 생성기 재시도 횟수
@@ -129,8 +140,26 @@ var PuzzleUI = (function() {
     if (g && typeof g.ready === 'function') { try { return !!g.ready(); } catch (e) { return false; } }
     return true;
   }
-  function _usable(t) { return available(t) && _uiOf(t) !== 'paint'; }
+  // 색칠 문항(M6-PAINT): 색칠 화면 부품과 그 유형의 채점기가 있어야 낼 수 있다
+  function _rp() {
+    var R = _m('RangePaint');
+    return (R && typeof R.create === 'function' && typeof R.html === 'function' && typeof R.cells === 'function' &&
+      typeof R.resultHTML === 'function') ? R : null;
+  }
+  function _paintGen(t) {
+    var P = _P(), g = null;
+    if (!P || typeof P.get !== 'function') return null;
+    try { g = P.get(t); } catch (e) { g = null; }
+    return (g && typeof g.check === 'function' && typeof g.score === 'function') ? g : null;
+  }
+  function _paintReady(t) { return !!_rp() && !!_paintGen(t); }
+  function _usable(t) { return available(t) && (_uiOf(t) !== 'paint' || _paintReady(t)); }
+  function _isPaint(q) { return !!q && q.ui === 'paint'; }
   function _valid(q) {
+    if (_isPaint(q)) {
+      if (!q.type || !q.data || typeof q.data.spot !== 'string' || !q.data.spot || !_paintReady(q.type)) return false;
+      try { return !!_rp().create(q.data.spot, { goal: q.data.overlap }); } catch (e) { return false; }
+    }
     if (!q || typeof q !== 'object' || !Array.isArray(q.options) || q.options.length < 2) return false;
     if (q.ui && q.ui !== 'choice') return false;
     for (var i = 0; i < q.options.length; i++) if (q.options[i] && String(q.options[i].id) === String(q.answer)) return true;
@@ -226,6 +255,7 @@ var PuzzleUI = (function() {
     if (key && LABEL_ALIAS[key]) key = LABEL_ALIAS[key];
     if (!key || !LABELS[key]) {
       if (!q) key = 'exact';
+      else if (q.type === 'lesson' && (q.labelKind === 'chart' || q.labelKind === 'appdef' || q.labelKind === 'approx')) key = q.labelKind;   // 계약 H12, '참고' 장면
       else if (q.type === 'intent') key = 'read';
       else if (q.confidence === 'approx') key = 'approx';
       else if (q.appDef) key = 'appdef';
@@ -341,6 +371,11 @@ var PuzzleUI = (function() {
     n = Math.floor(_num(n, SET_DEFAULT));
     return Math.max(SET_MIN, Math.min(SET_MAX, n));
   }
+  // 색칠 문항 세트(계약 H2 'count 그대로'): 1~20, 기본 3(노드 s5-09와 s5-boss가 3스팟)
+  function clampPaint(n) {
+    n = Math.floor(_num(n, PAINT_DEFAULT));
+    return Math.max(1, Math.min(SET_MAX, n));
+  }
   function _shuffle(arr, rnd) {
     for (var i = arr.length - 1; i > 0; i--) {
       var j = Math.floor(rnd() * (i + 1)), t = arr[i]; arr[i] = arr[j]; arr[j] = t;
@@ -365,7 +400,11 @@ var PuzzleUI = (function() {
       return list.slice(0, want);
     }
     if (!spec.type) return [];
-    var n = clampCount(spec.count);
+    // 노드 드릴(spec.node)이 10문항보다 적게 정한 세트(부록 A: s5-04 토이 게임 5/5, s6-06 분산 5/5)는 그 수 그대로.
+    // 10으로 늘리면 통과 비율 1.0 때문에 10/10이 필요해진다(M6 통합 검증). 그 밖의 세트는 10~20
+    var cnt = Math.floor(_num(spec.count, 0));
+    var n = _uiOf(spec.type) === 'paint' ? clampPaint(spec.count)
+      : (spec.node && cnt >= 1 && cnt < SET_MIN ? cnt : clampCount(spec.count));
     for (var j = 0; j < n; j++) list.push({ type: spec.type, variant: spec.variant, spots: spec.spots });
     return list;
   }
@@ -424,6 +463,14 @@ var PuzzleUI = (function() {
     }
   }
 
+  // 배지 기록(계약 H2, H8): 문항마다 1번. answer = 정답 보기 id, 색칠 문항은 스팟 키(정답 칸 목록 대신), overlap은 색칠 문항만
+  function _note(q, ok, overlap, now) {
+    if (!_can('Badges', 'note')) return;
+    var d = { type: q.type, ok: !!ok, key: q.key == null ? null : q.key, answer: _isPaint(q) ? (q.data && q.data.spot) || q.key || null : q.answer };
+    if (overlap != null && isFinite(overlap)) d.overlap = overlap;
+    _call('Badges', 'note', 'puzzle', d, now);
+  }
+
   // ── 러너 ──────────────────────────────────────────────
   // hooks = {
   //   mode, title, navParam(Nav.view('puzzle', navParam), 기본 mode), total(숫자 = 고정 문항 수, null = over()까지),
@@ -453,7 +500,8 @@ var PuzzleUI = (function() {
       total: (hooks.total == null) ? null : Math.max(0, Math.floor(_num(hooks.total, 0))),
       i: 0, q: null, qAt: 0, phase: 'load', pick: null, info: null, exp: null,
       n: 0, ok: 0, xp: 0, combo: 0, best: 0, ratedN: 0, ratingDelta: null, rating: null,
-      results: [], ended: false, aborted: false, r: null, html: '', startedAt: _now(), data: hooks.data || {}
+      results: [], ended: false, aborted: false, r: null, html: '', startedAt: _now(), data: hooks.data || {},
+      paint: [], pt: null
     };
     S.navParam = String(hooks.navParam || S.mode);
     _ensureBack();
@@ -465,12 +513,26 @@ var PuzzleUI = (function() {
     return S ? api : null;
   }
   function _mountShell() {
+    _unbindPaint();
     _rootEl = null;
     var shell = '<div class="pz pz--' + _esc(S.mode) + '" data-mode="' + _esc(S.mode) + '"></div>';
     var v = _call('JourneyUI', 'mountView', 'puzzle', shell);
     if (v && typeof v.querySelector === 'function') _rootEl = v.querySelector('.pz');
     if (_rootEl && typeof _rootEl.addEventListener === 'function') _rootEl.addEventListener('click', _onClick);
+    _bindPaint();
   }
+  // 색칠 격자 입력(위임): 줄 탭, ▲▼, 크게 보기 줄 끌기. 칠하기는 문제 단계에서만 받는다
+  var _paintOff = null;
+  function _bindPaint() {
+    var R = _rp();
+    if (!R || typeof R.bind !== 'function' || !_rootEl) return;
+    _paintOff = R.bind(_rootEl, {
+      state: function() { return (S && !S.ended && S.phase === 'q' && _isPaint(S.q) && S.pt) ? S.pt : null; },
+      render: function() { _paintRender(); },
+      changed: function(what) { _paintChanged(what); }
+    });
+  }
+  function _unbindPaint() { if (_paintOff) { try { _paintOff(); } catch (e) { /* 무시 */ } _paintOff = null; } }
   function _navOpen(param) {
     if (!_can('Nav', 'view')) return;
     var want = '#j/puzzle/' + encodeURIComponent(String(param));
@@ -522,6 +584,8 @@ var PuzzleUI = (function() {
       _end(false); return;
     }
     S.q = q; S.i++; S.qAt = _now(); S.phase = 'q'; S.pick = null; S.info = null; S.exp = null;
+    S.pt = _isPaint(q) ? _rp().create(q.data.spot, { goal: _paintNeed(q) }) : null;   // _valid가 스팟을 이미 확인했다
+    S.paintArm = false;
     _render(true);
   }
   function _over() {
@@ -530,10 +594,32 @@ var PuzzleUI = (function() {
   }
 
   function answer(id) {
-    if (!S || S.ended || S.phase !== 'q' || !S.q) return null;
-    var q = S.q, h = S.hooks, opt = _opt(q, id);
+    if (!S || S.ended || S.phase !== 'q' || !S.q || _isPaint(S.q)) return null;
+    var q = S.q, opt = _opt(q, id);
     if (!opt) return null;
-    var now = _now(), ms = Math.max(0, now - S.qAt), ok = String(opt.id) === String(q.answer);
+    return _settle(q, String(opt.id) === String(q.answer), opt, null);
+  }
+  // 색칠 문항 채점(계약 H2): 겹침 = Puzzles.get(type).check(q, 칠한 칸).score(= .score(spot, cells), Jaccard), ok = 겹침 ≥ 기준
+  function _paintNeed(q) {
+    var v = q && q.data ? _num(q.data.overlap, NaN) : NaN;
+    return (v > 0 && v <= 1) ? v : PAINT_GOAL;
+  }
+  function grade() {
+    if (!S || S.ended || S.phase !== 'q' || !_isPaint(S.q) || !S.pt) return null;
+    var q = S.q, g = _paintGen(q.type), R = _rp();
+    if (!g || !R) return null;
+    var mine = R.cells(S.pt), chk = null;
+    try { chk = g.check(q, mine); } catch (e) { _warn('check(' + q.type + ')', e); chk = null; }
+    if (!chk || !isFinite(chk.score)) return null;
+    var need = _paintNeed(q), overlap = chk.score, ok = overlap >= need - 1e-9;
+    S.pt.graded = { score: overlap, pct: R.pct ? R.pct(overlap) : Math.floor(overlap * 100), ok: ok, goal: need,
+      missing: (chk.missing || []).slice(), extra: (chk.extra || []).slice(), cells: mine };
+    return _settle(q, ok, null, overlap);
+  }
+  // 문항 1개 결과 반영(보기 문항 opt, 색칠 문항 overlap). 레이팅, XP, 기록, 배지, 다음 단계(자동 다음 또는 해설 오버레이)
+  function _settle(q, ok, opt, overlap) {
+    var h = S.hooks, paint = _isPaint(q);
+    var now = _now(), ms = Math.max(0, now - S.qAt);
     // 레이팅: 레이팅 세트의 첫 시도이고 Puzzles.isRated(q)일 때만(재출제 복습은 제외)
     var rated = false;
     if (S.rated) {
@@ -552,30 +638,36 @@ var PuzzleUI = (function() {
       else if (_call('Rating', 'record', q, ok, now) === false) rated = false;
       else S.ratedN++;
     }
-    var info = { pick: opt.id, opt: opt, near: !!opt.near, ms: ms, rated: rated, ok: ok, repeat: repeat };
+    var info = { pick: opt ? opt.id : null, opt: opt, near: !!(opt && opt.near), ms: ms, rated: rated, ok: ok, repeat: repeat };
+    if (paint) info.overlap = overlap;
     var xr = null;
     if (typeof h.xp === 'function') { try { xr = h.xp(q, ok, S, info); } catch (e) { xr = null; } }
     else xr = xpFor(q, ok, { review: !!(h.review && q._review), repeat: repeat });
     if (!h.noRecord) {                         // 연습 다시 풀기(데일리 5)는 Leitner와 통계에 넣지 않는다
       _record(q, ok, ms, now);
       if (_can('JStats', 'record')) _call('JStats', 'record', 'puzzle', { ok: ok, rated: rated }, now);
+      _note(q, ok, paint ? overlap : null, now);
     }
     var got = _grant(xr);
     info.xp = got;
     S.xp += got;
     S.n++;
     if (ok) { S.ok++; S.combo++; if (S.combo > S.best) S.best = S.combo; } else S.combo = 0;
-    S.results.push({ type: q.type, key: q.key == null ? null : q.key, ok: ok, ms: ms, pick: opt.id, near: !!opt.near, rated: rated });
-    S.pick = opt.id; S.info = info;
+    var res = { type: q.type, key: q.key == null ? null : q.key, ok: ok, ms: ms, pick: info.pick, near: info.near, rated: rated };
+    if (paint) { res.overlap = overlap; res.spot = q.data.spot; S.paint.push({ spot: q.data.spot, overlap: overlap }); }
+    S.results.push(res);
+    S.pick = info.pick; S.info = info;
     if (typeof h.onAnswer === 'function') { try { h.onAnswer(q, ok, S, info); } catch (e) { _warn('onAnswer', e); } }
     if (!S || S.ended) return info;
     if (_can('A11y', 'fx')) _call('A11y', 'fx', ok ? 'ok' : 'bad');
     var fb = ok ? 'auto' : 'overlay';
     if (typeof h.feedback === 'function') { try { fb = h.feedback(q, ok, S, info) || fb; } catch (e) { /* 기본값 */ } }
+    if (paint) fb = 'overlay';   // 색칠은 맞아도 놓친 칸과 넘친 칸을 보여 준다
+    if (paint) S.paintArm = false;
     S.overAfter = _over();
     if (fb === 'overlay') {
       S.phase = 'overlay';
-      S.exp = _explain(q);
+      S.exp = paint ? _paintExplain(q) : _explain(q);
       _render(false);
     } else {
       S.phase = fb === 'flash' ? 'flash' : 'done';
@@ -593,6 +685,71 @@ var PuzzleUI = (function() {
     if (S.phase === 'overlay' || S.phase === 'done' || S.phase === 'flash') { _advance(); return true; }
     return false;
   }
+  // ── 색칠 문항 조작(계약 H2). 화면 입력은 RangePaint.bind가 같은 상태(S.pt)를 바꾼다 ──
+  function _paintOn() { return !!(S && !S.ended && S.phase === 'q' && _isPaint(S.q) && S.pt && _rp()); }
+  // paint('AKs') 뒤집기, paint(['AA', 'KK'], true) 칠하기, paint(list, false) 지우기 → 칠한 칸 수 | null
+  function paint(cells, on) {
+    if (!_paintOn()) return null;
+    var R = _rp(), list = Array.isArray(cells) ? cells : [cells], changed = false;
+    list.forEach(function(l) { if (R.setCell(S.pt, l, on === undefined ? !S.pt.on[l] : !!on)) changed = true; });
+    if (changed) { S.paintArm = false; _paintRender(); }
+    return R.cells(S.pt).length;
+  }
+  function paintRow(r) {
+    if (!_paintOn()) return false;
+    var ok = _rp().setRow(S.pt, r);
+    if (ok) _paintRender();
+    return ok;
+  }
+  // 모두 지우기: 화면 버튼은 두 번 눌러야 지운다(실수로 다 지우지 않게). force면 바로
+  function paintClear(force) {
+    if (!_paintOn() || !_rp().cells(S.pt).length) return false;
+    if (!force && !S.paintArm) { S.paintArm = true; _paintRender(); return false; }
+    _rp().clear(S.pt);
+    S.paintArm = false;
+    _paintRender();
+    return true;
+  }
+  function paintState() {
+    if (!S || !S.pt || !_rp()) return null;
+    var R = _rp();
+    return { spot: S.pt.spot, cells: R.cells(S.pt), row: S.pt.row, n: R.cells(S.pt).length, graded: S.pt.graded || null };
+  }
+  function _paintHTML() { var R = _rp(); return (R && S && S.pt) ? R.html(S.pt, { ctx: 'puzzle', head: false, hint: true }) : ''; }
+  function _paintActsHTML() {
+    var R = _rp(), n = (R && S.pt) ? R.cells(S.pt).length : 0, off = S.phase !== 'q' || !n;
+    return '<div class="pz-opts pz-opts--c2 pz-pacts" role="group" aria-label="색칠 마치기">' +
+      '<button type="button" class="pz-pbtn' + (S.paintArm ? ' is-arm' : '') + '" data-pz="pclear"' + (off ? ' disabled' : '') + '>' +
+      (S.paintArm ? '한 번 더 누르면 지워요' : '모두 지우기') + '</button>' +
+      '<button type="button" class="pz-pbtn pz-pbtn--go" data-pz="pgrade"' + (off ? ' disabled' : '') + '>✔ 채점하기</button></div>';
+  }
+  // 색칠 영역과 하단 버튼만 다시 그린다(문항 전체를 다시 그리면 스크롤과 포커스가 튄다)
+  function _paintRender() {
+    if (!S) return;
+    S.html = _innerHTML();
+    if (!_rootEl || typeof _rootEl.querySelector !== 'function') return;
+    var host = _rootEl.querySelector('.pz-paint'), acts = _rootEl.querySelector('.pz-pacts');
+    if (!host || !acts) { _render(false); return; }
+    host.innerHTML = _paintHTML();
+    if (typeof acts.outerHTML === 'string') acts.outerHTML = _paintActsHTML();
+  }
+  // 끄는 동안(RangePaint가 칸 클래스만 바꿈): 하단 버튼 상태와 S.html만 맞춘다
+  function _paintChanged(what) {
+    if (!S) return;
+    if (what === 'cells' && S.paintArm) S.paintArm = false;
+    S.html = _innerHTML();
+    if (what === 'row' || !_rootEl || typeof _rootEl.querySelector !== 'function') return;
+    var acts = _rootEl.querySelector('.pz-pacts');
+    if (acts && typeof acts.outerHTML === 'string') acts.outerHTML = _paintActsHTML();
+  }
+  function _paintExplain(q) {
+    var g = _paintGen(q.type), cells = (S.pt && S.pt.graded && S.pt.graded.cells) || [], e = null;
+    try { if (g && typeof g.explain === 'function') e = g.explain(q, cells); } catch (x) { _warn('explain(' + q.type + ')', x); e = null; }
+    if (!e || typeof e !== 'object') e = {};
+    if (!e.line) e.line = '겹침 = 같이 칠한 칸 ÷ 둘 중 하나라도 칠한 칸(이 앱 차트 기준)';
+    return e;
+  }
+
   // 외부(러시 시계)에서 세션을 끝낸다
   function stop() { if (S && !S.ended) _end(false); }
   function refresh() {
@@ -607,7 +764,8 @@ var PuzzleUI = (function() {
   function _result(aborted) {
     return {
       mode: S.mode, n: S.n, ok: S.ok, xp: S.xp, rated: S.ratedN, ratingDelta: S.ratingDelta, rating: S.rating,
-      best: S.best, aborted: !!aborted, results: S.results.slice(), node: S.hooks.node || null, data: S.data
+      best: S.best, aborted: !!aborted, results: S.results.slice(), node: S.hooks.node || null, data: S.data,
+      paint: S.paint.map(function(x) { return { spot: x.spot, overlap: x.overlap }; })
     };
   }
   function _end(aborted) {
@@ -642,6 +800,7 @@ var PuzzleUI = (function() {
     if (!S) return;
     var hooks = S.hooks, r = S.r || _result(true);
     S = null;
+    _unbindPaint();
     _rootEl = null;
     _cancel(_timer); _timer = null;
     if (!viaNav && _can('Nav', 'closeView')) _call('Nav', 'closeView', 'puzzle');
@@ -651,7 +810,7 @@ var PuzzleUI = (function() {
   function _stopQuiet() {
     if (!S) return;
     if (!S.ended) _end(true);
-    S = null; _rootEl = null;
+    S = null; _unbindPaint(); _rootEl = null;
   }
   function _action(id) {
     if (!S) return false;
@@ -708,6 +867,7 @@ var PuzzleUI = (function() {
     var q = S.q, ok = !!(S.info && S.info.ok), e = S.exp || {};
     var head = null;
     if (typeof S.hooks.overlayHead === 'function') { try { head = S.hooks.overlayHead(q, ok, S, S.info); } catch (x) { head = null; } }
+    if (_isPaint(q)) return _paintOverlayHTML(q, ok, e, head);
     if (!head) {
       head = ok ? '<span class="pz-ov-i" aria-hidden="true">✔</span> 정답'
         : '<span class="pz-ov-i" aria-hidden="true">✖</span> 오답, 정답은 <b>' + _esc(_optLabel(q, q.answer)) + '</b>';
@@ -723,6 +883,23 @@ var PuzzleUI = (function() {
       (mini ? '<div class="pz-ov-mini">' + mini + '</div>' : '') +
       '<button type="button" class="j-btn j-primary pz-next" data-pz="next">' + (last ? '결과 보기 ▶' : '다음 ▶') + '</button></div></div>';
   }
+  // 색칠 채점 오버레이: 겹침 %, 이 앱 차트 기준, 채점 격자(맞게 칠함, 놓친 칸, 넘친 칸), 해설 두 줄, 다음
+  function _paintOverlayHTML(q, ok, e, head) {
+    var R = _rp(), gr = (S.pt && S.pt.graded) || { score: 0, pct: 0, goal: _paintNeed(q), cells: [] };
+    var p = gr.pct, goal = Math.round(gr.goal * 100);
+    if (!head) {
+      head = ok ? '<span class="pz-ov-i" aria-hidden="true">✔</span> 통과! 겹침 <b>' + p + '%</b>'
+        : '<span class="pz-ov-i" aria-hidden="true">✖</span> 겹침 <b>' + p + '%</b>, 통과 기준은 ' + goal + '%';
+    }
+    var body = R ? R.resultHTML(q.data.spot, { score: gr.score, ok: ok, goal: gr.goal }, gr.cells, { score: false, note: false }) : '';
+    var last = S.overAfter || (S.total != null && S.i >= S.total);
+    return '<div class="pz-ov pz-ov--paint' + (ok ? ' is-ok' : ' is-bad') + '" role="dialog" aria-modal="true" aria-labelledby="pz-ov-h">' +
+      '<div class="pz-ov-card"><div class="pz-ov-h" id="pz-ov-h">' + head + '</div>' +
+      '<div class="pz-ov-sub">' + (R && R.chipHTML ? R.chipHTML() : '') + ' 기준 겹침 ' + goal + '% 이상이면 통과</div>' +
+      (body ? '<div class="pz-ov-mini pz-ov-paint">' + body + '</div>' : '') +
+      '<div class="pz-ov-line">' + _txt(e.line) + '</div>' +
+      '<button type="button" class="j-btn j-primary pz-next" data-pz="next">' + (last ? '결과 보기 ▶' : '다음 ▶') + '</button></div></div>';
+  }
   // 유형별 정답(정보형 피드백)과 복습 안내. 틀린 srs 문항은 Drills가 box 0, 10분 뒤 복습으로 넣는다.
   function breakdownHTML(results) {
     if (!Array.isArray(results) || !results.length) return '';
@@ -736,8 +913,20 @@ var PuzzleUI = (function() {
       var b = by[t], all = b.ok === b.n;
       return '<div class="pz-break-r" role="listitem"><span class="pz-break-t">' + _esc(_typeName(t)) + '</span>' +
         '<b class="' + (all ? 'is-ok' : 'is-part') + '">' + (all ? '✔ ' : '') + b.ok + '/' + b.n + '</b></div>';
-    }).join('') + '</div>' +
+    }).join('') + '</div>' + _paintBreakHTML(results) +
       (wrongSrs ? '<div class="pz-end-note">틀린 ' + wrongSrs + '문항은 복습 목록에 넣었어요(10분 뒤부터 다시 나와요)</div>' : '');
+  }
+  // 색칠 문항의 스팟별 겹침(계약 H2 r.paint와 같은 값)
+  function _paintBreakHTML(results) {
+    var list = results.filter(function(x) { return x && x.overlap != null && isFinite(x.overlap); });
+    if (!list.length) return '';
+    var R = _rp();
+    return '<div class="pz-break pz-break--paint" role="list" aria-label="색칠 겹침">' + list.map(function(x) {
+      var name = (R && typeof R.spotLabel === 'function') ? R.spotLabel(x.spot) : String(x.spot || '');
+      var p = (R && typeof R.pct === 'function') ? R.pct(x.overlap) : Math.floor(x.overlap * 100);
+      return '<div class="pz-break-r" role="listitem"><span class="pz-break-t">🖌 ' + _esc(name) + '</span>' +
+        '<b class="' + (x.ok ? 'is-ok' : 'is-part') + '">' + (x.ok ? '✔ ' : '') + p + '%</b></div>';
+    }).join('') + '</div>';
   }
   function _endHTML() {
     var r = S.r || _result(false), h = S.hooks;
@@ -770,6 +959,12 @@ var PuzzleUI = (function() {
     if (S.phase === 'end') return html + _endHTML();
     var q = S.q;
     if (!q) return html + '<div class="pz-body"><div class="pz-prompt">문제를 준비하고 있어요</div></div>';
+    if (_isPaint(q)) {
+      html += '<div class="pz-body pz-body--paint"><div class="pz-meta">' + _labelHTML(q) + '</div>' +
+        '<div class="pz-prompt">' + _txt(q.prompt) + '</div><div class="pz-paint">' + _paintHTML() + '</div>' + _feedHTML() + '</div>' + _paintActsHTML();
+      if (S.phase === 'overlay') html += _overlayHTML();
+      return html;
+    }
     var qs = questionScene(q.scene);
     html += '<div class="pz-body"><div class="pz-meta">' + _labelHTML(q) + '</div>' +
       (qs ? '<div class="pz-scene">' + _sceneHTML(qs) + '</div>' : '') +
@@ -792,7 +987,7 @@ var PuzzleUI = (function() {
     var el = null;
     if (S.phase === 'overlay') el = _rootEl.querySelector('.pz-next');
     else if (S.phase === 'end') el = _rootEl.querySelector('.pz-end-acts .j-primary') || _rootEl.querySelector('.pz-end-acts .j-btn');
-    else if (S.phase === 'q' && _kbd) el = _rootEl.querySelector('.pz-opt');
+    else if (S.phase === 'q' && _kbd) el = _isPaint(S.q) ? _rootEl.querySelector('.rp-z') : _rootEl.querySelector('.pz-opt');
     if (el && typeof el.focus === 'function') { try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
   }
 
@@ -812,6 +1007,8 @@ var PuzzleUI = (function() {
     else if (a === 'next') next();
     else if (a === 'back') exit();
     else if (a === 'act') _action(id);
+    else if (a === 'pgrade') grade();
+    else if (a === 'pclear') paintClear();
   }
   // 키보드는 여정 화면이 보일 때만(다른 화면이 활성이면 무시)
   function _screenOk() {
@@ -884,6 +1081,7 @@ var PuzzleUI = (function() {
       if (o.spots == null && d.spots != null) o.spots = d.spots;
       if (o.variant == null && d.variant != null) o.variant = d.variant;
       if (o.count == null && d.count != null) o.count = d.count;
+      if (o.overlap == null && d.overlap != null) o.overlap = d.overlap;   // 색칠 겹침 기준(s5-09, s5-boss)
     }
     if (!o.title && nd.title) o.title = String(nd.title);
     return o;
@@ -905,7 +1103,9 @@ var PuzzleUI = (function() {
         // 같은 세트 안에서 같은 문항(장면과 정답까지 같은 것) 반복 금지. 키만 같고 장면이 다르면(아웃츠 9장, 보드가 다름) 다른 문항이다.
         // 생성기가 낼 수 있는 문항이 적어 새 문항을 못 찾으면 세트를 줄이지 않고 반복을 허용한다(노드 통과에는 10문항 이상이 필요).
         for (var t = 0; t < TRIES * 2; t++) {
-          var q = _genNext(it.type, rnd, { variant: it.variant, spots: it.spots, stage: stage, rating: r, window: ratingWindow(r), now: _now(), node: spec.node || null });
+          var go = { variant: it.variant, spots: it.spots, stage: stage, rating: r, window: ratingWindow(r), now: _now(), node: spec.node || null };
+          if (spec.overlap != null) go.overlap = spec.overlap;   // 색칠 겹침 기준 → q.data.overlap(계약 H2)
+          var q = _genNext(it.type, rnd, go);
           if (!q) { if (++fails >= TRIES) break; continue; }
           var k = qSig(q);
           if (seen[k]) { if (!dup) dup = q; continue; }
@@ -976,14 +1176,15 @@ var PuzzleUI = (function() {
   function _setEnv(env) { _env = env || {}; }
   function _reset() {
     _cancel(_timer); _timer = null;
-    S = null; _rootEl = null; _env = {};
+    S = null; _unbindPaint(); _rootEl = null; _env = {};
     if (_backOff) { try { _backOff(); } catch (e) { /* 무시 */ } }
     _backOff = null; _backNav = null;
   }
   function state() {
     if (!S) return null;
     return { mode: S.mode, phase: S.phase, i: S.i, total: S.total, n: S.n, ok: S.ok, xp: S.xp, combo: S.combo, best: S.best,
-      ratedN: S.ratedN, q: S.q, info: S.info, ended: S.ended, html: S.html, results: S.results.slice(), r: S.r, data: S.data };
+      ratedN: S.ratedN, q: S.q, info: S.info, ended: S.ended, html: S.html, results: S.results.slice(), r: S.r, data: S.data,
+      paint: S.paint.slice(), pt: S.pt };
   }
   function active() { return !!S; }
 
@@ -991,8 +1192,9 @@ var PuzzleUI = (function() {
     SET_MIN: SET_MIN, SET_MAX: SET_MAX, AUTO_MS: AUTO_MS, FLASH_MS: FLASH_MS, LABELS: LABELS,
     start: start, review: review, can: can, run: run,
     answer: answer, next: next, exit: exit, stop: stop, refresh: refresh, state: state, active: active,
+    grade: grade, paint: paint, paintRow: paintRow, paintClear: paintClear, paintState: paintState,
     available: available, isRated: isRated, rng: rng, ratingWindow: ratingWindow, stage: _stage, rating: _rating,
-    core: { clampCount: clampCount, planTypes: planTypes, tierOf: tierOf, xpFor: xpFor, labelOf: labelOf, optCols: optCols, qSig: qSig, questionScene: questionScene,
+    core: { clampCount: clampCount, clampPaint: clampPaint, planTypes: planTypes, tierOf: tierOf, xpFor: xpFor, labelOf: labelOf, optCols: optCols, qSig: qSig, questionScene: questionScene,
       sceneFallback: sceneFallback, miniGrid: miniGrid, cardHTML: cardHTML, breakdownHTML: breakdownHTML },
     _onKey: _onKey, _action: _action, _setEnv: _setEnv, _reset: _reset
   };

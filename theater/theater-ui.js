@@ -21,6 +21,12 @@
 //   showCard({card, onDone}) → bool: 명장면 카드 1장 창(오늘의 명장면 블록용). cardHTML(card) → string(순수). active() → bool.
 //   next(), pick('action'|'plan', 값), skip(), togglePause(), toggleSpeed(), exit(): 화면 버튼과 같은 동작(키보드, 테스트).
 //   delayMs(speed, reduced), chipsHTML(stop), stripHTML(lines), barHTML(model): 순수 문자열/수치(node 테스트).
+// M6-MINI(로드맵 M6 계약 H7): 미니시즌(캐스트 6인 싯앤고 3편, 하루 1편)
+//   miniStatus(now) → { active, canStart, episode, total, pick, playedToday, done, winner, alive, id }
+//   openMini({onDone}) → bool(오늘 볼 편이 없으면 false), start({episodes, mini, onDone})는 mini가 있고 진행 중인 시즌에 오늘 안 본 편이
+//     있으면 그 편, 아니면 일반 편. homeCard(state, now) → { html, emph:false } | null(여정 홈 카드 공급자, H11 a).
+//   pickWinner(이름|'')는 시작 화면의 우승자 예측 칩과 같다. 결과에 mini { id, no, done, winner, pick, hit }가 붙는다.
+//   상태는 poker_journey.theater.mini(+ lastDay)와 theater.miniHist(최근 20). 시즌이 끝나면 Badges.note('miniPick', { hit }).
 // 로드 시 DOM, window 접근 없음(node 테스트 안전). 다른 모듈은 전부 typeof 가드. 테스트는 _setEnv, _setCore로 주입한다.
 var TheaterUI = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
@@ -236,15 +242,18 @@ var TheaterUI = (function() {
   }
 
   // 하단 자막 스트립: 최근 2줄(말, 속)
-  function stripHTML(lines) {
+  function stripHTML(lines, hint) {
     var ls = (lines || []).slice(-2);
-    if (!ls.length) return '<div class="th-strip is-empty" aria-live="polite"><div class="th-line th-hintline">계획 예고를 읽고 ▶ 시작을 눌러요</div></div>';
+    if (!ls.length) return '<div class="th-strip is-empty" aria-live="polite"><div class="th-line th-hintline">' + _esc(hint || '계획 예고를 읽고 ▶ 시작을 눌러요') + '</div></div>';
     return '<div class="th-strip" aria-live="polite">' + ls.map(function(l) {
       return '<div class="th-line th-k-' + _esc(l.kind) + '">' + (l.stripHtml || l.html) + '</div>';
     }).join('') + '</div>';
   }
 
   function _nextLabel(md) {
+    if (md.mode === 'pick') return '우승자를 골라요';
+    if (md.mini && md.mode === 'end' && md.mini.phase === 'handEnd') return '▶ 다음 핸드';
+    if (md.mini && md.mode === 'end' && md.mini.phase === 'last') return '🏁 편 결과';
     if (md.cardPending) return '🎬 명장면';
     if (md.mode === 'intro') return '▶ 시작';
     if (md.mode === 'stop') return '예측해 보세요';
@@ -254,7 +263,7 @@ var TheaterUI = (function() {
   // 극장 바: ▶ 다음, ⏸, 1x/2x, ↩
   function barHTML(md) {
     md = md || {};
-    var stop = md.mode === 'stop';
+    var stop = md.mode === 'stop' || md.mode === 'pick';
     return '<div class="th-bar" role="toolbar" aria-label="극장 조작">' +
       '<button type="button" class="th-btn th-next' + (md.hold || md.mode === 'intro' || md.mode === 'end' ? ' is-call' : '') + '" data-th="next"' +
       (stop ? ' disabled aria-disabled="true"' : '') + '>' + _nextLabel(md) + '</button>' +
@@ -301,6 +310,9 @@ var TheaterUI = (function() {
 
   function panelHTML(md) {
     if (!md) return '';
+    if (md.mode === 'pick' && md.mini) return _pickHTML(md);
+    if (md.mini && md.mode === 'intro') return _miniIntroHTML(md);
+    if (md.mini && md.mode === 'end') return md.mini.phase === 'close' ? _miniCloseHTML(md) : _miniHandEndHTML(md);
     if (md.mode === 'intro') return _introHTML(md.lines);
     if (md.mode === 'stop') return chipsHTML(md.stop);
     if (md.mode === 'end') return _endHTML(md);
@@ -387,7 +399,12 @@ var TheaterUI = (function() {
     return true;
   }
 
-  function _isStop(r, ev) { return _kind(ev) === 'action' && !!ev.decisive && !!ev.name && r.stops < MAX_STOPS; }
+  function _isStop(r, ev) {
+    if (!(_kind(ev) === 'action' && !!ev.decisive && !!ev.name && r.stops < MAX_STOPS)) return false;
+    // 미니시즌은 핸드가 6~8개라 멈춤을 핸드당 1번, 한 편에 5번까지(5~10분 안에)
+    if (r.mini) return r.mini.handStops < MINI_STOP_HAND && r.mini.epStops < MINI_STOP_EP;
+    return true;
+  }
 
   function _step() {
     var r = _r;
@@ -417,6 +434,7 @@ var TheaterUI = (function() {
     var before = ev.before || r.ep.state || {};
     var p = before.players && before.players[ev.name];
     r.mode = 'stop'; r.stops++;
+    if (r.mini) { r.mini.handStops++; r.mini.epStops++; }
     r.stop = { ev: ev, guess: {}, actions: o.actions, labels: o.labels, plans: o.plans, name: ev.name, pos: p ? p.pos : null,
       toCall: ev.snap ? ev.snap.toCall : null, pot: ev.snap && ev.snap.potBefore != null ? ev.snap.potBefore : (before.pot != null ? before.pot : null) };
     r.focus = ev.name; r.bubble = null;   // 멈춤 중에는 강조만(말풍선이 그 좌석의 스택과 벳을 가리지 않게)
@@ -488,6 +506,7 @@ var TheaterUI = (function() {
 
   function _endEpisode(r) {
     if (!r || r.mode === 'end') return;
+    if (r.mini) { _endMiniHand(r); return; }
     _cancel(r.timer); r.timer = null;
     r.mode = 'end'; r.stop = null; r.focus = null; r.hold = false; r.verdict = null; r.bubble = null;
     var ep = r.ep, card = null;
@@ -551,7 +570,15 @@ var TheaterUI = (function() {
     var r = _r;
     if (!r) return false;
     if (r.cardOpen) { _cardAdvance(r); return true; }
+    if (r.mode === 'pick') return false;   // 우승자 예측은 칩으로만(건너뛰기 포함)
     if (r.mode === 'intro' || r.mode === 'play') { _step(); return true; }
+    if (r.mode === 'end' && r.mini && r.mini.phase !== 'close') {
+      _cancel(r.timer); r.timer = null;
+      if (r.mini.phase === 'handEnd' && _beginMiniHand(r)) { _render(); return true; }
+      _closeMini(r);
+      _render();
+      return true;
+    }
     if (r.mode === 'end') {
       if (r.card && !r.cardSeen) { _cancel(r.timer); r.timer = null; _openEpCard(r); return true; }
       _nextEpisode(r);
@@ -575,6 +602,12 @@ var TheaterUI = (function() {
     if (s.guess.action !== undefined && (!s.plans.length || s.guess.plan !== undefined)) _resolve(r, false);
     else _render();
     return true;
+  }
+  // 미니시즌 우승자 예측(화면 칩과 같은 동작). 빈 값이면 예측 없이 본다
+  function pickWinner(name) {
+    var r = _r;
+    if (!r || !r.mini || r.mode !== 'pick') return false;
+    return _pickWinner(r, name ? String(name) : '');
   }
   function skip() {
     var r = _r;
@@ -604,12 +637,346 @@ var TheaterUI = (function() {
 
   function _nextEpisode(r) {
     _closeEpCard(r);
+    if (r.mini) { _finish('done'); return; }
     if (r.idx + 1 < r.specs.length && _beginEpisode(r, r.idx + 1)) {
       if (r.dom) { var f = _el('thinking-feed'); if (f) f.innerHTML = ''; }
       _render();
       return;
     }
     _finish('done');
+  }
+
+  // ── 미니시즌(M6-MINI, 계약 H7, 설계서 3.4절 4번) ─────────
+  // 시즌 상태는 poker_journey.theater.mini(Journey.load()/save()), 끝난 시즌은 theater.miniHist[{ id, pick, winner, hit, at }](최근 20).
+  // 한 편 = 6~8핸드(theater-core miniEpisode). 핸드마다 계획 예고 → 관전(멈춤은 핸드당 1번, 한 편에 5번까지) → 끝(버스트면 탈락 공개).
+  // 마지막 핸드 뒤 miniClose: 강제 탈락 공개, 순위, 마지막 편이면 우승자와 예측 적중(Badges.note('miniPick')), 아니면 '다음 편은 내일'.
+  // 하루 1편: 편이 끝나면 lastDay = 오늘. Journey.recordTheater는 한 편에 1번(명장면은 그 편 핸드 중 드라마 점수가 가장 높은 카드).
+  var MINI_STOP_HAND = 1, MINI_STOP_EP = 5;
+  var MINI_HIST = 20;
+  var CAST_ICON = { '교수': '🎓', '불도저': '🚜', '햇살': '🌞', '바위': '🗿', '카멜레온': '🦎', '콜마스터': '📞' };
+
+  function _dayKey(now) {
+    var J = _m('Journey');
+    if (J && typeof J.dayKey === 'function') { try { return String(J.dayKey(now)); } catch (e) { /* 아래 */ } }
+    var t = new Date(now), m = t.getMonth() + 1, d = t.getDate();
+    return t.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+  }
+  function _jstate() {
+    var J = _m('Journey');
+    if (!J || typeof J.load !== 'function') return null;
+    var st = null;
+    try { st = J.load(); } catch (e) { _warn('Journey.load', e); st = null; }
+    return (st && typeof st === 'object') ? st : null;
+  }
+  function _theaterOf(st) {
+    if (!st) return null;
+    if (!st.theater || typeof st.theater !== 'object') st.theater = { episodes: 0, predicted: 0, hit: 0, hitW: 0, cards: [], mini: null };
+    return st.theater;
+  }
+  function _isMini(m) { return !!m && typeof m === 'object' && Array.isArray(m.cast) && !!m.stacks && typeof m.stacks === 'object'; }
+  function _season(st) {
+    var th = st && st.theater;
+    return th && _isMini(th.mini) ? th.mini : null;
+  }
+  function _saveJ() { _call('Journey', 'save'); }
+  function _castInfo(name) {
+    var C = _m('CAST'), hit = null;
+    if (C && typeof C.length === 'number') for (var i = 0; i < C.length; i++) if (C[i] && (C[i].key === name || C[i].name === name)) { hit = C[i]; break; }
+    var bio = hit && hit.bio ? String(hit.bio).split('.')[0] : '';
+    return { icon: (hit && hit.icon) || CAST_ICON[name] || '🎭', bio: bio };
+  }
+  function _aliveOf(m) {
+    var out = {};
+    (m.eliminated || []).forEach(function(e) { if (e && e.name != null) out[e.name] = true; });
+    return (m.cast || []).filter(function(c) { return c && !out[c.name] && (Number(m.stacks[c.name]) || 0) > 0; });
+  }
+  function _chips(v) { var n = Math.round(_num(v, 0) * 10) / 10; return (n % 1 ? n.toFixed(1) : String(n)) + '칩'; }
+  function _leader(m) {
+    var a = _aliveOf(m).slice().sort(function(x, y) { return (_num(m.stacks[y.name], 0) - _num(m.stacks[x.name], 0)); });
+    return a.length ? a[0].name : null;
+  }
+
+  // miniStatus(now) → { active, canStart, episode, total, pick, playedToday, done, winner, alive, id }
+  //   active = 끝나지 않은 시즌이 있음. canStart = 지금 openMini로 볼 수 있음(새 시즌 또는 오늘 안 본 편). episode = 다음에 볼 편
+  //   (끝난 시즌은 마지막으로 본 편). 오늘 편을 봤거나 오늘 시즌이 끝났으면 canStart false('다음 편은 내일').
+  function miniStatus(now) {
+    now = now == null ? _now() : now;
+    var core = _coreOf({}), can = !!(core && typeof core.miniSeason === 'function' && typeof core.miniEpisode === 'function');
+    var m = _season(_jstate()), today = _dayKey(now);
+    if (!m) return { active: false, canStart: can, episode: 0, total: 3, pick: null, playedToday: false, done: false, winner: null, alive: 0, id: null };
+    var played = m.lastDay === today, done = !!m.done;
+    return { active: !done, canStart: can && !played, episode: done ? _num(m.played, 0) : _num(m.episode, 1), total: _num(m.total, 3),
+      pick: m.pick || null, playedToday: played, done: done, winner: m.winner || null, alive: _aliveOf(m).length, id: m.id || null };
+  }
+
+  // openMini({onDone}) → bool: 홈 카드에서. 진행 중인 시즌의 오늘 편, 없으면(또는 지난 시즌이 어제 이전에 끝났으면) 새 시즌(우승자 예측부터).
+  //   오늘 이미 봤으면 false. onDone(result|null)이 없으면 끝나고 여정 홈으로.
+  function openMini(o) {
+    o = o || {};
+    var stt = miniStatus();
+    if (!stt.canStart) return false;
+    var done = typeof o.onDone === 'function' ? o.onDone : function() { _goHome(); };
+    return _startMini({ onDone: done, hideTypes: !!o.hideTypes, core: o.core });
+  }
+
+  // 시즌 준비: 진행 중이면 그 시즌, 아니면 새 시즌(은행 시드). 새 시즌은 예측을 고르거나 건너뛸 때 저장한다.
+  function _startMini(o) {
+    var onDone = typeof o.onDone === 'function' ? o.onDone : null;
+    if (_r) _finish('replaced');
+    var core = _coreOf(o);
+    var st = _jstate(), m = _season(st), fresh = false;
+    if (!core || typeof core.miniEpisode !== 'function' || !st) { if (onDone) { try { onDone(null); } catch (e) { _warn('onDone', e); } } return false; }
+    if (!m || m.done) {
+      try { m = core.miniSeason({ now: _now() }); } catch (e) { _warn('miniSeason', e); m = null; }
+      fresh = true;
+    }
+    var mep = null;
+    if (m) { try { mep = core.miniEpisode(m, { hideTypes: !!o.hideTypes }); } catch (e) { _warn('miniEpisode', e); mep = null; } }
+    if (!mep) { if (onDone) { try { onDone(null); } catch (e2) { _warn('onDone', e2); } } return false; }
+    var r = { core: core, opts: o, onDone: onDone, specs: [{ hideTypes: !!o.hideTypes }], idx: -1, ep: null, mode: 'idle', paused: false, speed: _loadSpeed(),
+      timer: null, hold: false, lines: [], fed: 0, stop: null, stops: 0, bubble: null, focus: null, verdict: null, tally: null,
+      res: { episodes: 0, predicted: 0, hit: 0, hitW: 0, cards: [] }, card: null, cardSeen: false, cardOpen: false, saved: false, xp: 0,
+      threshold: null, dom: false, unbind: [], saved0: null, root: null,
+      mini: { mep: mep, season: m, fresh: fresh, pick: m.pick || null, handStops: 0, epStops: 0, best: null,
+        tally: { pred: 0, hit: 0, hitW: 0 }, last: null, close: null, phase: 'hand' } };
+    if (!_beginMiniHand(r)) { if (onDone) { try { onDone(null); } catch (e3) { _warn('onDone', e3); } } return false; }
+    // 새 시즌이거나 아직 1편 전이고 예측이 없으면 우승자 예측부터(건너뛸 수 있음)
+    if (fresh || (_num(m.played, 0) === 0 && !m.pick)) { r.mode = 'pick'; r.mini.phase = 'pick'; }
+    _r = r;
+    _mount(r);
+    _render();
+    return true;
+  }
+
+  // 다음 핸드 시작(계획 예고 화면). 더 칠 핸드가 없으면 false
+  function _beginMiniHand(r) {
+    var mm = r.mini, ep = null;
+    try { ep = r.core.miniHand(mm.mep); } catch (e) { _warn('miniHand', e); ep = null; }
+    if (!ep || !ep.state) return false;
+    _cancel(r.timer); r.timer = null;
+    r.idx = 0; r.ep = ep; r.mode = 'intro'; r.lines = []; r.fed = 0; r.stop = null; r.stops = 0;
+    r.bubble = null; r.focus = null; r.hold = false; r.verdict = null; r.card = null; r.cardSeen = false; r.saved = false; r.xp = 0;
+    r.tally = { pred: 0, hit: 0, hitW: 0 };
+    mm.handStops = 0; mm.phase = 'hand';
+    var info = ep.mini || {}, mep = mm.mep;
+    _push(r, 'sys', '🏆 미니시즌 ' + mep.no + '/' + mep.total + '편, 핸드 ' + (info.hand || 1) + '/' + mep.handsTotal +
+      (mep.blinds > 1 ? ', 블라인드 ' + mep.blinds + '배' : ''), { strip: false });
+    (ep.intro || []).forEach(function(x) {
+      if (x && x.text) _push(r, 'intro', '📜 <b>' + _esc(x.name) + '</b> ' + _esc(x.text), { strip: false, name: x.name });
+    });
+    _push(r, 'note', '💜 ' + CHAR_NOTE, { strip: false });
+    if (r.dom) { var f = _el('thinking-feed'); if (f) f.innerHTML = ''; }
+    return true;
+  }
+
+  // 우승자 예측(시즌 시작 때 1번). name이 빈 값이면 예측 없이 본다
+  function _pickWinner(r, name) {
+    var mm = r.mini, m = mm.season;
+    var ok = !name || (m.cast || []).some(function(c) { return c.name === name; });
+    if (!ok) return false;
+    mm.pick = name || null;
+    m.pick = mm.pick;
+    if (mm.mep && mm.mep.mini) mm.mep.mini.pick = mm.pick;
+    var st = _jstate(), th = _theaterOf(st);
+    if (th) { th.mini = JSON.parse(JSON.stringify(m)); _saveJ(); }
+    mm.fresh = false;
+    r.mode = 'intro'; mm.phase = 'hand';
+    if (mm.pick) _call('A11y', 'fx', 'ok');
+    _render();
+    return true;
+  }
+
+  // 핸드가 끝남: 칩 반영, 버스트 탈락 공개, 명장면 후보(드라마 점수 최고), 예측 집계
+  function _endMiniHand(r) {
+    var mm = r.mini, ep = r.ep, res = null;
+    _cancel(r.timer); r.timer = null;
+    r.mode = 'end'; r.stop = null; r.focus = null; r.hold = false; r.verdict = null; r.bubble = null;
+    try { res = r.core.miniHandDone(mm.mep, ep); } catch (e) { _warn('miniHandDone', e); res = null; }
+    var H = _m('Highlight');
+    r.threshold = (H && typeof H.THRESHOLD === 'number') ? H.THRESHOLD : null;
+    if (ep && ep.done && H && typeof H.pick === 'function') {
+      var c = null;
+      try { c = H.pick(ep) || null; } catch (e2) { _warn('Highlight.pick', e2); c = null; }
+      if (c && (!mm.best || _num(c.score, 0) > _num(mm.best.score, 0))) mm.best = c;
+    }
+    mm.tally.pred += r.tally.pred; mm.tally.hit += r.tally.hit; mm.tally.hitW += r.tally.hitW;
+    var busts = (res && res.busts) || [];
+    mm.last = { hand: res ? res.hand : null, busts: busts };
+    if (res && res.hand) {
+      var w = (res.hand.winners || []).filter(function(x) { return x != null; });
+      mm.lastRes = (w.length ? w.map(_esc).join(', ') + (w.length > 1 ? ' 나눠 가짐' : ' 승리') : '결과') + ', 팟 ' + _esc(_bb(_num(res.hand.pot, 0) / (mm.mep.blinds || 1)));
+    }
+    if (!(ep && ep.done) && !r.lines.some(function(l) { return l.kind === 'end'; })) _push(r, 'end', '🏁 이번 핸드 끝');
+    busts.forEach(function(b) {
+      _push(r, 'out', '💥 <b>' + _esc(b.name) + '</b> 탈락(' + _esc(b.place) + '위)' + (b.killer ? ', ' + _esc(b.killer) + '에게 칩을 모두 잃었어요' : ''), { name: b.name, strip: false });
+      if (b.thought) _push(r, 'think', '💭 ' + _esc(b.name) + '의 결정적 속마음: ' + _esc(b.thought), { name: b.name, strip: false });
+    });
+    mm.phase = _miniMore(r) ? 'handEnd' : 'last';
+    // 탈락이 없으면 잠시 뒤 다음 핸드 예고로(멈춤 상태가 아니면). 탈락은 공개를 읽도록 ▶ 다음을 기다린다
+    if (!busts.length && !r.paused && mm.phase === 'handEnd') {
+      var ms = delayMs(r.speed, _reduced()) * 3;
+      r.timer = _later(function() { if (_r === r && r.mode === 'end' && mm.phase === 'handEnd') { r.timer = null; next(); } }, ms);
+    }
+  }
+  function _miniMore(r) {
+    var mep = r.mini.mep;
+    return mep.handIdx < mep.handsTotal && _aliveOf(mep.mini).length >= 2;
+  }
+
+  // 편 끝: 강제 탈락, 순위, 시즌 저장(lastDay = 오늘), 끝났으면 우승과 예측 적중, 극장 기록 1번
+  function _closeMini(r) {
+    var mm = r.mini, now = _now(), res = null;
+    _cancel(r.timer); r.timer = null;
+    try { res = r.core.miniClose(mm.mep); } catch (e) { _warn('miniClose', e); res = null; }
+    r.mode = 'end'; mm.phase = 'close'; r.stop = null; r.focus = null; r.bubble = null; r.verdict = null; r.hold = false;
+    r.lines = []; r.fed = 0;
+    if (r.dom) { var f = _el('thinking-feed'); if (f) f.innerHTML = ''; }
+    if (!res || !res.mini) { _push(r, 'end', '🏁 이번 편 끝'); return; }
+    var m = res.mini;
+    m.pick = mm.pick || null;
+    m.lastDay = _dayKey(now);
+    var hit = null;
+    if (res.done) hit = !!(m.pick && m.winner && m.pick === m.winner);
+    var st = _jstate(), th = _theaterOf(st);
+    if (th) {
+      th.mini = JSON.parse(JSON.stringify(m));
+      if (res.done) {
+        var hist = Array.isArray(th.miniHist) ? th.miniHist.filter(function(x) { return x && x.id !== m.id; }) : [];
+        hist.push({ id: m.id, pick: m.pick, winner: m.winner, hit: !!hit, at: new Date(now).toISOString() });
+        th.miniHist = hist.slice(-MINI_HIST);
+      }
+      _saveJ();
+    }
+    mm.close = res;
+    mm.hit = hit;
+    // 시즌이 끝나면 배지 알림(H8 'miniPick'). 예측을 건너뛴 시즌도 끝난 사실은 알린다(hit false, pick null)
+    if (res.done) _call('Badges', 'note', 'miniPick', { hit: !!hit, pick: m.pick || null, winner: m.winner || null, id: m.id }, now);
+    // 극장 기록(한 편 = 1번)
+    var card = mm.best, t = mm.tally;
+    var rec = _call('Journey', 'recordTheater', { seed: card ? card.seed : m.seed, predicted: t.pred, hit: t.hit, hitW: t.hitW, card: card }, now);
+    if (rec && typeof rec === 'object') {
+      r.xp = _num(rec.xp, 0);
+      if (rec.card && typeof rec.card === 'object') { card = rec.card; r.saved = true; }
+    }
+    r.res.episodes = 1; r.res.predicted = t.pred; r.res.hit = t.hit; r.res.hitW = t.hitW;
+    r.res.cards = card ? [card] : [];
+    r.res.mini = { id: m.id, no: res.no, done: !!res.done, winner: m.winner || null, pick: m.pick || null, hit: hit };
+    r.card = card; r.cardSeen = false;
+    r.tally = { pred: t.pred, hit: t.hit, hitW: t.hitW };
+    (res.out || []).forEach(function(e) {
+      if (e.by === 'min') {
+        _push(r, 'out', '⛔ <b>' + _esc(e.name) + '</b> 탈락(' + _esc(e.place) + '위): ' + res.no + '편 끝에 칩이 가장 적어요(' + _esc(_chips(e.stack)) + ')', { name: e.name, strip: false });
+        if (e.thought) _push(r, 'think', '💭 ' + _esc(e.name) + '의 결정적 속마음: ' + _esc(e.thought), { name: e.name, strip: false });
+      }
+    });
+    if (res.done) _push(r, 'end', '🏆 우승: <b>' + _esc(m.winner || '없음') + '</b>' + (m.pick ? (hit ? ', 내 예측 적중!' : ', 내 예측 ' + _esc(m.pick) + ' 빗나감') : ''));
+    else _push(r, 'end', '🏁 ' + res.no + '편 끝, 다음 편은 내일(블라인드 2배)');
+    if (card && !r.paused) {
+      var ms = delayMs(r.speed, _reduced()) * 4;
+      r.timer = _later(function() { if (_r === r && r.mode === 'end' && !r.cardSeen) { r.timer = null; _openEpCard(r); } }, ms);
+    }
+  }
+
+  // 홈 카드(계약 H11 a, 공급자 'TheaterUI'): 극장을 한 번 이상 봤거나 시즌이 있을 때만
+  function homeCard(state, now) {
+    now = now == null ? _now() : now;
+    var core = _coreOf({});
+    if (!core || typeof core.miniSeason !== 'function') return null;
+    var th = state && state.theater && typeof state.theater === 'object' ? state.theater : null;
+    var m = th && _isMini(th.mini) ? th.mini : null;
+    if (!m && !(th && _num(th.episodes, 0) >= 1)) return null;
+    var today = _dayKey(now), played = !!m && m.lastDay === today;
+    var t, d, btn = '';
+    if (m && !m.done) {
+      var alive = _aliveOf(m), lead = _leader(m), no = _num(m.episode, 1), tot = _num(m.total, 3);
+      var pk = m.pick ? _castInfo(m.pick).icon + ' ' + _esc(m.pick) : '없음';
+      t = played ? '🏆 미니시즌 ' + no + '/' + tot + '편은 내일' : '🏆 미니시즌 ' + no + '/' + tot + '편';
+      var even = alive.every(function(c) { return _num(m.stacks[c.name], 0) === _num(m.stacks[lead], 0); });
+      d = '남은 ' + alive.length + '명' + (lead && !even ? ', 칩 1위 ' + _esc(lead) : '') + ', 내 예측 ' + pk +
+        (played ? '. 하루 한 편씩 봐요' : (no > 1 ? '. 이번 편은 블라인드 ' + Math.pow(2, no - 1) + '배' : '. 6명 모두 100칩으로 시작해요'));
+      if (!played) btn = '<button type="button" class="j-btn j-primary" onclick="TheaterUI.openMini()">▶ ' + no + '편 보기</button>';
+    } else if (m && m.done && played) {
+      var hit = !!(m.pick && m.pick === m.winner);
+      t = '🏆 미니시즌 끝: 우승 ' + _esc(m.winner || '');
+      d = (m.pick ? (hit ? '🎯 내 예측 적중! ' : '내 예측 ' + _esc(m.pick) + ', 아쉽게 빗나갔어요. ') : '') + '새 시즌은 내일 열려요';
+    } else {
+      var lastTxt = '';
+      if (m && m.done && m.winner) lastTxt = ' 지난 시즌 우승 ' + _esc(m.winner) + (m.pick ? (m.pick === m.winner ? ', 내 예측 적중' : ', 내 예측 빗나감') : '') + '.';
+      t = '🏆 미니시즌: 캐스트 6명 싯앤고';
+      d = '3편(하루 1편)에 걸쳐 탈락전을 해요. 편마다 블라인드가 2배라 탈락이 실제로 일어나요. 시작 전에 우승자를 맞혀 보세요.' + lastTxt;
+      btn = '<button type="button" class="j-btn j-primary" onclick="TheaterUI.openMini()">🏆 새 시즌 시작</button>';
+    }
+    return { html: '<div class="j-card th-mini-card" role="group" aria-label="미니시즌"><div class="j-card-t">' + t + '</div>' +
+      '<div class="j-card-d">' + d + '</div>' + (btn ? '<div class="j-card-acts">' + btn + '</div>' : '') + '</div>', emph: false };
+  }
+
+  // 미니시즌 패널(순수 문자열)
+  function _miniHead(mm) {
+    var mep = mm.mep, info = (mm.ep && mm.ep.mini) || {};
+    return '<div class="th-mini-head">🏆 미니시즌 ' + mep.no + '/' + mep.total + '편' + (info.hand ? ', 핸드 ' + info.hand + '/' + mep.handsTotal : '') + '</div>';
+  }
+  function _standHTML(list, blinds) {
+    return '<div class="th-mini-stand" aria-label="남은 사람 칩">' + (list || []).map(function(s, i) {
+      return '<span class="th-mini-st' + (i === 0 ? ' is-lead' : '') + '">' + _esc(_castInfo(s.name).icon) + ' ' + _esc(s.name) + ' <b>' + _esc(_chips(s.stack)) + '</b>' +
+        (blinds > 1 ? '<small>' + _esc((Math.round(_num(s.stack, 0) / blinds * 10) / 10).toFixed(1)) + 'bb</small>' : '') + '</span>';
+    }).join('') + '</div>';
+  }
+  function _pickHTML(md) {
+    var mm = md.mini;
+    return '<div class="th-mini th-mini-pick"><div class="th-mini-head">🏆 미니시즌 시작: 누가 우승할까요?</div>' +
+      '<div class="th-sub">' + _esc(mm.total || 3) + '편(하루 1편, 편마다 6~8핸드) 탈락전이에요. 블라인드는 편마다 2배, 칩을 다 잃거나 편 끝에 칩이 가장 적으면 탈락하고, 마지막 편이 끝나면 칩 1위가 우승이에요.</div>' +
+      '<div class="th-mini-picks" role="group" aria-label="우승자 예측">' + mm.cast.map(function(c) {
+        var ci = _castInfo(c.name);
+        return '<button type="button" class="th-chip th-mini-pk" data-th="mpick" data-v="' + _esc(c.name) + '"><span class="th-mini-pk-n">' + _esc(ci.icon) + ' ' + _esc(c.name) +
+          '</span>' + (ci.bio ? '<small class="th-chip-sub">' + _esc(ci.bio) + '</small>' : '') + '</button>';
+      }).join('') + '</div><button type="button" class="th-skip th-mini-skip" data-th="mpick" data-v="">예측 없이 보기</button></div>';
+  }
+  function _miniIntroHTML(md) {
+    var mm = md.mini, mep = mm.mep;
+    var out = '<div class="th-intro th-mini">' + _miniHead(mm);
+    if (mm.lastRes) out += '<div class="th-sub">지난 핸드: ' + mm.lastRes + '</div>';
+    out += '<div class="th-mini-blind">' + (mep.blinds > 1 ? '블라인드 ' + mep.blinds + '배: 칩은 그대로, 테이블의 bb는 칩의 1/' + mep.blinds + '이에요(100칩 = ' + (Math.round(1000 / mep.blinds) / 10) + 'bb)'
+      : '블라인드 0.5/1, 100칩 = 100bb로 시작해요') + '</div>' + _standHTML(mm.standings, mep.blinds) +
+      (mm.pick ? '<div class="th-sub">내 예측: ' + _esc(_castInfo(mm.pick).icon) + ' ' + _esc(mm.pick) + '</div>' : '');
+    var ls = (md.lines || []).filter(function(l) { return l.kind === 'intro'; });
+    out += '<div class="th-intro-t">📜 계획 예고</div><div class="th-intro-list">' +
+      (ls.length ? ls.map(function(l) { return '<div class="th-intro-l">' + l.html + '</div>'; }).join('') : '<div class="th-intro-l th-sub">예고 없이 시작해요</div>') +
+      '</div><div class="th-note">💜 ' + CHAR_NOTE + '</div></div>';
+    return out;
+  }
+  function _outHTML(e, forced) {
+    return '<div class="th-mini-out"><div class="th-mini-out-t">' + (forced ? '⛔ ' : '💥 ') + '<b>' + _esc(e.name) + '</b> 탈락(' + _esc(e.place) + '위)' +
+      (forced ? ', 편 끝에 칩이 가장 적어요(' + _esc(_chips(e.stack)) + ')' : (e.killer ? ', ' + _esc(e.killer) + '에게 칩을 모두 잃었어요' : '')) + '</div>' +
+      (e.thought ? '<div class="th-mini-why">💭 결정적 속마음: “' + _esc(e.thought) + '”' + (e.act ? ' <span class="th-sub">(' + _esc(e.act) + ')</span>' : '') + '</div>' : '') + '</div>';
+  }
+  function _miniHandEndHTML(md) {
+    var mm = md.mini, busts = (mm.last && mm.last.busts) || [];
+    var out = '<div class="th-end th-mini">' + _miniHead(mm) + '<div class="th-end-t">🏁 핸드 끝</div>';
+    if (mm.lastRes) out += '<div class="th-end-d">이번 핸드: ' + mm.lastRes + '</div>';
+    busts.forEach(function(b) { out += _outHTML(b, false); });
+    if (!busts.length) out += '<div class="th-sub">' + (mm.phase === 'last' ? '이번 편 마지막 핸드였어요' : '잠시 뒤 다음 핸드로 넘어가요') + '</div>';
+    return out + '</div>';
+  }
+  function _miniCloseHTML(md) {
+    var mm = md.mini, res = mm.close;
+    if (!res) return '<div class="th-end th-mini"><div class="th-end-t">🏁 이번 편 끝</div></div>';
+    var m = res.mini, out = '<div class="th-end th-mini"><div class="th-end-t">🏁 미니시즌 ' + res.no + '/' + res.mini.total + '편 끝</div>';
+    var t = md.tally || { pred: 0, hit: 0 };
+    out += '<div class="th-end-d">예측 ' + t.pred + '번, 적중 ' + t.hit + '번' + (md.xp ? ', +' + _esc(md.xp) + ' XP' : '') + '</div>';
+    var outs = (res.out || []);
+    if (outs.length) outs.forEach(function(e) { out += _outHTML(e, e.by === 'min'); });
+    if (res.done) {
+      out += '<div class="th-mini-win">🏆 우승: ' + _esc(_castInfo(m.winner).icon) + ' <b>' + _esc(m.winner || '') + '</b></div>';
+      if (m.pick) out += '<div class="th-v ' + (mm.hit ? 'is-hit' : 'is-miss') + '">' + (mm.hit ? '✅ 내 예측 적중! ' + _esc(m.pick) : '❌ 내 예측 ' + _esc(m.pick) + ', 빗나갔어요') + '</div>';
+      out += '<div class="th-sub">최종 순위</div>' + _standHTML(res.standings, 0) + '<div class="th-sub">새 시즌은 내일 여정 홈에서 열려요</div>';
+    } else {
+      out += '<div class="th-sub">남은 사람(칩 순)</div>' + _standHTML(res.standings, 0);
+      out += '<div class="th-mini-next">📅 다음 편은 내일: 블라인드가 2배라 같은 칩도 bb로는 절반이에요</div>';
+      if (m.pick) out += '<div class="th-sub">내 예측: ' + _esc(_castInfo(m.pick).icon) + ' ' + _esc(m.pick) + (_aliveOf(m).some(function(c) { return c.name === m.pick; }) ? ', 아직 살아 있어요' : ', 이미 탈락했어요') + '</div>';
+    }
+    if (md.card) out += '<div class="th-end-d">🎬 이번 편 명장면 카드가 나왔어요</div>';
+    else if (md.threshold != null) out += '<div class="th-end-d th-sub">이번 편은 명장면 기준(드라마 ' + _esc(md.threshold) + '점)에 못 미쳐 카드가 없어요</div>';
+    return out + '</div>';
   }
 
   // ── 열기, 닫기 ─────────────────────────────────────────
@@ -629,6 +996,11 @@ var TheaterUI = (function() {
   function start(opts) {
     opts = opts || {};
     var onDone = typeof opts.onDone === 'function' ? opts.onDone : null;
+    // (M6-MINI, 계약 H7) mini 인자: 진행 중인 미니시즌에 오늘 안 본 편이 있으면 그 편, 아니면 일반 편
+    if (opts.mini) {
+      var ms = miniStatus();
+      if (ms.active && ms.canStart) return _startMini({ onDone: onDone, hideTypes: !!opts.hideTypes, core: opts.core });
+    }
     if (_r) _finish('replaced');
     var core = _coreOf(opts), specs = _specs(opts);
     var r = { core: core, opts: opts, onDone: onDone, specs: specs, idx: -1, ep: null, mode: 'idle', paused: false, speed: _loadSpeed(),
@@ -718,6 +1090,7 @@ var TheaterUI = (function() {
     _r = null;
     _unmount(r);
     var res = { episodes: r.res.episodes, predicted: r.res.predicted, hit: r.res.hit, hitW: Math.round(r.res.hitW * 1000) / 1000, cards: r.res.cards.slice() };
+    if (r.res.mini) res.mini = r.res.mini;   // 미니시즌 편 { id, no, done, winner, pick, hit }
     if (reason === 'replaced') return;
     if (r.onDone) { try { r.onDone(res); } catch (e) { _warn('onDone', e); } }
     else _goHome();
@@ -747,15 +1120,25 @@ var TheaterUI = (function() {
       lines: r.lines.slice(),
       stop: s ? { name: s.name, pos: s.pos, toCall: s.toCall, pot: s.pot, actions: s.actions.slice(), labels: _copy(s.labels), plans: s.plans.slice(), guess: _copy(s.guess) } : null,
       stops: r.stops, verdict: r.verdict, tally: _copy(r.tally), result: _copy(r.res), card: r.card, cardPending: r.mode === 'end' && !!r.card && !r.cardSeen,
-      cardOpen: r.cardOpen, saved: r.saved, xp: r.xp, threshold: r.threshold, seed: r.ep ? r.ep.seed : null, dom: r.dom
+      cardOpen: r.cardOpen, saved: r.saved, xp: r.xp, threshold: r.threshold, seed: r.ep ? r.ep.seed : null, dom: r.dom,
+      mini: r.mini ? _miniModel(r) : null
     };
+  }
+
+  function _miniModel(r) {
+    var mm = r.mini, mep = mm.mep;
+    var stand = _aliveOf(mep.mini).map(function(c) { return { name: c.name, type: c.type, stack: _num(mep.mini.stacks[c.name], 0) }; })
+      .sort(function(a, b) { return b.stack - a.stack; });
+    return { mep: mep, ep: r.ep, cast: (mm.season.cast || []).slice(), pick: mm.pick, phase: mm.phase, standings: stand,
+      last: mm.last, lastRes: mm.lastRes || '', close: mm.close, hit: mm.hit, handStops: mm.handStops, epStops: mm.epStops,
+      no: mep.no, total: mep.total, hand: r.ep && r.ep.mini ? r.ep.mini.hand : null, hands: mep.handsTotal, blinds: mep.blinds, fresh: mm.fresh };
   }
 
   function _viewState(r) {
     var st = (r.mode === 'stop' && r.stop && r.stop.ev && r.stop.ev.before) ? r.stop.ev.before : (r.ep && r.ep.state);
     if (!st) return null;
     var v = _copy(st);
-    v.revealAll = true;
+    v.revealAll = r.mode !== 'pick';   // 우승자 예측 중에는 첫 핸드 카드를 가린다(예측이 카드에 끌리지 않게)
     v.spectator = true;
     if (v.hideTypes == null) v.hideTypes = !!(r.specs[r.idx] && r.specs[r.idx].hideTypes);
     return v;
@@ -769,7 +1152,8 @@ var TheaterUI = (function() {
     if (view && _fn('Table', 'render')) {
       _call('Table', 'render', view);
       var hi = _el('hand-info');
-      if (hi) hi.textContent = '🎭 속마음 극장' + (r.specs.length > 1 ? ' ' + (r.idx + 1) + '/' + r.specs.length + '편' : '');
+      if (hi) hi.textContent = r.mini ? '🏆 미니시즌 ' + r.mini.mep.no + '/' + r.mini.mep.total + '편' + (r.ep && r.ep.mini ? ', 핸드 ' + r.ep.mini.hand + '/' + r.mini.mep.handsTotal : '')
+        : '🎭 속마음 극장' + (r.specs.length > 1 ? ' ' + (r.idx + 1) + '/' + r.specs.length + '편' : '');
     }
     var sc = _el('screen-game');
     if (sc) sc.classList.toggle('th-stop', r.mode === 'stop');
@@ -777,7 +1161,7 @@ var TheaterUI = (function() {
     if (r.root) {
       var keep = _focusKey();
       r.root.setAttribute('data-mode', r.mode);
-      r.root.innerHTML = stripHTML(md.strip) + '<div class="th-panel' + (r.mode === 'play' && !r.verdict ? ' is-quiet' : '') + '">' + panelHTML(md) + '</div>' + barHTML(md);
+      r.root.innerHTML = stripHTML(md.strip, md.mode === 'pick' ? '우승자를 고르면 1편이 시작돼요' : null) + '<div class="th-panel' + (r.mode === 'play' && !r.verdict ? ' is-quiet' : '') + (r.mini && r.mode !== 'stop' && r.mode !== 'play' ? ' is-mini' : '') + '">' + panelHTML(md) + '</div>' + barHTML(md);
       _restoreFocus(r.root, keep);
     }
     _renderFeed(r);
@@ -1002,6 +1386,7 @@ var TheaterUI = (function() {
     else if (a === 'act') pick('action', v);
     else if (a === 'plan') pick('plan', v === '' ? null : v);
     else if (a === 'skip') skip();
+    else if (a === 'mpick') pickWinner(v || '');
   }
 
   // 데스크톱 키보드: Enter/Space 다음, Esc 나가기, 멈춤 중 숫자 1~3 액션 → 1~5 계획(5 = 모르겠다), 0 건너뛰기, P 멈춤
@@ -1014,6 +1399,12 @@ var TheaterUI = (function() {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
     var k = e.key;
     if (k === 'Escape') { e.preventDefault(); exit(); return; }
+    if (r.mode === 'pick' && r.mini) {
+      var pn = parseInt(k, 10), cs = r.mini.season.cast || [];
+      if (k === '0') { e.preventDefault(); pickWinner(''); }
+      else if (pn >= 1 && pn <= cs.length) { e.preventDefault(); pickWinner(cs[pn - 1].name); }
+      return;
+    }
     if (r.mode === 'stop' && r.stop) {
       var s = r.stop, n = parseInt(k, 10);
       if (k === '0') { e.preventDefault(); skip(); return; }
@@ -1042,6 +1433,8 @@ var TheaterUI = (function() {
 
   var api = {
     open: open, start: start, showCard: showCard, cardHTML: cardHTML, active: active,
+    miniStatus: miniStatus, openMini: openMini, homeCard: homeCard, pickWinner: pickWinner,
+    MINI_STOP_HAND: MINI_STOP_HAND, MINI_STOP_EP: MINI_STOP_EP,
     next: next, pick: pick, skip: skip, togglePause: togglePause, toggleSpeed: toggleSpeed, exit: exit,
     delayMs: delayMs, chipsHTML: chipsHTML, stripHTML: stripHTML, barHTML: barHTML, panelHTML: panelHTML,
     actionLabel: actionLabel, planKor: planKor,

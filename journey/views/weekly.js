@@ -7,9 +7,19 @@
 //   html(model)        순수 문자열.
 //   cardInfo(rq, now)  홈 카드 정보 { show, emph, title, desc, week } | null(리포트 내용이 없으면 null). 월요일이고 이번 주에
 //                      아직 리포트를 안 봤으면 emph(지난주 리포트 강조). 카드 HTML은 JourneyUI 카드 영역(weeklyCard)이 그린다.
-//   🔁 다시 풀기 = ReviewQueue.practice([item], {onDone}), 🧩 이 패턴 n핸드 연습 = practice(patternItems(pattern, 5), {onDone}).
+//   🔁 다시 풀기 = ReviewQueue.practice([item], {onDone, tag:'weekly'}), 🧩 이 패턴 n핸드 연습 = practice(patternItems(pattern, 5), {onDone, tag}).
 //   onDone(res{done, n, ok, aborted})이 오면 리포트로 돌아와(JourneyUI.view('weekly')) 결과 한 줄을 한 번 보인다.
-// 모델: { ok(ReviewQueue.weekly 있음), now, week('YYYY-Www'), monday, range('10월 14일 ~ 10월 20일'),
+// (M6-L6B, 로드맵 결정 15와 계약 H10) 리포트 범위 2가지(scope):
+//   'recent' = 지금까지의 최근 7일(그 앞 7일과 비교, M5 그대로), 'last' = 지난 ISO 주 월~일(그 앞 주와 비교, ReviewQueue.weekly(now,
+//   { lastWeek:true })). 월요일에는 지난주 리포트에 내용이 있으면 홈 카드(cardInfo)와 리포트(open) 모두 'last'라서 카드 제목
+//   '지난주 리포트'와 리포트 제목, 범위('지난주 월~일(10월 12일 ~ 10월 18일)')가 같다. 다른 날, 또는 지난주가 비어 있으면 'recent'.
+//   리포트 안의 버튼(_scope)으로 두 범위를 바꿔 볼 수 있고 고른 범위는 그날만 기억한다. viewed(강조 해제)와 markReportView는 범위와
+//   상관없이 지금의 ISO 주(F4 views, M6 보스 weeks 조건 그대로).
+//   ReviewQueue가 lastWeek를 모르면(결과에 lastWeek:true가 없으면) 제목과 범위가 어긋나지 않게 'recent'로 그린다.
+//   open과 cardInfo는 여정 화면에서 불리므로 ▶ 없이 떠난 주간 리포트 연쇄(tag 'weekly')가 남아 있으면 정리하고(abort, 게임 화면이
+//   아닐 때만) 남은 코칭 고정을 되돌린다(ReviewQueue.restoreStale, H10).
+// 모델: { ok(ReviewQueue.weekly 있음), now, scope('recent'|'last'), week(리포트 범위의 'YYYY-Www'), viewWeek(지금의 주), monday,
+//         range('10월 14일 ~ 10월 20일', last면 지난주 월요일 ~ 일요일),
 //         top:[{ i, key, title, sub, loss, est, due, item }](최대 3, weekly().top 순서 그대로),
 //         patterns:[{ i, pattern, label, rule, n }](Top3에 나온 패턴 순서, 최대 2, n = patternItems(pattern, 5) 수),
 //         concepts:[{ concept, label, now:{n, pct}, prev:{n, pct}, diff }](pct 0~100 또는 null, 결정 0인 개념은 뺀다),
@@ -29,7 +39,7 @@ var WeeklyView = (function() {
   var PATTERN_FALLBACK = { overlimp: '오버림프(림퍼 뒤에 콜로 따라 들어가기)' };
 
   var _env = {};                         // 테스트 주입 { rq, now, reopen, toast, screen }
-  var _st = { model: null, last: null }; // 마지막으로 그린 모델(버튼 인덱스용), 연습 결과(다음 그리기에 한 번)
+  var _st = { model: null, last: null, el: null, pick: null }; // 마지막으로 그린 모델(버튼 인덱스용), 연습 결과(다음 그리기에 한 번), 그린 곳, 고른 범위
 
   // ── 헬퍼 ──────────────────────────────────────────────
   function _m(name) { var o = G[name]; return (o && (typeof o === 'object' || typeof o === 'function')) ? o : null; }
@@ -113,16 +123,36 @@ var WeeklyView = (function() {
     }).filter(function(c) { return c.now.n > 0 || c.prev.n > 0; });
   }
 
-  function model(rq, now) {
+  // 지난 ISO 주(로컬): from = 지난주 월요일 00:00, to = 이번 주 월요일 00:00(제외). ReviewQueue.lastWeekSpan과 같은 규칙
+  function lastWeekSpan(now) {
+    var d = new Date(now), back = (d.getDay() + 6) % 7;
+    var y = d.getFullYear(), mo = d.getMonth(), day = d.getDate() - back;
+    return { from: new Date(y, mo, day - 7).getTime(), to: new Date(y, mo, day).getTime() };
+  }
+  function _setScope(m, scope) {
+    m.scope = scope;
+    if (scope === 'last') {
+      var sp = lastWeekSpan(m.now);
+      m.week = weekKey(sp.from);
+      m.range = _md(sp.from) + ' ~ ' + _md(sp.to - 1);
+    } else {
+      m.week = weekKey(m.now);
+      m.range = _md(m.now - 6 * DAY) + ' ~ ' + _md(m.now);
+    }
+  }
+  // opts.scope 'last'(또는 opts.lastWeek)면 지난 ISO 주 월~일, 아니면 최근 7일
+  function model(rq, now, opts) {
     now = _num(now, Date.now());
     var d = new Date(now);
-    var m = { ok: false, now: now, week: weekKey(now), monday: d.getDay() === 1,
-      range: _md(now - 6 * DAY) + ' ~ ' + _md(now), top: [], patterns: [], concepts: [], added: 0, fixed: 0, due: 0,
-      viewed: false, hasContent: false };
+    var last = _isObj(opts) && (opts.scope === 'last' || opts.lastWeek === true);
+    var m = { ok: false, now: now, scope: 'recent', week: '', viewWeek: weekKey(now), monday: d.getDay() === 1,
+      range: '', top: [], patterns: [], concepts: [], added: 0, fixed: 0, due: 0, viewed: false, hasContent: false };
+    _setScope(m, last ? 'last' : 'recent');
     if (!rq || typeof rq.weekly !== 'function') return m;
-    var w = _try(function() { return rq.weekly(now); }, null);
+    var w = _try(function() { return last ? rq.weekly(now, { lastWeek: true }) : rq.weekly(now); }, null);
     if (!_isObj(w)) return m;
     m.ok = true;
+    if (last && w.lastWeek !== true) _setScope(m, 'recent');   // lastWeek를 모르는 ReviewQueue: 받은 그대로(최근 7일)라고 그린다
     if (typeof w.week === 'string' && w.week) m.week = w.week;
     m.top = (Array.isArray(w.top) ? w.top : []).filter(_isObj).slice(0, TOP_MAX).map(function(it, i) { return _topRow(it, i, now); });
     var seen = {};
@@ -141,26 +171,37 @@ var WeeklyView = (function() {
     m.due = Math.max(0, Math.floor(_num(w.due, 0)));
     if (typeof rq.reportWeeks === 'function') {
       var wk = _try(function() { return rq.reportWeeks(); }, []);
-      m.viewed = Array.isArray(wk) && wk.indexOf(m.week) >= 0;
+      m.viewed = Array.isArray(wk) && wk.indexOf(m.viewWeek) >= 0;   // 이번 주에 리포트를 봤나(범위와 상관없이 본 주)
     }
     m.hasContent = m.top.length > 0 || m.added > 0 || m.fixed > 0 || m.concepts.some(function(c) { return c.now.n > 0; });
     return m;
   }
 
-  // 홈 카드 정보(순수). 리포트 내용이 없으면 null(홈 출력이 그대로)
+  // 기본 범위: 월요일이고 지난주 리포트에 내용이 있으면 'last', 아니면 'recent'(카드와 리포트가 같은 규칙)
+  function autoScope(rq, now) {
+    now = _num(now, Date.now());
+    if (new Date(now).getDay() !== 1) return 'recent';
+    var mL = model(rq, now, { scope: 'last' });
+    return (mL.ok && mL.hasContent && mL.scope === 'last') ? 'last' : 'recent';
+  }
+  // 홈 카드 정보. 리포트 내용이 없으면 null(홈 출력이 그대로). 월요일 지난주 리포트를 이번 주에 아직 안 봤으면 강조
   function cardInfo(rq, now) {
-    var m = model(rq, now);
+    now = _num(now, Date.now());
+    _sweep(rq);
+    var m = model(rq, now, { scope: _scopeFor(null, rq, now) });   // 리포트를 열 때와 같은 범위(오늘 고른 범위 > 기본)
     if (!m.ok || !m.hasContent) return null;
-    var emph = m.monday && !m.viewed;
+    var last = m.scope === 'last';
+    var emph = last && m.monday && !m.viewed;
     var bits = [];
     if (m.top.length) bits.push('비싼 실수 ' + m.top.length + '개');
     if (m.fixed) bits.push('고친 실수 ' + m.fixed + '개');
     if (m.due) bits.push('다시 풀 차례 ' + m.due + '핸드');
     var nc = m.concepts.filter(function(c) { return c.now.n > 0; }).length;
     if (!bits.length && nc) bits.push('개념 ' + nc + '개의 정확도');
-    return { show: true, emph: emph, week: m.week,
-      title: emph ? '📅 지난주 리포트가 나왔어요' : '📅 주간 리포트',
-      desc: (emph ? '새 주를 시작하기 전에 지난 7일을 돌아봐요. ' : '최근 7일 기록이에요. ') + bits.join(', ') };
+    return { show: true, emph: emph, week: m.week, scope: m.scope, range: m.range,
+      title: last ? (emph ? '📅 지난주 리포트가 나왔어요' : '📅 지난주 리포트') : '📅 주간 리포트',
+      desc: (last ? (emph ? '새 주를 시작하기 전에 지난주(' + m.range + ')를 돌아봐요. ' : '지난주(' + m.range + ') 기록이에요. ')
+        : '최근 7일 기록이에요. ') + bits.join(', ') };
   }
 
   // ── 그리기(순수 문자열) ───────────────────────────────
@@ -190,9 +231,25 @@ var WeeklyView = (function() {
   function _homeBtn(primary) {
     return '<div class="j-card-acts"><button type="button" class="j-btn' + (primary ? ' j-primary' : ' j-ghost') + '" onclick="JourneyUI.back()">여정 홈으로</button></div>';
   }
+  // 범위 바꾸기 버튼(지난주 월~일 <-> 최근 7일)
+  function _scopeBtn(m, inCard) {
+    var nm = _names(m);
+    // 리포트 머리의 버튼은 글자만큼(눌림 영역 44px), 빈 리포트 카드 안에서는 다른 버튼처럼 넓게. css/journey.css는 M6 동결이라 인라인
+    return '<div class="j-card-acts"' + (inCard ? '' : ' style="margin:-4px 0 12px"') + '><button type="button" class="j-btn j-ghost j-wk-scope" ' +
+      (inCard ? '' : 'style="flex:0 0 auto;min-height:44px;padding:6px 14px;font-size:.86rem" ') +
+      'data-scope="' + nm.other + '" onclick="WeeklyView._scope(\'' + nm.other + '\')">📅 ' + nm.otherBtn + '</button></div>';
+  }
+  // 범위별 이름(최근 7일 = 그 앞 7일과, 지난주 = 그 앞 주와 비교)
+  function _names(m) {
+    return m && m.scope === 'last'
+      ? { title: '📅 지난주 리포트', now: '지난주', prev: '그 앞 주', span: '지난주', both: '지난주와 그 앞 주',
+          range: '지난주 월~일(' + m.range + '), 그 앞 주와 비교', other: 'recent', otherBtn: '최근 7일로 보기' }
+      : { title: '📅 주간 리포트', now: '최근 7일', prev: '그 앞 7일', span: '최근 7일', both: '최근 14일',
+          range: '최근 7일(' + (m ? m.range : '') + '), 그 앞 7일과 비교', other: 'last', otherBtn: '지난주(월~일)로 보기' };
+  }
   function _topHTML(m) {
-    var body;
-    if (!m.top.length) body = '<p class="j-wk-empty">최근 7일에는 빨간 결정이 없었어요. 실전에서 빨간 결정이 나오면 여기에 모여요.</p>';
+    var body, nm = _names(m);
+    if (!m.top.length) body = '<p class="j-wk-empty">' + nm.span + '에는 빨간 결정이 없었어요. 실전에서 빨간 결정이 나오면 여기에 모여요.</p>';
     else {
       body = '<ol class="j-wk-top">' + m.top.map(function(r) {
         return '<li class="j-wk-item">' +
@@ -221,15 +278,15 @@ var WeeklyView = (function() {
       '<span class="j-wk-bar-t">' + _esc(txt) + '</span></div>';
   }
   function _conceptsHTML(m) {
-    var body;
-    if (!m.concepts.length) body = '<p class="j-wk-empty">최근 14일에 판정된 결정이 없어요. 6인 실전이나 오늘의 5분 미션에서 결정이 쌓이면 보여요.</p>';
+    var body, nm = _names(m);
+    if (!m.concepts.length) body = '<p class="j-wk-empty">' + nm.both + '에 판정된 결정이 없어요. 6인 실전이나 오늘의 5분 미션에서 결정이 쌓이면 보여요.</p>';
     else {
       body = '<div class="j-wk-cons">' + m.concepts.map(function(c) {
         var d = c.diff, dTxt = d == null ? (c.prev.n ? '' : '새로 기록') : (d > 0 ? '+' + d + '%p' : (d < 0 ? d + '%p' : '같음'));
         var dCls = d == null ? 'is-new' : (d > 0 ? 'is-up' : (d < 0 ? 'is-down' : 'is-same'));
         return '<div class="j-wk-con"><div class="j-wk-con-h"><b>' + _esc(c.label) + '</b>' +
           (dTxt ? '<span class="j-wk-diff ' + dCls + '">' + _esc(dTxt) + '</span>' : '') + '</div>' +
-          _bar('is-prev', '그 앞 7일', c.prev) + _bar('is-now', '최근 7일', c.now) + '</div>';
+          _bar('is-prev', nm.prev, c.prev) + _bar('is-now', nm.now, c.now) + '</div>';
       }).join('') + '</div>' +
       '<p class="j-wk-tip">초록 결정 비율이에요. 결정 수가 적으면 숫자가 크게 흔들리니 흐름만 참고해요.</p>';
     }
@@ -237,18 +294,24 @@ var WeeklyView = (function() {
   }
   function html(m) {
     m = m || {};
-    var out = '<div class="j-sub j-wk">' + _head('📅 주간 리포트') + _resultLine(m.last);
+    var nm = _names(m);
+    var out = '<div class="j-sub j-wk">' + _head(m.ok && (m.hasContent || m.scope === 'last') ? nm.title : '📅 주간 리포트') + _resultLine(m.last);
     if (!m.ok) {
       return out + '<div class="j-card"><div class="j-card-t">🚧 주간 리포트를 준비하고 있어요</div>' +
         '<div class="j-card-d">실수 핸드 복습 기록이 생기면 이 화면에 한 주의 비싼 실수와 개념별 정확도가 모여요.</div>' + _homeBtn(true) + '</div></div>';
     }
     if (!m.hasContent) {
+      if (m.scope === 'last') {
+        return out + '<div class="j-card"><div class="j-card-t">지난주(' + _esc(m.range) + ') 기록이 없어요</div>' +
+          '<div class="j-card-d">지난주 월~일에 판정된 결정이 없어요. 최근 7일 기록으로 바꿔 볼 수 있어요.</div>' + _scopeBtn(m, true) +
+          _homeBtn(false) + '</div></div>';
+      }
       return out + '<div class="j-card"><div class="j-card-t">아직 이번 주 기록이 없어요</div>' +
         '<div class="j-card-d">6인 실전에서 결정이 쌓이면 여기에 최근 7일의 비싼 실수 3개, 다시 풀기, 개념별 정확도가 모여요. 오늘의 5분이나 자유 게임으로 시작해 봐요.</div>' +
         _homeBtn(true) + '</div></div>';
     }
-    out += (m.monday ? '<div class="j-wk-banner">🌅 새 주가 시작됐어요. 지난 7일을 돌아보고 이번 주를 시작해요.</div>' : '') +
-      '<p class="j-wk-range">최근 7일(' + _esc(m.range) + '), 그 앞 7일과 비교</p>' +
+    out += (m.monday && m.scope === 'last' ? '<div class="j-wk-banner">🌅 새 주가 시작됐어요. 지난주(월~일)를 돌아보고 이번 주를 시작해요.</div>' : '') +
+      '<p class="j-wk-range">' + _esc(nm.range) + '</p>' + _scopeBtn(m, false) +
       '<div class="j-wk-stats" role="list">' +
         '<div class="j-wk-stat" role="listitem"><b>' + m.added + '</b><span>새로 들어온 실수</span></div>' +
         '<div class="j-wk-stat" role="listitem"><b>' + m.fixed + '</b><span>고친 실수</span></div>' +
@@ -262,16 +325,44 @@ var WeeklyView = (function() {
   }
 
   // ── 열기와 버튼 ───────────────────────────────────────
+  function _dayKey(t) { var d = new Date(t); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  // 이번에 그릴 범위: params('last'|'recent' 또는 { scope }) > 오늘 고른 범위(_scope) > 기본(autoScope)
+  function _scopeFor(params, rq, now) {
+    var p = _isObj(params) ? params.scope : params;
+    if (p === 'last' || p === 'recent') return p;
+    if (_st.pick && _st.pick.day === _dayKey(now)) return _st.pick.scope;
+    return autoScope(rq, now);
+  }
   function open(params, el) {
     var now = _now(), rq = _rq();
-    var m = model(rq, now);
+    _sweep(rq);
+    var m = model(rq, now, { scope: _scopeFor(params, rq, now) });
     if (m.ok && m.hasContent && rq && typeof rq.markReportView === 'function') _try(function() { return rq.markReportView(now); }, null);
     m.last = _st.last;
     _st.last = null;
     _st.model = m;
+    if (el && typeof el === 'object') _st.el = el;
     var h = html(m);
     if (el && typeof el === 'object') el.innerHTML = h;
     return h;
+  }
+  // 리포트 안 범위 버튼: 고른 범위를 그날만 기억하고 같은 자리에 다시 그린다
+  function _scope(s) {
+    if (s !== 'last' && s !== 'recent') return false;
+    _st.pick = { scope: s, day: _dayKey(_now()) };
+    if (_st.el) open(null, _st.el); else _reopen();
+    return true;
+  }
+  // ▶ 없이 떠난 주간 리포트 연쇄(tag 'weekly')를 여정 화면에서 정리하고, 남은 코칭 고정을 되돌린다(H10)
+  function _sweep(rq) {
+    if (!rq) return;
+    var s = (typeof rq.status === 'function') ? _try(function() { return rq.status(); }, null) : null;
+    if (_isObj(s) && s.active) {
+      if (s.tag !== 'weekly' || _activeScreen() === 'screen-game') return;
+      if (typeof rq.abort === 'function') _try(function() { return rq.abort('weekly'); }, null);
+      return;
+    }
+    if (typeof rq.restoreStale === 'function') _try(function() { return rq.restoreStale(); }, null);
   }
   function _toast(msg) {
     if (typeof _env.toast === 'function') { _env.toast(msg); return; }
@@ -298,7 +389,7 @@ var WeeklyView = (function() {
   function _practice(items, info) {
     var rq = _rq();
     if (!rq || typeof rq.practice !== 'function') { _toast('다시 풀기를 준비하고 있어요'); return false; }
-    var started = !!_try(function() { return rq.practice(items, { onDone: function(res) { _afterPractice(res, info); } }); }, false);
+    var started = !!_try(function() { return rq.practice(items, { tag: 'weekly', onDone: function(res) { _afterPractice(res, info); } }); }, false);
     if (!started) _toast('연습을 시작하지 못했어요. 잠시 뒤 다시 해 주세요');
     return started;
   }
@@ -314,10 +405,10 @@ var WeeklyView = (function() {
     if (!Array.isArray(items) || !items.length) { _toast('이 패턴의 실수 핸드가 지금은 없어요'); return false; }
     return _practice(items.slice(0, PRACTICE_MAX), { kind: 'pattern', pattern: p.pattern });
   }
-  function _setEnv(e) { _env = _isObj(e) ? e : {}; _st = { model: null, last: null }; }
+  function _setEnv(e) { _env = _isObj(e) ? e : {}; _st = { model: null, last: null, el: null, pick: null }; }
 
-  var api = { open: open, model: model, html: html, cardInfo: cardInfo, weekKey: weekKey,
-    PRACTICE_MAX: PRACTICE_MAX, _retry: _retry, _pattern: _pattern, _setEnv: _setEnv };
+  var api = { open: open, model: model, html: html, cardInfo: cardInfo, weekKey: weekKey, autoScope: autoScope, lastWeekSpan: lastWeekSpan,
+    PRACTICE_MAX: PRACTICE_MAX, _retry: _retry, _pattern: _pattern, _scope: _scope, _setEnv: _setEnv };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
