@@ -16,6 +16,8 @@
 //   장면 그림: say, ask, widget은 여기서, 나머지는 SceneRender.supports(t)일 때 SceneRender.render. 아직 없는 장면은 안내 카드
 //     (sum은 문장 카드로 대신 그린다). 격자 장면은 줄을 누르면 그 줄이 커지는 2단계 선택(SceneRender.gridSelect)으로 둘러본다.
 //     모든 장면의 caption 줄, label '참고' 회색 칩, calc가 있는 장면의 '엔진 계산'(chart, rangePct, band는 '이 앱 차트 기준') 칩.
+//     (M5-P0) 등록 calc 유형(계약 L9)은 def.chip으로 칩을 고르고('appdef'는 '이 앱의 분류 기준'), SceneRender.render(obj, v)에
+//     LessonCore.vars(scene)를 넘긴다(bar kind 'pct'의 줄 값). M5에서 그룹은 이 파일을 고치지 않는다.
 //   용어 밑줄: GLOSSARY {term, easy, same[]}가 있으면 caption과 say 문장에서 장면마다 용어별 첫 번째만 밑줄, 누르면 easy 팁.
 //   '이상해요': Journey.load()의 flags[레슨 id]에 {at(ISO), scene} 추가 후 Journey.save(레슨당 최근 30개).
 //   스타일은 css/journey.css 끝의 lp- 절(css/lesson.css는 장면 그림 sr- 전용).
@@ -30,7 +32,8 @@ var LessonPlayer = (function() {
   var LABELS = {
     ref: { cls: 'approx', icon: '≈', text: '참고', full: '공개 솔버 통념을 근사한 참고값이에요. 레이팅과 승급에는 넣지 않아요' },
     exact: { cls: 'exact', icon: '✔', text: '엔진 계산', full: '이 장면의 숫자는 엔진으로 다시 계산한 값이에요' },
-    chart: { cls: 'chart', icon: '▦', text: '이 앱 차트 기준', full: '이 앱의 차트 기준(입문용, 표준보다 UTG/HJ/CO가 2~8%p 타이트, SB RFI 32.1%와 vs3bet 표도 타이트)' }
+    chart: { cls: 'chart', icon: '▦', text: '이 앱 차트 기준', full: '이 앱의 차트 기준(입문용, 표준보다 UTG/HJ/CO가 2~8%p 타이트, SB RFI 32.1%와 vs3bet 표도 타이트)' },
+    appdef: { cls: 'appdef', icon: '◇', text: '이 앱의 분류 기준', full: '이 앱의 분류 기준. 레이팅과 데일리 5에는 넣지 않아요' }
   };
   var SCENE_NAME = { table: '테이블 그림', bar: '막대 그림', compare: '세 사람의 속마음 비교', widget: '체험 위젯', cards: '카드 그림',
     grid: '레인지 격자', ring: '팟 오즈 링', sum: '한 줄 요약' };
@@ -140,7 +143,11 @@ var LessonPlayer = (function() {
     var ownTag = sc.t === 'bar' && (sc.kind === 'equity' || sc.kind === 'compare');
     // band(M4-P7, HeroStats.bandsFromChart)도 이 앱 차트에서 나온 값이라 차트 칩(설계서 8.2절 2번)
     var chartCalc = sc.calc && (sc.calc.type === 'chart' || sc.calc.type === 'rangePct' || sc.calc.type === 'band');
-    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag) out.push(_chip(chartCalc ? LABELS.chart : LABELS.exact));
+    // (M5-P0, L9) 등록 유형은 def.chip('exact' 기본, 'chart', 'appdef' = 이 앱의 분류 기준, 설계서 8.2절 3번)
+    var C = _core(), def = (_isObj(sc.calc) && C && typeof C.calcDef === 'function') ? C.calcDef(sc.calc.type) : null;
+    if (def && def.chip === 'chart') chartCalc = true;
+    var appCalc = !!(def && def.chip === 'appdef');
+    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag) out.push(_chip(appCalc ? LABELS.appdef : (chartCalc ? LABELS.chart : LABELS.exact)));
     return out.length ? '<div class="lp-meta">' + out.join('') + '</div>' : '';
   }
   // 받침이 있으면 '은', 없으면 '는'(한글이 아니면 '은')
@@ -177,7 +184,7 @@ var LessonPlayer = (function() {
         obj.pick = true;
         obj.sel = sel || null;
       }
-      try { html = SR.render(obj) || ''; } catch (e) { _warn('SceneRender.render ' + sc.t, e); html = ''; }
+      try { html = SR.render(obj, v) || ''; } catch (e) { _warn('SceneRender.render ' + sc.t, e); html = ''; }
     }
     if (html) return html;
     if (sc.t === 'sum' && sc.text) {

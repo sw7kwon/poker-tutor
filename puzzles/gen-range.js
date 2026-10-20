@@ -2,15 +2,18 @@
 // 퍼즐 생성기 4종. typeof Puzzles 가드 후 Puzzles.register로 등록한다. 계약은 puzzles/puzzle-core.js 머리 주석 C1~C3.
 //   combos     콤보 세기(exact, srs). 레인지 묶음 + 데드카드(보드, 내 손) → 남은 콤보 수. variant 'blocker' = 내 손이 지우는 콤보 수
 //   rangehit   레인지 적중 분포(exact, once). 차트 레인지 + 플랍 → Villain._handStrength 범주 분포, 4지 구간. variant 'compare' = 두 레인지 비교
-//              variant 'steps'(액션 단계형)는 M5-P7 몫이라 null
+//              variant 'steps'(M5-WEEKLY, 노드 s4-02 용의자 명단): 이 앱의 지우기 규칙 v1(계약 F10)로 상대가 플랍, 턴, 리버에서
+//              계속할 때마다 레인지를 지우고 단계 1~3 뒤 남은 콤보 수 구간(4지)을 묻는다. 규칙이 이 앱의 정의라 rated false(3.2절 앱 정의 원칙)
 //   rangepaint 레인지 색칠(chart, srs, ui 'paint'). 정답 칸 집합 + Jaccard 채점 score(spot, cells) → 0~1. 색칠 위젯은 M6-P1c
 //   rangeshape 레인지 모양(앱 정의, rated false, srs). 폴라, 머지드, 컨덴스드, 캡드 판정 규칙은 아래 SHAPE_TIERS, SHAPES 상수
 // 정답 경로와 verify 경로를 일부러 나눈다(C1 "독립 경로").
 //   combos: 생성은 랭크와 무늬별 남은 카드 공식, verify는 52장 1326조합 전수 열거 + Range.parse
 //   rangehit: 생성은 차트 모델(GtoChart.buildChartModel) 칸을 실제 카드로 펼쳐 센다, verify는 GTO_RANGES 원본 배열 Range.parse + 1326 열거
+//             steps도 같다(생성 = 칸 펼침 + 단계별 걸러내기, verify = 원본 Range.parse + 1326 열거 + 강도 순위 문턱으로 다시 센다)
 //   rangepaint: 생성은 차트 모델 칸, verify는 GTO_RANGES 원본 배열 Range.parse
 //   rangeshape: 생성은 칸 무게(페어 6, 수딧 4, 오프 12), verify는 1326 열거로 층별 콤보를 다시 센다
-// 로드 시 DOM, window, localStorage 접근 없음. 다른 모듈(Range, HandEval, Gto, GtoChart, Villain, Drills, Puzzles)은 호출 시점에 typeof 가드.
+// 로드 시 DOM, window, localStorage 접근 없음. 다른 모듈(Range, HandEval, Gto, GtoChart, Villain, PostflopGuide, Drills, Puzzles)은
+// 호출 시점에 typeof 가드.
 (function() {
   var RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
   var GRID_RANKS = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']; // gto-chart.js와 같은 13x13 순서
@@ -64,6 +67,7 @@
       case 'Villain': return typeof Villain !== 'undefined' && typeof Villain._handStrength === 'function';
       case 'Gto': return typeof Gto !== 'undefined' && !!Gto.GTO_RANGES;
       case 'GtoChart': return typeof GtoChart !== 'undefined' && typeof GtoChart.buildChartModel === 'function';
+      case 'PostflopGuide': return typeof PostflopGuide !== 'undefined' && typeof PostflopGuide.hasDraw === 'function';
     }
     return false;
   }
@@ -656,10 +660,279 @@
     return null;
   }
 
+  // ═══════════════════ 2b. rangehit steps(용의자 명단, s4-02) ═══════════════════
+  // 이 앱의 지우기 규칙 v1(계약 F10, lessons/calc/stage4a.js suspects와 같은 규칙):
+  //   시작 = 이 앱 차트 레인지(그 자리 오픈 또는 콜)를 콤보로 펴고 보드와 내 손 카드를 뺀다.
+  //   플랍에서 계속(벳, 레이즈, 콜) → Villain._handStrength 'air'이고 PostflopGuide.hasDraw가 거짓인 콤보를 지운다.
+  //   턴에서 다시 계속 → 'weak-pair' 이하이고 드로우 없는 콤보를 지운다.
+  //   리버에서 계속 → 'medium' 미만(weak-pair, air)을 지운다.
+  // 단계 k(1 플랍, 2 턴, 3 리버)의 답 = 내 손과 그 단계까지의 보드 카드가 없고 단계 1~k를 모두 통과한 콤보 수(열거로 센다).
+  // 문제에는 단계 k 직전의 수(k = 1이면 시작 수, 아니면 지난 단계 뒤 수)를 보이고 단계 k 뒤 남은 수를 4지 구간으로 묻는다.
+  // 턴과 리버 카드가 든 콤보는 그 단계에서 카드 제거로 먼저 빠진다(cut, 해설에 따로 적는다).
+  var STEP_STREETS = ['flop', 'turn', 'river'];
+  var STREET_KO = { flop: '플랍', turn: '턴', river: '리버' };
+  var STEP_RULE = { flop: '드로우 없는 에어', turn: '드로우 없는 약한 페어와 에어', river: '약한 페어와 에어' };
+  // 해설용: 이 앱의 드로우(PostflopGuide.hasDraw) = 상대 카드를 넣어 같은 무늬 4장이나 연속 숫자 4장. 거트샷은 드로우로 세지 않아
+  // 보통 말하는 '드로우'와 다르므로 해설에 정의를 붙인다(지문은 2줄 제한이라 STEP_RULE 그대로)
+  var DRAW_DEF = '드로우(같은 무늬 4장이나 연속 숫자 4장, 거트샷 제외)';
+  var STEP_RULE_EX = { flop: DRAW_DEF + ' 없는 에어', turn: DRAW_DEF + ' 없는 약한 페어와 에어', river: '약한 페어와 에어' };
+  // 상대 레인지 스팟 → 내 자리와 손을 뽑을 레인지(이 앱 차트), 상대가 계속하는 말(오픈한 쪽은 벳, 콜한 쪽은 내 벳에 콜)
+  var STEP_SPOTS = {
+    'rfi|UTG': { hero: 'call|BB@UTG', act: 'bet' },
+    'rfi|HJ': { hero: 'call|CO@HJ', act: 'bet' },
+    'rfi|CO': { hero: 'call|BTN@CO', act: 'bet' },
+    'rfi|BTN': { hero: 'call|BB@BTN', act: 'bet' },
+    'call|BB@BTN': { hero: 'rfi|BTN', act: 'call' },
+    'call|BB@UTG': { hero: 'rfi|UTG', act: 'call' },
+    'call|BTN@CO': { hero: 'rfi|CO', act: 'call' },
+    'call|CO@HJ': { hero: 'rfi|HJ', act: 'call' },
+    'call|HJ@UTG': { hero: 'rfi|UTG', act: 'call' }
+  };
+  var STEP_ACT = { bet: '벳', call: '콜' };
+  var STEP_W = [2, 4, 5, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100]; // 구간 폭 후보(콤보)
+  var STEP_MIN = { shown: 12, value: 3, erased: 2 };                // 보인 수, 답, 이 단계에서 지운 수의 하한(애매하면 내지 않는다)
+  var STEP_CATS = ['nut', 'strong', 'medium', 'weak-pair', 'air'];
+
+  // 생성 경로: 규칙 문장 그대로(범주 이름 비교)
+  function _stepKeep(street, cat, draw) {
+    if (street === 'flop') return !(cat === 'air' && !draw);
+    if (street === 'turn') return !((cat === 'weak-pair' || cat === 'air') && !draw);
+    return !(cat === 'weak-pair' || cat === 'air');
+  }
+  function _clsOf(list) { var m = {}; list.forEach(function(x) { m[x.cl] = true; }); return _sortLabels(Object.keys(m)); }
+
+  // 칸 → 실제 카드 2장. 단계마다 새 보드 카드가 든 콤보를 빼고(cut) 규칙으로 지운다(erased).
+  // → { start, steps:[{street, card, cut, prior, erased, left, comp, pcls, cls}] }
+  //   (prior = 카드 제거 뒤 액션 직전 수, pcls/cls = 액션 직전/뒤에 1콤보라도 남은 칸)
+  function _stepChain(classes, hero, board, k) {
+    var dm = _deadMap(hero.concat(board.slice(0, 3))), alive = [];
+    classes.forEach(function(cl) {
+      _expand(cl).forEach(function(p) { if (!dm[p[0]] && !dm[p[1]]) alive.push({ p: p, cl: cl }); });
+    });
+    var out = { start: alive.length, steps: [] };
+    var strength = Villain._handStrength, hasDraw = PostflopGuide.hasDraw;   // 안쪽 반복에서 전역 조회를 줄인다
+    for (var j = 0; j < k; j++) {
+      var street = STEP_STREETS[j], bc = _cardsOf(board.slice(0, 3 + j)), card = j > 0 ? board[2 + j] : null, cut = 0;
+      if (card) {
+        var before = alive.length;
+        alive = alive.filter(function(x) { return x.p[0] !== card && x.p[1] !== card; });
+        cut = before - alive.length;
+      }
+      var prior = alive.length, priorCls = _clsOf(alive), kept = [], comp = {};
+      STEP_CATS.forEach(function(c) { comp[c] = 0; });
+      alive.forEach(function(x) {
+        var hc = [_card(x.p[0]), _card(x.p[1])];
+        var cat = strength(hc, bc);
+        // 드로우가 결과를 바꾸는 경우만 센다(플랍 에어, 턴 약한 페어와 에어. 리버는 드로우 없음)
+        var need = (street === 'flop' && cat === 'air') || (street === 'turn' && (cat === 'air' || cat === 'weak-pair'));
+        if (_stepKeep(street, cat, need ? !!hasDraw(hc, bc) : false)) { kept.push(x); comp[cat]++; }
+      });
+      alive = kept;
+      out.steps.push({ street: street, card: card, cut: cut, prior: prior, erased: prior - kept.length, left: kept.length, comp: comp,
+        pcls: priorCls, cls: _clsOf(kept) });
+    }
+    return out;
+  }
+
+  // 구간 폭: 보인 수의 약 20%에 가장 가까운 후보. 경계 여유: 폭의 15%(최소 2콤보)
+  function _stepWidth(shown) {
+    var t = shown * 0.2, best = STEP_W[0];
+    STEP_W.forEach(function(w) { if (Math.abs(w - t) < Math.abs(best - t)) best = w; });
+    return best;
+  }
+  function _stepMargin(w) { return Math.max(2, Math.round(w * 0.15)); }
+  // 4지 구간 [b1 미만], [b1~b2), [b2~b3), [b3 이상]. 0 < b1, b3 ≤ 보인 수, 값은 모든 경계에서 여유 이상,
+  // 바깥 경계에서 폭 안(_nearBounds와 같은 이유). 정답 칸을 고르게 섞는다
+  // want(0~3)를 주면 그 칸이 정답인 구간만(정답 위치를 먼저 고르게 뽑는다: 리버처럼 대부분 남는 단계가 많아 그냥 두면 '미만' 칸 정답이 드묾)
+  function _stepBuckets(rnd, v, shown, w, want) {
+    var a = Math.max(1, Math.floor(w / 2)), mg = _stepMargin(w), cands = [];
+    for (var b1 = a; b1 + 2 * w <= shown; b1 += a) {
+      var bs = [b1, b1 + w, b1 + 2 * w];
+      if (bs.some(function(b) { return Math.abs(v - b) < mg; })) continue;
+      if (!(v >= b1 - w && v < bs[2] + w)) continue;
+      var idx = _bucketIdx(v, bs);
+      if (want == null || idx === want) cands.push({ bs: bs, idx: idx });
+    }
+    if (!cands.length) return null;
+    var idxs = [];
+    cands.forEach(function(c) { if (idxs.indexOf(c.idx) < 0) idxs.push(c.idx); });
+    var pick = _pick(rnd, idxs);
+    return _pick(rnd, cands.filter(function(c) { return c.idx === pick; }));
+  }
+  function _stepOptions(bs, idx) {
+    var labels = [bs[0] + '콤보 미만', bs[0] + '~' + bs[1] + '콤보', bs[1] + '~' + bs[2] + '콤보', bs[2] + '콤보 이상'];
+    return labels.map(function(l, i) {
+      var o = { id: 'b' + i, label: l };
+      if (Math.abs(i - idx) === 1) o.near = true;
+      return o;
+    });
+  }
+  // 단계 사슬 글: '시작 312콤보 → 플랍 벳 141 → 8♥ 제외 137 → 턴 벳 ?'(upto = 보일 단계 수, ask면 마지막 칸 '?').
+  // 묻는 단계의 새 보드 카드가 지운 콤보(카드 제거, s4-01)는 따로 보여 주어 이 문제가 액션으로 지우는 몫만 묻게 한다
+  function _stepChainText(d, upto, ask) {
+    var act = STEP_ACT[(STEP_SPOTS[d.spot] || {}).act] || '계속';
+    var parts = ['시작 ' + d.start + '콤보'];
+    for (var j = 0; j < upto; j++) {
+      var x = d.chain[j], last = j === upto - 1;
+      if (last && x.card && x.cut > 0) parts.push(_sym([x.card]) + ' 제외 ' + x.prior);
+      parts.push(STREET_KO[STEP_STREETS[j]] + ' ' + act + ' ' + (ask && last ? '?' : x.left));
+    }
+    return parts.join(' → ');
+  }
+  // 지문 1줄 = 이 단계의 규칙(이 앱의 지우기 규칙 명시, F10), 2줄 = 묻는 것. 상대 레인지 이름과 단계 사슬은 장면 range에.
+  // 폰 412px에서 내 손, 보드, 사슬, 13x13 격자, 지문 2줄이 하단 보기에 가리지 않게 자리 칩과 note는 문제 장면에 넣지 않는다
+  function _stepPrompt(ss, k) {
+    var st = STEP_STREETS[k - 1], street = STREET_KO[st], also = k > 1 ? '에서도 ' : '에서 ';
+    var what = ss.act === 'call' ? '내 벳에 콜했다면' : '벳했다면';
+    return '이 앱의 지우기 규칙 기준, ' + street + '에서 계속하면 ' + STEP_RULE[st] + '를 지워요\n' +
+      '상대가 ' + street + also + what + ' 남은 콤보는?';
+  }
+
+  function _hitSteps(rnd, opts) {
+    var ids = _spotFilter(opts.spots, Object.keys(STEP_SPOTS));
+    var k = (opts.step === 1 || opts.step === 2 || opts.step === 3) ? opts.step : 1 + _int(rnd, 3);
+    var want = _int(rnd, 4);
+    for (var t = 0; t < 60; t++) {
+      var id = _pick(rnd, ids), sp = SPOTS[id], ss = STEP_SPOTS[id];
+      var classes = _spotClasses(id), hcls = _spotClasses(ss.hero);
+      if (!classes || !hcls) continue;
+      var hero = _sortHand(_pick(rnd, _expand(_pick(rnd, hcls))));
+      var dh = _deadMap(hero);
+      var board = _shuffle(rnd, _deck().filter(function(c) { return !dh[c]; })).slice(0, 2 + k);
+      var ch = _stepChain(classes, hero, board, k), st = ch.steps[k - 1];
+      var shown = st.prior, v = st.left;   // 보인 수 = 이 단계 액션 직전(새 보드 카드 제외 뒤)
+      if (shown < STEP_MIN.shown || v < STEP_MIN.value || st.erased < STEP_MIN.erased) continue;
+      var w = _stepWidth(shown), bk = _stepBuckets(rnd, v, shown, w, t < 45 ? want : null);   // 45번 안에 못 찾으면 아무 칸
+      if (!bk) continue;
+      var before = st.pcls;   // 문제 격자 = 이 단계 액션 직전에 1콤보라도 남은 칸
+      var data = {
+        spot: id, heroSpot: ss.hero, hero: hero.slice(), board: board.slice(), step: k, street: STEP_STREETS[k - 1],
+        classes: classes.slice(), start: ch.start,
+        chain: ch.steps.map(function(s) {
+          return { street: s.street, card: s.card, cut: s.cut, prior: s.prior, erased: s.erased, left: s.left, comp: s.comp };
+        }),
+        shown: shown, value: v, width: w, margin: _stepMargin(w), bounds: bk.bs,
+        before: before.slice(), after: st.cls.slice()
+      };
+      return {
+        type: 'rangehit', key: null, concept: 'range', difficulty: 1750 + 50 * (k - 1),
+        confidence: 'exact', appDef: false, rated: false, srs: 'once', variant: 'steps',
+        prompt: _stepPrompt(ss, k),
+        scene: {
+          hero: hero.slice(), board: board.slice(),
+          range: { label: '상대 ' + sp.label, text: _stepChainText(data, k, true) },
+          grid: { pos: null, facing: false, opener: null, highlight: before.slice() }
+        },
+        options: _stepOptions(bk.bs, bk.idx), answer: 'b' + bk.idx,
+        data: data
+      };
+    }
+    return null;
+  }
+
+  // verify 경로: GTO_RANGES 원본 Range.parse + 1326 전수 열거, 규칙은 강도 순위 문턱(드로우는 플랍, 턴에서만 면제)으로 다시 쓴다
+  var STEP_RANK = { air: 0, 'weak-pair': 1, medium: 2, strong: 3, nut: 4 };
+  var STEP_NEED = [1, 2, 2];
+  function _stepsCount1326(raw, hero, board, k) {
+    var dmHero = _deadMap(hero), flop = _deadMap(board.slice(0, 3));
+    var res = { start: 0, steps: [] };
+    var bcs = [];
+    for (var j = 0; j < k; j++) {
+      bcs.push(_cardsOf(board.slice(0, 3 + j)));
+      var comp = {};
+      STEP_CATS.forEach(function(c) { comp[c] = 0; });
+      res.steps.push({ cut: 0, erased: 0, left: 0, comp: comp, pcls: {}, cls: {} });
+    }
+    var strength = Villain._handStrength, hasDraw = PostflopGuide.hasDraw;
+    _each1326(function(a, b, h) {
+      if (!raw.has(h) || dmHero[a] || dmHero[b] || flop[a] || flop[b]) return;
+      res.start++;
+      var hc = [_card(a), _card(b)];
+      for (var j = 0; j < k; j++) {
+        var s = res.steps[j];
+        if (j > 0 && (a === board[2 + j] || b === board[2 + j])) { s.cut++; return; }
+        s.pcls[h] = true;
+        var cat = strength(hc, bcs[j]);
+        var pass = STEP_RANK[cat] >= STEP_NEED[j] || (j < 2 && !!hasDraw(hc, bcs[j]));
+        if (!pass) { s.erased++; return; }
+        s.left++; s.comp[cat]++; s.cls[h] = true;
+      }
+    });
+    return res;
+  }
+
+  function _stepsVerify(q) {
+    var d = q.data, k = d.step;
+    if (q.rated !== false || q.difficulty !== 1750 + 50 * (k - 1)) return false;
+    if (k !== 1 && k !== 2 && k !== 3) return false;
+    var sp = SPOTS[d.spot], ss = STEP_SPOTS[d.spot];
+    if (!sp || !ss || d.heroSpot !== ss.hero || d.street !== STEP_STREETS[k - 1]) return false;
+    var hero = d.hero, board = d.board;
+    if (!Array.isArray(hero) || hero.length !== 2 || !Array.isArray(board) || board.length !== 2 + k) return false;
+    var cards = hero.concat(board), seen = {};
+    for (var i = 0; i < cards.length; i++) {
+      if (!/^[2-9TJQKA][shdc]$/.test(cards[i]) || seen[cards[i]]) return false;
+      seen[cards[i]] = true;
+    }
+    var raw = _rawSpotSet(sp), rawHero = _rawSpotSet(SPOTS[ss.hero]);
+    if (!_sameList(_sortLabels(Array.from(raw)), d.classes)) return false;
+    if (!rawHero.has(Range.handClass(_card(hero[0]), _card(hero[1])))) return false;  // 내 손 = 내 자리 차트 레인지
+    var c = _stepsCount1326(raw, hero, board, k);
+    if (c.start !== d.start || !Array.isArray(d.chain) || d.chain.length !== k) return false;
+    var prev = c.start;
+    for (var j = 0; j < k; j++) {
+      var s = c.steps[j], x = d.chain[j];
+      if (!x || x.street !== STEP_STREETS[j] || x.card !== (j > 0 ? board[2 + j] : null)) return false;
+      if (x.cut !== s.cut || x.prior !== prev - s.cut || x.erased !== s.erased || x.left !== s.left) return false;
+      if (s.left !== prev - s.cut - s.erased) return false;
+      for (var m = 0; m < STEP_CATS.length; m++) if (!x.comp || x.comp[STEP_CATS[m]] !== s.comp[STEP_CATS[m]]) return false;
+      prev = s.left;
+    }
+    var shown = (k === 1 ? c.start : c.steps[k - 2].left) - c.steps[k - 1].cut, v = c.steps[k - 1].left;
+    if (d.shown !== shown || d.value !== v || Number(q.answer.slice(1)) !== _bucketIdx(v, d.bounds || [])) return false;
+    if (shown < STEP_MIN.shown || v < STEP_MIN.value || c.steps[k - 1].erased < STEP_MIN.erased) return false;
+    // 구간: 폭, 여유, 경계 범위, 보기 글
+    var w = _stepWidth(shown), mg = _stepMargin(w), bs = d.bounds;
+    if (d.width !== w || d.margin !== mg || !Array.isArray(bs) || bs.length !== 3) return false;
+    if (bs[1] - bs[0] !== w || bs[2] - bs[1] !== w || bs[0] < 1 || bs[2] > shown) return false;
+    for (var b = 0; b < 3; b++) if (Math.abs(v - bs[b]) < mg) return false;
+    if (!(v >= bs[0] - w && v < bs[2] + w)) return false;
+    var labels = _stepOptions(bs, 0).map(function(o) { return o.label; });
+    for (var o = 0; o < 4; o++) if (q.options[o].id !== 'b' + o || q.options[o].label !== labels[o]) return false;
+    // 장면: 카드, 격자 강조(단계 k 직전에 1콤보라도 남은 칸), 해설 격자(단계 k 뒤), 문제에 규칙 명시
+    var beforeCls = _sortLabels(Object.keys(c.steps[k - 1].pcls));
+    var afterCls = _sortLabels(Object.keys(c.steps[k - 1].cls));
+    if (!_sameList(beforeCls, d.before) || !_sameList(afterCls, d.after)) return false;
+    var sc = q.scene;
+    if (!sc || !_sameList(sc.hero, hero) || !_sameList(sc.board, board) || !sc.grid || !_sameList(sc.grid.highlight, beforeCls)) return false;
+    return q.prompt === _stepPrompt(ss, k) && (sc.range && sc.range.text) === _stepChainText(d, k, true);
+  }
+
+  function _stepComp(x, street) {
+    var name = { nut: '넛', strong: '강함', medium: '중간', 'weak-pair': street === 'flop' ? '약한 페어' : '약한 페어+드로우', air: '드로우만' };
+    var out = STEP_CATS.filter(function(c) { return x.comp[c] > 0; }).map(function(c) { return name[c] + ' ' + x.comp[c]; });
+    return out.length ? out.join(', ') : '없음';
+  }
+  function _stepsExplain(q) {
+    var d = q.data, k = d.step, x = d.chain[k - 1], st = STREET_KO[x.street];
+    var line1 = st + ' ' + _sym(x.card ? [x.card] : d.board.slice(0, 3)) + '에서 계속: ' + STEP_RULE_EX[x.street] + ' ' + x.erased + '콤보를 지워 ' + x.left + '콤보 남음' +
+      (x.cut ? '(' + st + ' 카드가 든 ' + x.cut + '콤보도 빠짐)' : '');
+    var line2 = '남은 ' + x.left + '콤보: ' + _stepComp(x, x.street);
+    return {
+      line: line1 + '\n' + line2,
+      scene: {
+        hero: d.hero.slice(), board: d.board.slice(),
+        range: { label: '남은 용의자', text: _stepChainText(d, k, false) },
+        grid: { pos: null, facing: false, opener: null, highlight: d.after.slice() },
+        note: '칸에 1콤보라도 남으면 표시. 내 손과 보드에 보이는 카드가 든 콤보는 상대가 가질 수 없어 빠져요'
+      }
+    };
+  }
+
   function rangehitNext(rnd, opts) {
     rnd = _rng(rnd); opts = opts || {};
     if (!_ready(['Range', 'HandEval', 'Villain', 'Gto', 'GtoChart'])) return null;
-    if (opts.variant === 'steps') return null; // 액션 단계형은 M5-P7
+    if (opts.variant === 'steps') return _ready(['PostflopGuide']) ? _hitSteps(rnd, opts) : null;
     if (opts.variant === 'compare') return _hitCompare(rnd, opts);
     return _hitSingle(rnd, opts);
   }
@@ -696,6 +969,7 @@
     try {
       if (!q || q.type !== 'rangehit' || !q.data || !_ready(['Range', 'HandEval', 'Villain', 'Gto'])) return false;
       if (q.key !== null || q.srs !== 'once' || q.confidence !== 'exact' || !_optionsOk(q, 4)) return false;
+      if (q.variant === 'steps') return _ready(['PostflopGuide']) && _stepsVerify(q);
       var d = q.data, board = d.board;
       if (!Array.isArray(board) || board.length !== 3 || Object.keys(_deadMap(board)).length !== 3) return false;
       if (q.variant === 'compare') {
@@ -733,6 +1007,7 @@
   function rangehitExplain(q) {
     if (!q || !q.data) return { line: '' };
     var d = q.data;
+    if (q.variant === 'steps') return _stepsExplain(q);
     if (q.variant === 'compare') {
       var A = d.a, B = d.b;
       var many = A.top > B.top ? A.short : B.short, hard = A.strong > B.strong ? A.short : B.short;
@@ -1118,7 +1393,10 @@
     leftOf: _leftOf, enumLeft: _enumLeft, hitCounts: _hitCounts, hitCounts1326: _hitCounts1326, pcts: _pcts,
     spotClasses: function(id) { var c = _spotClasses(id); return c ? c.slice() : null; },
     rawSpot: function(id) { return SPOTS[id] ? _sortLabels(Array.from(_rawSpotSet(SPOTS[id]))) : null; },
-    paintRaw: _paintRaw, shapeCounts: _shapeCounts, shares: _shares, tierOf: _tierOf, chartShapes: _chartShapes
+    paintRaw: _paintRaw, shapeCounts: _shapeCounts, shares: _shares, tierOf: _tierOf, chartShapes: _chartShapes,
+    // M5-WEEKLY rangehit steps(계약 F10 지우기 규칙)
+    STEP_SPOTS: STEP_SPOTS, STEP_RULE: STEP_RULE, stepKeep: _stepKeep, stepChain: _stepChain, stepsCount1326: _stepsCount1326,
+    stepWidth: _stepWidth, stepMargin: _stepMargin
   };
   Object.keys(gens).forEach(function(k) { gens[k]._ = internals; });
 

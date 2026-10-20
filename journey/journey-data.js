@@ -31,6 +31,10 @@
 //   { kind:'identify', seats, min, minHands } / { kind:'weeks', what:'review', min }
 //   { kind:'overlap', puzzle:'rangepaint', spots, min } / { kind:'custom', fn, min, ... }
 //   filter 키: street[], source[], concept[], pos[], marginal, multiway, oop, potType('3bet')
+//     multiway, oop, potType은 결정 기록의 mw, oop, pt(계약 F2, journey-core decisionFields)와 맞춘다. 그 필드가 없는(null 포함)
+//     예전 기록과 프리플랍 oop는 필터에 맞지 않는 것으로 본다. potType은 문자열 또는 배열('limp'|'srp'|'3bet'|'4bet').
+//   보스 드릴이 PuzzleUI 세트 상한(20)보다 크면 Boss가 set을 20문항 이하 세트 여러 개로 나눠 차례로 풀게 한다(s4-boss 50 = 20, 20, 10).
+//     puzzleSet 조건은 그 시도의 세트 결과를 유형별로 합쳐 판정한다.
 // CURRICULUM_MAP = 세션 완료 시 레슨 완료로 옮길 노드(2.4절 표). absorbs = 레슨이 내용을 참조하는 세션(부록 A).
 //   CURRICULUM_MAP의 노드는 반드시 그 세션을 absorbs에 갖는다(역은 아님: s3-02는 세션 8을 참조만 한다).
 
@@ -161,7 +165,8 @@ var JOURNEY_NODES = [
   { id: 's3-10', stage: 3, kind: 'learn', title: '멀티웨이', goal: '3명 이상이면 넛 위주, 큰 벳 드묾', prereq: ['s3-07'],
     lesson: 's3-10', drill: { type: 'facingbet-river', count: 10, pass: 8, variant: 'multiway' },
     mission: { config: 'sixmax-cast', emphasis: null, hands: 20, coach: null,
-               conditions: [ { kind: 'light', filter: { multiway: true }, light: ['red'], maxCount: 2, minOpp: 10 } ] },
+               // 멀티웨이 팟 = 플랍 이후 결정만(프리플랍은 아직 말하지 않은 상대도 '폴드 안 함'이라 거의 전부 mw가 된다)
+               conditions: [ { kind: 'light', filter: { street: ['flop', 'turn', 'river'], multiway: true }, light: ['red'], maxCount: 2, minOpp: 10 } ] },
     concept: 'equity', absorbs: [11], est: 2 },
   { id: 's3-11', stage: 3, kind: 'learn', title: '프리플랍 종합 시험', goal: 'S2~S3 프리플랍 전부', prereq: ['s3-02', 's3-03', 's3-04', 's3-05'],
     lesson: null,
@@ -246,7 +251,7 @@ var JOURNEY_NODES = [
   { id: 's5-07', stage: 5, kind: 'learn', title: '3벳팟 포스트플랍', goal: '낮은 SPR과 좁은 레인지', prereq: ['s3-09', 's5-01'],
     lesson: 's5-07', drill: { type: 'spr', count: 10, pass: 8 },
     mission: { config: 'sixmax-cast', emphasis: null, hands: 20, coach: null,
-               conditions: [ { kind: 'light', filter: { potType: '3bet' }, light: ['red'], maxCount: 2, minOpp: 10 } ] },
+               conditions: [ { kind: 'light', filter: { street: ['flop', 'turn', 'river'], potType: '3bet' }, light: ['red'], maxCount: 2, minOpp: 10 } ] },
     concept: 'spr', absorbs: [], est: 3 },
   { id: 's5-08', stage: 5, kind: 'learn', title: '체크레이즈와 동크', goal: '주도권 없는 쪽의 공격(참고)', prereq: ['s5-03'],
     lesson: 's5-08', drill: null,

@@ -1,16 +1,28 @@
-// journey/boss.js (채우는 패키지: M3-P4a)
+// journey/boss.js (채우는 패키지: M3-P4a, M5-BOSS)
 // 승급 시험(보스) v1과 미션 조건 판정. 설계서 2.2절(미션 판정 규약), 2.5절(보스 표, 코칭 고정), 6.1절 boss.active, 7.1절 7번.
 // 조건 DSL 10종과 판정 창 해석의 정본은 journey/journey-data.js 머리 주석이다.
+// M5-BOSS(로드맵 계약 F1~F4)
+//   F2 필터 multiway, oop, potType은 결정 기록의 mw, oop, pt를 본다. 그 필드가 없는(null 포함) 예전 기록은 필터에 맞지 않는다.
+//   F3 판정 전: 판정 창 안 핸드가 0개이거나 기회가 0인 롤링 항목(pattern, light, band, srsBoxRatio 카드 0장)은 wait: true,
+//      have '판정 전'. ok와 pass 의미는 그대로(개수 상한은 위반 0이면 ok, 비율은 기회 미달이라 hold).
+//   F1 custom 'luckMeterViews' {min}: 판정 창 시작 뒤 운 미터 카드를 연 횟수(HeroStats.luckViews(시작 ms), 없으면 state.luck.views).
+//      둘 다 없으면(운 미터 기능 전) pending.
+//   큰 드릴(PuzzleUI 세트 상한 20 초과, s4-boss 50문항): drill.set을 10~20문항 세트 여러 개로 나눠(chunks) 차례로 풀고 결과를
+//      boss.active.drill.parts에 쌓는다(중간에 나가도 끝낸 세트는 남는다, 나간 세트만 처음부터). 세트가 끝날 때마다 puzzleSet 조건과
+//      전체 기준(pass)에 아직 닿을 수 있는지 보고, 닿을 수 없으면 드릴 미달(24시간 재도전)로 끝낸다. 마지막 세트까지 모두 채우면
+//      Journey.recordDrillSet(전체 n, ok)와 boss.sets[노드] = { byType, n, ok, at }(다음 시도의 드릴 이월)에 남긴다.
+//   puzzleSet 조건이 있는 보스는 드릴 통과 = 전체 기준 AND puzzleSet 조건 전부(그 시도 또는 이월된 유형별 결과).
 //
 // 순수 판정(테스트는 opts로 recent, hseq, now, hero, bands, drillItems, sets를 직접 넣는다)
 //   Boss.context(node, stats, state, opts) → ctx
 //   Boss.evalCondition(cond, ctx) → item
 //   Boss.evaluate(node, stats, state, opts) → { node, pass, cond, hold, pending, items, more, est, expired }
 //     node = 노드 객체 또는 id, stats = JStats(또는 recent/heroTotals/handSeq를 가진 가짜), state = poker_journey 상태
-//     item = { kind, ok, have, need, opp, label, why, hold?, pending?, ref?, more?, est? }
+//     item = { kind, ok, have, need, opp, label, why, hold?, pending?, wait?, ref?, more?, est? }
 //       have/need는 노드 시트의 롤링 줄 "label: have/need(기회 opp)"에 그대로 들어가는 표시값(숫자 또는 짧은 글). need가 null이면 숨김.
 //       hold = 기회(minOpp) 미달이라 판정 보류(소표본 통과/실패 없음), pending = 이번 버전에서 판정할 수 없는 조건
-//       (identify, weeks, overlap, custom의 luckMeterViews/shortSession, 기록이 아직 없는 필터 multiway/oop/potType),
+//       (identify, weeks, overlap, custom의 shortSession, 운 미터 기능 전의 luckMeterViews, 모르는 필터 키),
+//       wait = 판정 창 안 핸드 0개 또는 기회 0(have '판정 전', 계약 F3),
 //       ref = 참고 표시(통과 미반영), more = 이 항목을 채우는 데 더 필요한 핸드 수(est = 기회 비율로 어림한 값).
 //     학습 노드: 조건 항목만(핸드 수는 Journey가 본다). pass = 참고가 아닌 조건 전부 ok.
 //     보스 노드: 드릴 + 보스 카운터(이 시험의 실전 핸드) + 조건. pass = 전부 ok이고 시작 뒤 48시간 안.
@@ -23,14 +35,16 @@
 //   → 6인 실전 5핸드씩(Journey.startSession({kind:'boss'}) + App.selectVillains(JourneyUI.missionConfig)) → 세션 요약에서 여정으로 돌아오면
 //   Journey.endSession → Boss.onSessionEnd가 판정 → 결과 카드(통과: Journey.passNode로 단계 건너뜀 통과와 승급, 칭호 토스트 / 미달: 무엇이 몇 개 더).
 // 규칙(2.2절 3번, 2.5절): 보스 카운터는 시도 시작 뒤 48시간 안에 채운다. 넘으면 카운터만 0(벌점 없음, 드릴 통과 기록은 남는다).
-//   드릴 기준 미달이면 그 시도는 끝나고 다음 시도는 그 시도 시작 24시간 뒤부터(틀린 문제 중 SRS 유형만 Leitner 0번 상자로 들어가
+//   드릴 기준 미달이면 그 시도는 끝나고 다음 시도는 미달 24시간 뒤부터(틀린 문제 중 SRS 유형만 Leitner 0번 상자로 들어가
 //   다음 날 먼저 나온다. showdown, order 같은 once 유형은 상자가 없어 안내 문구도 그 수만 말한다).
 //   조건 미달은 시도를 끝내지 않는다(롤링이라 더 치면 바뀐다). 시도 안의 재판정은 세션이 끝날 때와 보스 화면을 열 때.
 // 코칭 고정: 보스와 mission.coach가 있는 미션(s1-06 L0, s2-10 L1)은 세션 시작 때(onSessionStart) CoachUI.snapshot() 뒤 setLevel(n),
 //   세션이 끝나거나(onSessionEnd) 다른 게임이 시작되면 restore. 스냅샷은 poker_journey.boss.coachLock(보스는 boss.active.coachSnap에도)에
 //   저장해 새로고침 뒤에도 복원한다(load 때). CoachUI.snapshot/restore(M3-P4b)가 없으면 고정하지 않는다(setLevel만 쓰면 auto 이력이 지워짐).
-// 상태(poker_journey.boss): { active: null|{ node, startedAt, hands, drill: null|{n, ok, at, byType, passed, carried}, coachSnap, seatTypes, seed },
-//   last: { 노드 id: { startedAt, endedAt, result: 'pass'|'drill'|'expired'|'stopped', n?, ok?, srsWrong? } }, coachLock: null|{ node, kind, level, snap, at } }
+// 상태(poker_journey.boss): { active: null|{ node, startedAt, hands, drill: null|{n, ok, at, byType, passed, carried, parts?}, coachSnap, seatTypes, seed },
+//   last: { 노드 id: { startedAt, endedAt, result: 'pass'|'drill'|'expired'|'stopped', n?, ok?, srsWrong?, part?, parts? } },
+//   coachLock: null|{ node, kind, level, snap, at }, sets: { 노드 id: { byType, n, ok, at } }(세트 나눔 드릴을 통과한 마지막 결과) }
+//   drill.parts = [{ n, ok, byType, srsWrong, at }](세트 나눔 드릴에서 끝낸 세트, 통과 전까지 passed false)
 // 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 모듈은 전부 typeof 가드로 부른다.
 var Boss = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
@@ -39,13 +53,17 @@ var Boss = (function() {
   var RETRY_MS = 24 * H;         // 드릴 미달 뒤 재도전 간격
   var MIN_OPP = 30;              // 비율 조건의 기본 기회 수(2.2절 1번, 부록 A 머리)
   var DEFAULT_WINDOW = 30;       // 개수 상한에 window도 minOpp도 없을 때(최근 30핸드)
-  var SET_MAX = 20;              // PuzzleUI 세트 상한(이보다 큰 드릴은 이번 흐름에서 돌릴 수 없음)
+  var SET_MAX = 20;              // PuzzleUI 세트 상한(이보다 큰 드릴은 세트 여러 개로 나눈다)
+  var SET_MIN = 10;              // PuzzleUI 세트 하한(이보다 작은 세트는 PuzzleUI가 반복으로 채운다)
   var CHUNK = 5;                 // 실전 분할 단위(2.2절 3번)
   var KINDS = ['pattern', 'light', 'drillSet', 'puzzleSet', 'band', 'hands', 'identify', 'weeks', 'overlap', 'custom'];
   var PENDING_KIND = { identify: '숨은 좌석 유형 맞히기', weeks: '주간 복기', overlap: '레인지 색칠 겹침' };
   var CUSTOM_PENDING = { luckMeterViews: '운 미터 카드 보기', shortSession: '짧게 끝낸 세션' };
-  var FILTER_OK = { street: 1, source: 1, concept: 1, pos: 1, marginal: 1 };
-  var FILTER_SOON = { multiway: '3명 이상 팟', oop: '포지션 불리(OOP)', potType: '3벳 팟' };
+  var CUSTOM_OK = { srsBoxRatio: 1, luckMeterViews: 1 };             // 이 버전에서 판정하는 custom fn
+  var FILTER_OK = { street: 1, source: 1, concept: 1, pos: 1, marginal: 1, multiway: 1, oop: 1, potType: 1 };
+  var FILTER_FIELD = { multiway: 'mw', oop: 'oop', potType: 'pt' };   // 계약 F2: 필터 키 → 결정 기록 필드
+  var PT_LABEL = { limp: '림프 팟', srp: '싱글 레이즈 팟', '3bet': '3벳 팟', '4bet': '4벳 팟' };
+  var WAIT_TXT = '판정 전';
   var LIGHT_LABEL = { green: '초록', yellow: '노랑', red: '빨강', marginal: '애매한 스팟' };
   var STREET_LABEL = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
   var SOURCE_LABEL = { chart: '차트', potodds: '팟 오즈', guide: '가이드', ev: 'EV' };
@@ -112,6 +130,7 @@ var Boss = (function() {
     if (st.boss.active === undefined) st.boss.active = null;
     if (!_isObj(st.boss.last)) st.boss.last = {};
     if (st.boss.coachLock === undefined) st.boss.coachLock = null;
+    if (!_isObj(st.boss.sets)) st.boss.sets = {};
     return st.boss;
   }
   function _recOf(st, id) {
@@ -160,6 +179,9 @@ var Boss = (function() {
     var parts = [];
     if (f.street) parts.push(_list(f.street, STREET_LABEL));
     if (f.pos) parts.push(_list(f.pos));
+    if (f.potType != null) parts.push(_list(f.potType, PT_LABEL));
+    if (f.multiway != null) parts.push(f.multiway ? '3명 이상 팟' : '1:1 팟');
+    if (f.oop != null) parts.push(f.oop ? '포지션 불리(OOP)' : '포지션 유리(IP)');
     if (f.marginal) parts.push('애매한 스팟');
     if (f.concept) parts.push(_list(f.concept, CONCEPT_LABEL));
     if (f.source) parts.push(_list(f.source, SOURCE_LABEL) + ' 판정');
@@ -171,6 +193,112 @@ var Boss = (function() {
     if (m >= 60) { h += 1; m = 0; }
     if (h <= 0) return m + '분';
     return h + '시간' + (m ? ' ' + m + '분' : '');
+  }
+
+  // ── 세트 나눔 드릴(PuzzleUI 세트 상한 20 초과) ──────────
+  // 드릴 → [{ set: [[유형, 문항 수], ...], count }]. 20문항 이하면 세트 1개. 앞에서부터 20문항씩 채우고(한 유형이 세트 경계에서
+  // 나뉠 수 있다), 마지막 세트가 10문항보다 작으면 앞 세트 끝에서 옮겨 온다(PuzzleUI는 10문항 미만 세트를 반복으로 채운다).
+  function _chunks(d) {
+    if (!d) return [];
+    var items = (Array.isArray(d.set) && d.set.length)
+      ? d.set.filter(Array.isArray).map(function(x) { return [x[0], Math.max(0, Math.floor(_num(x[1], 0)))]; })
+      : [[d.type, _drillCount(d)]];
+    items = items.filter(function(x) { return x[0] && x[1] > 0; });
+    var total = items.reduce(function(a, x) { return a + x[1]; }, 0);
+    if (!total) return [];
+    if (total <= SET_MAX) return [{ set: items, count: total }];
+    var out = [], cur = [], n = 0;
+    items.forEach(function(x) {
+      var k = x[1];
+      while (k > 0) {
+        if (n >= SET_MAX) { out.push({ set: cur, count: n }); cur = []; n = 0; }
+        var take = Math.min(k, SET_MAX - n);
+        if (cur.length && cur[cur.length - 1][0] === x[0]) cur[cur.length - 1][1] += take; else cur.push([x[0], take]);
+        n += take; k -= take;
+      }
+    });
+    if (n) out.push({ set: cur, count: n });
+    var last = out[out.length - 1], prev = out[out.length - 2];
+    while (prev && last.count < SET_MIN && prev.count > SET_MIN) {
+      var tail = prev.set[prev.set.length - 1];
+      tail[1]--; prev.count--;
+      if (!tail[1]) prev.set.pop();
+      if (last.set[0] && last.set[0][0] === tail[0]) last.set[0][1]++; else last.set.unshift([tail[0], 1]);
+      last.count++;
+    }
+    return out;
+  }
+  function _chunked(nd) { return !!(nd && nd.drill) && _chunks(nd.drill).length > 1; }
+  // 유형별 결과 { 유형: { n, ok } } 합치기
+  function _mergeBy(a, b) {
+    var o = {};
+    [a, b].forEach(function(x) {
+      if (!_isObj(x)) return;
+      Object.keys(x).forEach(function(t) {
+        var s = x[t]; if (!_isObj(s)) return;
+        var d = o[t] || (o[t] = { n: 0, ok: 0 });
+        d.n += _num(s.n, 0); d.ok += _num(s.ok, 0);
+      });
+    });
+    return o;
+  }
+  function _partsBy(dr) {
+    var by = {};
+    (dr && Array.isArray(dr.parts) ? dr.parts : []).forEach(function(p) { by = _mergeBy(by, p && p.byType); });
+    return by;
+  }
+  function _copyBy(by) { return _mergeBy(by, null); }
+  // 이 시도의 유형별 결과: 통과한 드릴(또는 이월) byType, 세트를 푸는 중이면 끝낸 세트의 합, 시도가 없으면 마지막 통과 기록
+  function _attemptSets(st, nd, act) {
+    var dr = act && act.drill;
+    if (_isObj(dr)) {
+      if (_isObj(dr.byType)) return dr.byType;
+      if (Array.isArray(dr.parts) && dr.parts.length) return _partsBy(dr);
+      return null;
+    }
+    if (act) return null;
+    var keep = nd && st && st.boss && _isObj(st.boss.sets) ? st.boss.sets[nd.id] : null;
+    return (_isObj(keep) && _isObj(keep.byType)) ? keep.byType : null;
+  }
+  // puzzleSet 조건(보스 드릴 세트 기준)
+  function _setConds(nd) {
+    var cs = (nd && nd.mission && Array.isArray(nd.mission.conditions)) ? nd.mission.conditions : [];
+    return cs.filter(function(c) { return _isObj(c) && c.kind === 'puzzleSet'; });
+  }
+  function _setSum(by, types) {
+    var n = 0, ok = 0;
+    types.forEach(function(t) { var s = by && by[t]; if (_isObj(s)) { n += _num(s.n, 0); ok += _num(s.ok, 0); } });
+    return { n: n, ok: ok };
+  }
+  function _setsOk(nd, by) {
+    return _setConds(nd).every(function(c) { return _setSum(by, _arr(c.type)).ok >= Math.floor(_num(c.pass, 0)); });
+  }
+  // 세트 나눔 드릴에서 지금까지의 결과(by, 전체 n과 ok)로는 더 이상 닿을 수 없는 기준 목록(빈 배열이면 아직 가능)
+  function _unreachable(nd, chunks, by, n, ok) {
+    var out = [];
+    var planned = {};
+    chunks.forEach(function(ch) { ch.set.forEach(function(x) { planned[x[0]] = (planned[x[0]] || 0) + x[1]; }); });
+    _setConds(nd).forEach(function(c) {
+      var types = _arr(c.type), s = _setSum(by, types);
+      var plan = types.reduce(function(a, t) { return a + _num(planned[t], 0); }, 0);
+      var pass = Math.floor(_num(c.pass, 0));
+      if (s.ok + Math.max(0, plan - s.n) < pass) {
+        out.push({ label: types.map(_typeName).join(', '), ok: s.ok, n: s.n, pass: pass, count: Math.floor(_num(c.count, plan)) });
+      }
+    });
+    var count = _drillCount(nd.drill), need = _drillNeed(nd.drill);
+    if ((n - ok) > count - need) out.push({ label: '드릴 전체', ok: ok, n: n, pass: need, count: count, all: true });
+    return out;
+  }
+  // 보스 흐름의 드릴 통과: 노드 드릴 최고 기록 AND(puzzleSet 조건이 있으면) 그 시도나 이월 결과가 세트 기준 전부
+  function _bossDrillMet(nd, st) {
+    if (!nd || !nd.drill) return true;
+    if (!_drillMet(nd, _recOf(st, nd.id))) return false;
+    if (!_setConds(nd).length) return true;
+    var a = _activeFor(st, nd.id);
+    if (a && _isObj(a.drill) && a.drill.passed && _isObj(a.drill.byType)) return _setsOk(nd, a.drill.byType);
+    var keep = st && st.boss && _isObj(st.boss.sets) ? st.boss.sets[nd.id] : null;
+    return !!(_isObj(keep) && _isObj(keep.byType) && _setsOk(nd, keep.byType));
   }
 
   // ── 판정 컨텍스트 ───────────────────────────────────────
@@ -193,8 +321,8 @@ var Boss = (function() {
     var hands = isBoss ? ((act && !expired) ? _num(act.hands, 0) : 0) : _num(rec.mission && rec.mission.hands, 0);
     var _rc = null, _hs = null, _ht, _bd, _di;
     var ctx = {
-      now: now, node: nd, rec: rec, active: act, since: since, hands: hands, expired: expired, stats: stats,
-      sets: opts.sets || (act && act.drill && act.drill.byType) || null
+      now: now, node: nd, rec: rec, active: act, since: since, hands: hands, expired: expired, stats: stats, state: st,
+      sets: opts.sets || _attemptSets(st, nd, act)
     };
     ctx.recent = function() {
       if (_rc) return _rc;
@@ -252,24 +380,29 @@ var Boss = (function() {
     return ctx;
   }
 
+  // 이 버전이 모르는 필터 키(있으면 그 조건은 pending)
   function _soonFilter(f) {
     if (!_isObj(f)) return null;
     var keys = Object.keys(f).filter(function(k) { return f[k] != null && !FILTER_OK[k]; });
     if (!keys.length) return null;
-    return keys.map(function(k) { return FILTER_SOON[k] || k; }).join(', ');
+    return keys.join(', ');
   }
+  // 필터 키 multiway, oop, potType은 기록 필드 mw, oop, pt를 본다(계약 F2). 필드가 없거나 null이면(예전 기록, 프리플랍 oop) 맞지 않음
   function _match(e, f) {
     if (!f) return true;
     for (var k in f) {
       if (!Object.prototype.hasOwnProperty.call(f, k)) continue;
       var v = f[k];
       if (v == null) continue;
-      if (Array.isArray(v)) { if (v.indexOf(e[k]) < 0) return false; }
-      else if (typeof v === 'boolean') { if (!!e[k] !== v) return false; }
-      else if (e[k] !== v) return false;
+      var fld = FILTER_FIELD[k] || k, x = e[fld];
+      if (FILTER_FIELD[k] && x == null) return false;
+      if (Array.isArray(v)) { if (v.indexOf(x) < 0) return false; }
+      else if (typeof v === 'boolean') { if (!!x !== v) return false; }
+      else if (x !== v) return false;
     }
     return true;
   }
+  function _wait(it) { it.wait = true; it.have = WAIT_TXT; return it; }
   function _filtered(ctx, f) { return ctx.recent().filter(function(e) { return _match(e, f); }); }
   // 필터에 맞는 기회가 핸드당 몇 번 나오는지: 판정 창에서 5핸드 이상 쳤고 기회가 있으면 실측, 아니면 필터로 어림
   function _rate(ctx, f, nAll) {
@@ -282,6 +415,9 @@ var Boss = (function() {
     if (f.concept && _arr(f.concept).indexOf('rfi') < 0) r *= 0.4;
     if (f.source && _arr(f.source).indexOf('chart') < 0) r *= 0.5;
     if (f.marginal) r *= 0.3;
+    if (f.multiway) r *= 0.3;                                   // 플랍 이후 3명 이상 팟
+    if (f.oop) r *= 0.5;
+    if (f.potType != null) r *= (_arr(f.potType).indexOf('srp') >= 0 || _arr(f.potType).indexOf('limp') >= 0) ? 0.5 : 0.1;   // 3벳 팟은 드묾
     return Math.max(0.05, r);
   }
   function _handsFor(opps, rate) { return Math.max(1, Math.ceil(opps / rate - 1e-9)); }
@@ -308,11 +444,13 @@ var Boss = (function() {
     if (c.minOpp == null || c.window != null) {
       var W = Math.max(1, Math.floor(_num(c.window, DEFAULT_WINDOW)));
       var from = ctx.hseq - W;
-      var viol = all.filter(function(e) { return typeof e.h === 'number' && e.h >= from && e.pattern === c.pattern; });
+      var inWin = all.filter(function(e) { return typeof e.h === 'number' && e.h >= from; });
+      var viol = inWin.filter(function(e) { return e.pattern === c.pattern; });
       it.window = W; it.count = viol.length;
       it.ok = viol.length <= max;
       it.label = '최근 ' + W + '핸드' + pos + ' ' + pl;
       it.have = viol.length + '회'; it.need = '허용 ' + max + '회';
+      if (!inWin.length && ctx.handsSince() === 0) _wait(it);                  // 판정 창 안 핸드 0개(ok는 그대로)
       if (!it.ok) {
         var hs = viol.map(function(e) { return e.h; }).sort(function(a, b) { return a - b; });
         var v = hs[hs.length - 1 - max];
@@ -329,6 +467,7 @@ var Boss = (function() {
       it.label = pl + ' 판정 기회' + (ft ? '(' + ft + ')' : '');
       it.have = all.length; it.need = M;
       it.why = _holdWhy(pl + ' 판정 기회' + (ft ? '(' + ft + ')' : ''), M - all.length, it.more);
+      if (!all.length) _wait(it);
       return it;
     }
     var last = all.slice(-M);
@@ -388,6 +527,7 @@ var Boss = (function() {
         it.more = _handsFor(M - top, _rate(ctx, c.filter, pool.length) / Math.max(1, order.length));
         it.label = oppN + '(유형별)' + refTxt; it.have = top; it.need = M;
         it.why = _holdWhy('한 유형의 ' + oppN, M - top, it.more);
+        if (!pool.length) _wait(it);
         return it;
       }
       var bad = judged.filter(function(k) { return !_ratioOk(groups[k].c, groups[k].n, c); });
@@ -414,12 +554,14 @@ var Boss = (function() {
         it.more = _handsFor(needN - pool2.length, _rate(ctx, c.filter, all.length));
         it.label = oppN + refTxt; it.have = pool2.length; it.need = needN;
         it.why = _holdWhy(oppN, needN - pool2.length, it.more);
+        if (!pool2.length) _wait(it);
         return it;
       }
       var cnt2 = pool2.filter(hit).length;
       it.count = cnt2; it.ok = cnt2 <= maxC; it.opp = pool2.length;
       it.label = head + ' ' + tokTxt + ' 횟수(최근 기회 ' + pool2.length + '번)' + refTxt;
       it.have = cnt2 + '번'; it.need = '허용 ' + maxC + '번';
+      if (!pool2.length) _wait(it);                                          // window만 있고 minOpp 0인 경우
       if (!it.ok) it.why = '최근 기회 ' + pool2.length + '번 중 ' + tokTxt + ' ' + cnt2 + '번(허용 ' + maxC + '번). 실수 없이 더 치면 오래된 기록부터 빠져요';
       return it;
     }
@@ -433,6 +575,7 @@ var Boss = (function() {
       it.more = _handsFor(M - n, _rate(ctx, c.filter, all.length));
       it.label = oppN + refTxt; it.have = n; it.need = M;
       it.why = _holdWhy(oppN, M - n, it.more, n ? '. 지금 ' + tokTxt + ' ' + _pct(cnt / n) + '%' : '');
+      if (!n) _wait(it);
       return it;
     }
     it.ratio = cnt / n;
@@ -492,6 +635,7 @@ var Boss = (function() {
       it.more = Math.max(1, M - opp);                            // 기회는 핸드당 약 1번
       it.label = ml + ' 판정 기회'; it.have = opp; it.need = M;
       it.why = _holdWhy(ml + ' 판정 기회', M - opp, it.more);
+      if (!opp) _wait(it);
       return it;
     }
     var pct = val / opp * 100;
@@ -512,8 +656,29 @@ var Boss = (function() {
     return it;
   }
 
-  // custom: srsBoxRatio = 복습 카드(type|keyPrefix) 중 box ≥ 기준 비율(카드 minOpp장부터 판정, 기본 30). 나머지 fn은 다음 업데이트
+  // custom luckMeterViews(계약 F1): 판정 창 시작 뒤 운 미터 카드를 연 횟수 ≥ min. HeroStats.luckViews(시작 ms), 없으면 state.luck.views.
+  //   둘 다 없으면 null(운 미터 기능 전)
+  function _luckViews(ctx) {
+    var from = (ctx.since != null) ? ctx.since : 0;
+    if (_can('HeroStats', 'luckViews')) {
+      var v = _call('HeroStats', 'luckViews', from);
+      if (typeof v === 'number' && isFinite(v)) return Math.max(0, Math.floor(v));
+    }
+    var L = ctx.state && ctx.state.luck;
+    if (!_isObj(L) || !Array.isArray(L.views)) return null;
+    return L.views.filter(function(x) { var t = _ms(x && x.at); return isFinite(t) && t >= from; }).length;
+  }
+  function _luck(c, ctx) {
+    var k = _luckViews(ctx);
+    if (k == null) return _pendingItem(c, CUSTOM_PENDING.luckMeterViews);
+    var min = Math.max(1, Math.floor(_num(c.min, 1)));
+    var it = { kind: 'custom', fn: c.fn, label: '운 미터 카드 보기', have: k + '번', need: min + '번', opp: null, count: k, ok: k >= min };
+    if (!it.ok) it.why = '운 미터 카드(올인 승부가 난 핸드 뒤에 생기는 카드)를 ' + (min - k) + '번 더 열어 봐요';
+    return it;
+  }
+  // custom: srsBoxRatio = 복습 카드(type|keyPrefix) 중 box ≥ 기준 비율(카드 minOpp장부터 판정, 기본 30), luckMeterViews. 나머지 fn은 다음 업데이트
   function _custom(c, ctx) {
+    if (c.fn === 'luckMeterViews') return _luck(c, ctx);
     if (c.fn !== 'srsBoxRatio') return _pendingItem(c, CUSTOM_PENDING[c.fn] || ('조건 ' + (c.fn || '')));
     var items = ctx.drillItems();
     var pre = String(c.type || 'preflop') + '|' + String(c.keyPrefix || '');
@@ -531,6 +696,7 @@ var Boss = (function() {
       it.ok = false; it.hold = true;
       it.label = nm + '(판정에 필요한 장 수)'; it.have = N; it.need = M;
       it.why = nm + '가 ' + (M - N) + '장 더 쌓이면 판정해요(드릴과 게임의 프리플랍 결정에서 쌓여요)';
+      if (!N) _wait(it);
       return it;
     }
     var needK = Math.ceil(_num(c.min, 0) * N - 1e-9);
@@ -559,10 +725,22 @@ var Boss = (function() {
   function _drillItem(nd, ctx) {
     var c = _drillCount(nd.drill), need = _drillNeed(nd.drill), r = ctx.rec, n = _num(r.drill && r.drill.n, 0);
     var a = ctx.active;
-    var ok = _drillMet(nd, r);
+    var sets = _setConds(nd).length > 0;
+    var ok = sets ? _bossDrillMet(nd, ctx.state) : _drillMet(nd, r);
     var have = (a && a.drill && a.drill.n) ? _num(a.drill.ok, 0) : (n > 0 ? Math.round(_num(r.drill.best, 0) * c) : null);
-    var it = { kind: 'drillSet', drill: true, ok: ok, label: '드릴 ' + _drillTxt(nd.drill), have: have == null ? null : have + '개', need: need + '개 이상', opp: null };
-    if (!ok) it.why = (n > 0 && have != null) ? '드릴 ' + have + '개 정답, ' + need + '개 이상 필요' : '드릴 ' + _drillTxt(nd.drill) + ' 중 ' + need + '개 이상 맞히기';
+    var parts = (a && a.drill && !a.drill.passed && Array.isArray(a.drill.parts) && a.drill.parts.length) ? a.drill.parts : null;
+    var haveTxt = have == null ? null : have + '개';
+    if (parts) {                                                         // 세트 나눔 드릴을 푸는 중: 끝낸 세트의 정답 합
+      var pok = parts.reduce(function(s, p) { return s + _num(p && p.ok, 0); }, 0);
+      haveTxt = pok + '개(세트 ' + parts.length + '/' + _chunks(nd.drill).length + ')';
+    }
+    var it = { kind: 'drillSet', drill: true, ok: ok, label: '드릴 ' + _drillTxt(nd.drill), have: haveTxt, need: need + '개 이상', opp: null };
+    if (parts) { it.part = parts.length + 1; it.parts = _chunks(nd.drill).length; }      // 다음에 풀 세트(지도 힌트용)
+    if (!ok) {
+      if (parts) it.why = '드릴 세트 ' + (parts.length + 1) + '/' + _chunks(nd.drill).length + '부터 이어서 풀기';
+      else if (sets) it.why = '드릴 ' + _drillTxt(nd.drill) + '을 풀어 아래 유형별 기준을 모두 채우기';
+      else it.why = (n > 0 && have != null) ? '드릴 ' + have + '개 정답, ' + need + '개 이상 필요' : '드릴 ' + _drillTxt(nd.drill) + ' 중 ' + need + '개 이상 맞히기';
+    }
     return it;
   }
   function _handsItem(nd, ctx) {
@@ -611,7 +789,8 @@ var Boss = (function() {
     var st = _jst(); if (!st) return false;
     var b = _bs(st), a = b.active;
     if (!_isObj(a) || !_expiredAt(a, now)) return false;
-    _endAttempt(st, a, 'expired', now);
+    var dr = a.drill;                                                    // 세트 나눔 드릴을 푸던 중이면 끝낸 세트 수를 남긴다(안내 문구)
+    _endAttempt(st, a, 'expired', now, (_isObj(dr) && !dr.passed && Array.isArray(dr.parts) && dr.parts.length) ? { partsDone: dr.parts.length } : null);
     _save(st);
     return true;
   }
@@ -625,13 +804,15 @@ var Boss = (function() {
     if (b.active === a) b.active = null;
     if (b.coachLock && b.coachLock.node === a.node && b.coachLock.kind === 'boss') _unlock(st);
   }
-  // 재도전까지 남은 시간(ms). 0이면 지금 시작 가능. 드릴 미달로 끝난 시도만 시작 시각 + 24시간까지 막는다
+  // 재도전까지 남은 시간(ms). 0이면 지금 시작 가능. 드릴 미달로 끝난 시도만 미달 시각(endedAt) + 24시간까지 막는다.
+  //   세트 나눔 드릴(s4-boss)은 시도 시작 뒤 하루 넘게 걸쳐 끝날 수 있어 시작 시각 기준이면 대기가 0이 된다(M5-BOSS 리뷰)
   function retryWait(id, now) {
     now = _now(now);
     var st = _jst(); if (!st) return 0;
     var L = _bs(st).last[id];
     if (!_isObj(L) || L.result !== 'drill') return 0;
-    var t = _ms(L.startedAt);
+    var t = _ms(L.endedAt);
+    if (!isFinite(t)) t = _ms(L.startedAt);                              // endedAt이 없는 예전 기록
     return isFinite(t) ? Math.max(0, t + RETRY_MS - now) : 0;
   }
   // 새 시도. 드릴 기준을 이미 채웠으면(지난 시도) 드릴은 건너뛴다(카운터만 새로)
@@ -643,14 +824,34 @@ var Boss = (function() {
     if (_isObj(b.active) && b.active.node !== id) _endAttempt(st, b.active, 'stopped', now);
     if (_activeFor(st, id)) return b.active;
     var rec = st.nodes && st.nodes[id];
-    var met = _drillMet(nd, _recOf(st, id));
-    b.active = { node: id, startedAt: _iso(now), hands: 0, drill: met && nd.drill ? { carried: true, passed: true } : null,
+    var met = _bossDrillMet(nd, st);
+    var carry = null;
+    if (met && nd.drill) {
+      carry = { carried: true, passed: true };
+      var keep = b.sets[id];                                             // 세트 기준이 있는 보스는 통과한 유형별 결과도 이월
+      if (_setConds(nd).length && _isObj(keep) && _isObj(keep.byType)) { carry.byType = _copyBy(keep.byType); carry.n = keep.n; carry.ok = keep.ok; }
+    }
+    b.active = { node: id, startedAt: _iso(now), hands: 0, drill: carry,
       coachSnap: null, seatTypes: null, seed: Math.floor(now % 1000000) };
     if (_isObj(rec) && _isObj(rec.mission)) rec.mission.hands = 0;
     _save(st);
     return b.active;
   }
-  // 드릴 세트 결과 반영. r = PuzzleUI 결과 {n, ok, aborted, results}. → { status: 'pass'|'fail'|'incomplete', n, ok, need, count }
+  // PuzzleUI 결과 문항 → 유형별 { n, ok }와 복습 상자에 남는 오답 수(같은 카드를 두 번 틀려도 1장)
+  function _tally(results, seen) {
+    var byType = {}, wrongKeys = seen || {}, srsWrong = 0;
+    (Array.isArray(results) ? results : []).forEach(function(x) {
+      if (!x || !x.type) return;
+      var s = byType[x.type] || (byType[x.type] = { n: 0, ok: 0 });
+      s.n++; if (x.ok) s.ok++;
+      var k = x.type + '|' + x.key;
+      if (!x.ok && _srsKept(x) && !wrongKeys[k]) { wrongKeys[k] = 1; srsWrong++; }
+    });
+    return { byType: byType, srsWrong: srsWrong };
+  }
+  // 드릴 세트 결과 반영. r = PuzzleUI 결과 {n, ok, aborted, results}.
+  //   → { status: 'pass'|'fail'|'incomplete'|'part', n, ok, need, count, srsWrong, part?, parts?, totalN?, totalOk?, unmet? }
+  //   'part' = 세트 나눔 드릴에서 이번 세트를 끝냈고 다음 세트가 남음, unmet = 미달로 끝낸 기준 [{ label, ok, n, pass, count, all? }]
   function recordDrill(id, r, now) {
     now = _now(now);
     var st = _jst(), nd = _node(id);
@@ -658,35 +859,95 @@ var Boss = (function() {
     var a = _activeFor(st, id) || begin(id, now);
     st = _jst();
     a = _activeFor(st, id);
+    var chunks = _chunks(nd.drill);
+    if (chunks.length > 1) return _recordPart(id, nd, chunks, r, now);
     var count = _drillCount(nd.drill), need = _drillNeed(nd.drill);
     var n = Math.max(0, Math.floor(_num(r && r.n, 0))), ok = Math.max(0, Math.min(n, Math.floor(_num(r && r.ok, 0))));
     var res = { n: n, ok: ok, need: need, count: count };
     var aborted = !!(r && r.aborted);
     // 문항을 하나도 만들지 못한 세트(r.empty)는 미달이 아니다(다시 풀기)
     if (n === 0 || (r && r.empty)) { res.status = 'incomplete'; return res; }
+    var t = _tally(r && r.results);
     // 중간에 나감: 이미 통과할 수 없게 틀렸으면 미달로 끝낸다(나가기로 피할 수 없게), 아니면 드릴을 다시 풀 수 있다
-    if (aborted && (n - ok) <= count - need) { res.status = 'incomplete'; return res; }
+    var unmet = aborted ? _unreachable(nd, chunks, t.byType, n, ok) : [];
+    if (aborted && !unmet.length) { res.status = 'incomplete'; return res; }
     if (!aborted && n > 0) _call('Journey', 'recordDrillSet', id, { n: n, ok: ok }, now);
     st = _jst(); a = _activeFor(st, id);
-    var met = !aborted && n > 0 && _drillMet(nd, _recOf(st, id)) && ok >= Math.min(need, n);
-    var byType = {}, wrongKeys = {}, srsWrong = 0;
-    (r && Array.isArray(r.results) ? r.results : []).forEach(function(x) {
-      if (!x || !x.type) return;
-      var s = byType[x.type] || (byType[x.type] = { n: 0, ok: 0 });
-      s.n++; if (x.ok) s.ok++;
-      var k = x.type + '|' + x.key;                            // 같은 카드를 두 번 틀려도 상자에는 1장
-      if (!x.ok && _srsKept(x) && !wrongKeys[k]) { wrongKeys[k] = 1; srsWrong++; }
-    });
-    res.srsWrong = srsWrong;
+    var met = !aborted && n > 0 && _drillMet(nd, _recOf(st, id)) && ok >= Math.min(need, n) && _setsOk(nd, t.byType);
+    res.srsWrong = t.srsWrong;
     if (met) {
-      if (a) { a.drill = { n: n, ok: ok, at: _iso(now), byType: byType, passed: true }; }
+      if (a) { a.drill = { n: n, ok: ok, at: _iso(now), byType: t.byType, passed: true }; }
+      if (_setConds(nd).length) _bs(st).sets[id] = { byType: _copyBy(t.byType), n: n, ok: ok, at: _iso(now) };
       _save(st);
       res.status = 'pass';
       return res;
     }
-    if (a) _endAttempt(st, a, 'drill', now, { n: n, ok: ok, srsWrong: srsWrong });
+    if (!aborted) unmet = _unreachable(nd, chunks, t.byType, n, ok);
+    if (unmet.length) res.unmet = unmet;
+    if (a) _endAttempt(st, a, 'drill', now, { n: n, ok: ok, srsWrong: t.srsWrong });
     _save(st);
     res.status = 'fail';
+    return res;
+  }
+  // 세트 나눔 드릴의 세트 1개. 끝낸 세트는 active.drill.parts에 쌓고, 나간 세트는 버린다(그 세트만 처음부터).
+  // 지금까지의 결과로 기준에 닿을 수 없으면(세트를 끝냈든 나갔든) 드릴 미달로 시도를 끝낸다.
+  function _recordPart(id, nd, chunks, r, now) {
+    var st = _jst(), a = _activeFor(st, id);
+    var count = _drillCount(nd.drill), need = _drillNeed(nd.drill);
+    var n = Math.max(0, Math.floor(_num(r && r.n, 0))), ok = Math.max(0, Math.min(n, Math.floor(_num(r && r.ok, 0))));
+    var res = { n: n, ok: ok, need: need, count: count, parts: chunks.length };
+    if (!a) { res.status = 'incomplete'; return res; }
+    if (!_isObj(a.drill) || a.drill.passed || !Array.isArray(a.drill.parts)) a.drill = { parts: [], passed: false };
+    var dr = a.drill, idx = dr.parts.length, ch = chunks[idx];
+    res.part = idx + 1;
+    if (!ch || n === 0 || (r && r.empty)) { res.status = 'incomplete'; return res; }
+    var seen = {};
+    dr.parts.forEach(function(p) { (p.wrongKeys || []).forEach(function(k) { seen[k] = 1; }); });
+    var before = Object.keys(seen).length;
+    var t = _tally(r && r.results, seen);
+    var by = _mergeBy(_partsBy(dr), t.byType);
+    var totN = dr.parts.reduce(function(s, p) { return s + _num(p.n, 0); }, 0) + n;
+    var totOk = dr.parts.reduce(function(s, p) { return s + _num(p.ok, 0); }, 0) + ok;
+    var srsWrong = dr.parts.reduce(function(s, p) { return s + _num(p.srsWrong, 0); }, 0) + t.srsWrong;
+    res.totalN = totN; res.totalOk = totOk; res.srsWrong = srsWrong; res.byType = by;
+    var aborted = !!(r && r.aborted);
+    var unmet = _unreachable(nd, chunks, by, totN, totOk);
+    if (unmet.length) {
+      res.unmet = unmet;
+      _endAttempt(st, a, 'drill', now, { n: totN, ok: totOk, srsWrong: srsWrong, part: idx + 1, parts: chunks.length });
+      _save(st);
+      res.status = 'fail';
+      return res;
+    }
+    if (aborted) { res.status = 'incomplete'; return res; }
+    var wk = Object.keys(seen).slice(before);
+    dr.parts.push({ n: n, ok: ok, byType: t.byType, srsWrong: t.srsWrong, wrongKeys: wk, at: _iso(now) });
+    if (dr.parts.length < chunks.length) { _save(st); res.status = 'part'; return res; }
+    // 마지막 세트까지 끝. 생성기가 세트를 덜 채웠을 수도 있어 기준을 남은 문항 없이 다시 본다
+    res.n = totN; res.ok = totOk;
+    var parts = dr.parts;
+    var left = _setConds(nd).filter(function(c) { return _setSum(by, _arr(c.type)).ok < Math.floor(_num(c.pass, 0)); }).map(function(c) {
+      var s = _setSum(by, _arr(c.type));
+      return { label: _arr(c.type).map(_typeName).join(', '), ok: s.ok, n: s.n, pass: Math.floor(_num(c.pass, 0)), count: Math.floor(_num(c.count, s.n)) };
+    });
+    if (totOk < need) left.push({ label: '드릴 전체', ok: totOk, n: totN, pass: need, count: count, all: true });
+    // 세트 기준에 못 미친 시도는 노드 드릴 최고 기록(best)에 넣지 않는다(전체 비율만 높아 통과처럼 보이지 않게)
+    if (!left.length) {
+      _save(st);
+      _call('Journey', 'recordDrillSet', id, { n: totN, ok: totOk }, now);
+      st = _jst(); a = _activeFor(st, id);
+    }
+    if (left.length || !_drillMet(nd, _recOf(st, id))) {
+      res.unmet = left;
+      if (a) _endAttempt(st, a, 'drill', now, { n: totN, ok: totOk, srsWrong: srsWrong, part: parts.length, parts: chunks.length });
+      _save(st);
+      res.status = 'fail';
+      return res;
+    }
+    if (a) a.drill = { n: totN, ok: totOk, at: _iso(now), byType: by, passed: true, parts: parts };
+    _bs(st).sets[id] = { byType: _copyBy(by), n: totN, ok: totOk, at: _iso(now) };
+    _save(st);
+    res.status = 'pass';
     return res;
   }
   // 틀린 문항이 복습 상자(Leitner)에 남는지: 키가 있고 유형 정책이 'once'가 아니어야 한다(showdown, order 등 once 유형은 상자 없음)
@@ -715,10 +976,15 @@ var Boss = (function() {
     if (!nd || nd.kind !== 'boss') return { ok: false, why: '승급 시험 노드가 아니에요' };
     var why = [];
     if (nd.drill) {
-      var c = _drillCount(nd.drill);
-      var spec = _spec(nd);
-      if (c > SET_MAX) why.push('드릴 ' + c + '문항 세트');
-      else if (!_can('PuzzleUI', 'start') || (_can('PuzzleUI', 'can') && !_call('PuzzleUI', 'can', spec))) why.push(_typeName(nd.drill.type) + ' 퍼즐');
+      var chunks = _chunks(nd.drill);
+      var bad = !_can('PuzzleUI', 'start') || !chunks.length;
+      if (!bad && _can('PuzzleUI', 'can')) {
+        // 세트를 나누는 드릴은 세트마다, 아니면 노드 드릴 그대로 PuzzleUI가 낼 수 있는지 본다
+        bad = (chunks.length > 1)
+          ? chunks.some(function(ch, i) { return !_call('PuzzleUI', 'can', _partSpec(nd, chunks, i)); })
+          : !_call('PuzzleUI', 'can', _spec(nd));
+      }
+      if (bad) why.push(_typeName(nd.drill.type) + ' 퍼즐');
     }
     var m = nd.mission;
     if (m) {
@@ -726,7 +992,7 @@ var Boss = (function() {
       (m.conditions || []).forEach(function(cd) {
         if (!_isObj(cd)) return;
         if (PENDING_KIND[cd.kind]) why.push(PENDING_KIND[cd.kind]);
-        else if (cd.kind === 'custom' && cd.fn !== 'srsBoxRatio') why.push(CUSTOM_PENDING[cd.fn] || '추가 조건');
+        else if (cd.kind === 'custom' && !CUSTOM_OK[cd.fn]) why.push(CUSTOM_PENDING[cd.fn] || '추가 조건');
         else { var s = _soonFilter(cd.filter); if (s && !cd.ref) why.push(s + ' 기록'); }
       });
       if (!_can('App', 'selectVillains') || !_can('Journey', 'startSession')) why.push('실전 게임');
@@ -739,6 +1005,16 @@ var Boss = (function() {
     var d = nd.drill || {};
     s = { type: d.type, count: _drillCount(d), node: nd.id };
     if (Array.isArray(d.set)) s.set = d.set.map(function(x) { return Array.isArray(x) ? x.slice() : x; });
+    if (d.variant) s.variant = d.variant;
+    if (Array.isArray(d.spots)) s.spots = d.spots.slice();
+    if (d.tol != null) s.tol = d.tol;
+    return s;
+  }
+  // 세트 나눔 드릴의 i번째 세트 spec(PuzzleUI.start). 노드 drill의 variant, spots, tol은 그대로 넘긴다
+  function _partSpec(nd, chunks, i) {
+    var d = nd.drill || {}, ch = chunks[i];
+    if (!ch) return null;
+    var s = { type: 'mixed', set: ch.set.map(function(x) { return x.slice(); }), count: ch.count, node: nd.id };
     if (d.variant) s.variant = d.variant;
     if (Array.isArray(d.spots)) s.spots = d.spots.slice();
     if (d.tol != null) s.tol = d.tol;
@@ -865,9 +1141,20 @@ var Boss = (function() {
     return '<div class="j-sub-top"><button type="button" class="j-back" aria-label="뒤로" onclick="Boss.back()">↩</button>' +
       '<h2 class="j-sub-t">👑 ' + _esc(nd ? nd.title : '승급 시험') + '</h2></div>';
   }
+  // 세트 나눔 드릴 안내: "세트 3개(20, 20, 10문항)로 나눠 풀기"
+  function _chunkTxt(nd) {
+    var ch = _chunks(nd.drill);
+    if (ch.length < 2) return '';
+    return '세트 ' + ch.length + '개(' + ch.map(function(x) { return x.count; }).join(', ') + '문항)로 나눠 풀기';
+  }
   function _critHTML(nd) {
     var li = [];
-    if (nd.drill) li.push('드릴: ' + _drillTxt(nd.drill) + ' 중 ' + _drillNeed(nd.drill) + '개 이상');
+    if (nd.drill) {
+      var ct = _chunkTxt(nd);
+      if (_setConds(nd).length) li.push('드릴: ' + _drillTxt(nd.drill) + (ct ? ', ' + ct : '') + '. 아래 유형별 기준을 모두 채우기');
+      else li.push('드릴: ' + _drillTxt(nd.drill) + ' 중 ' + _drillNeed(nd.drill) + '개 이상' + (ct ? '(' + ct + ')' : ''));
+      if (ct) li.push('중간에 나가도 끝낸 세트는 남아요(나간 세트만 처음부터)');
+    }
     var m = nd.mission;
     if (m) {
       li.push('6인 실전 ' + m.hands + '핸드(5핸드씩, 시작 뒤 48시간 안에)');
@@ -895,12 +1182,16 @@ var Boss = (function() {
     }
     if (c.kind === 'band') return '내 ' + (METRIC_LABEL[c.metric] || c.metric) + '가 이 앱 차트 밴드 ±' + _num(c.tol, 4) + '%p 안(기회 ' + _num(c.minOpp, MIN_OPP) + '번부터)';
     if (c.kind === 'hands') return _num(c.min, 0) + '핸드 체험';
-    if (c.kind === 'drillSet' || c.kind === 'puzzleSet') return _arr(c.type).map(_typeName).join(', ') + ' ' + c.count + '문항 중 ' + c.pass + '개 이상';
+    if (c.kind === 'drillSet' || c.kind === 'puzzleSet') return _arr(c.type).map(_typeName).join(', ') + ' ' + c.count + '문항 중 ' + c.pass + '개 이상' + (c.tol ? '(콤보 수 ±' + c.tol + ' 허용)' : '');
+    if (c.kind === 'custom' && c.fn === 'luckMeterViews') return '운 미터 카드 ' + _num(c.min, 1) + '번 열어 보기';
     return (PENDING_KIND[c.kind] || CUSTOM_PENDING[c.fn] || '추가 조건') + '(다음 업데이트에서 판정)';
   }
+  // 롤링 줄: ✓ 채움, ○ 아직, ⏳ 판정 전(계약 F3, 판정 창 안 핸드 0개 또는 기회 0), … 다음 업데이트
   function _lineOf(it) {
     if (it.pending) return '… ' + it.label + ': 다음 업데이트에서 판정';
     if (it.need == null) return '';
+    // 판정 전은 노드 시트(JourneyUI 롤링 줄)와 같은 '판정 전(기준 n)' 꼴('판정 전/30'은 분수처럼 읽혔다, M5 통합 검증)
+    if (it.wait) return '⏳ ' + it.label + ': ' + (it.have == null ? '판정 전' : it.have) + '(기준 ' + it.need + (it.opp != null ? ', 기회 ' + it.opp : '') + ')';
     return (it.ok ? '✓ ' : '○ ') + it.label + ': ' + (it.have == null ? '-' : it.have) + '/' + it.need + (it.opp != null ? '(기회 ' + it.opp + ')' : '');
   }
   function _statusHTML(ev, title) {
@@ -909,8 +1200,10 @@ var Boss = (function() {
     return '<div class="j-crit"><div class="j-crit-t">' + _esc(title || '지금 상태') + '</div><ul>' +
       lines.map(function(t) { return '<li>' + _esc(t) + '</li>'; }).join('') + '</ul></div>';
   }
-  function _needHTML(ev) {
-    var lines = (ev && ev.items || []).filter(function(it) { return !it.ok && !it.ref; }).map(function(it) { return it.why || it.label; }).filter(Boolean);
+  // skipSets: 드릴을 아직 푸는 중이면 puzzleSet 항목은 드릴 줄 하나로 갈음한다(세트마다 "풀어야 해요"가 반복되지 않게)
+  function _needHTML(ev, skipSets) {
+    var lines = (ev && ev.items || []).filter(function(it) { return !it.ok && !it.ref && !(skipSets && it.kind === 'puzzleSet'); })
+      .map(function(it) { return it.why || it.label; }).filter(Boolean);
     if (!lines.length) return '';
     return '<div class="j-crit"><div class="j-crit-t">더 필요한 것</div><ul>' + lines.map(function(t) { return '<li>' + _esc(t) + '</li>'; }).join('') + '</ul></div>';
   }
@@ -954,8 +1247,18 @@ var Boss = (function() {
     }
     if (opts.drill && opts.drill.status === 'fail') {
       var d = opts.drill;
-      body.push('<div class="j-done-line">ℹ ' + _esc('드릴 ' + d.ok + '/' + d.n + ', 통과는 ' + d.need + '개 이상' + (d.need > d.ok ? '(' + (d.need - d.ok) + '개 더 필요했어요)' : '')) + '</div>');
-      body.push('<div class="j-sum">💡 ' + _esc('벌점은 없어요. ' + _boxTip(d.srsWrong) + '재도전은 약 ' + _hoursTxt(retryWait(id, now)) + ' 뒤에 열려요(시도 시작 24시간 뒤).') + '</div>');
+      var setFail = (d.unmet && d.unmet.length) && (d.parts > 1 || _setConds(nd).length > 0);
+      if (setFail) {
+        // 세트 기준 보스: 어느 기준에 못 미쳤는지(아직 남은 문항이 있어도 닿을 수 없으면 거기서 끝)
+        var tn = d.totalN != null ? d.totalN : d.n, tk = d.totalOk != null ? d.totalOk : d.ok;
+        body.push('<div class="j-done-line">ℹ ' + _esc('드릴 ' + tk + '/' + tn + (d.parts > 1 ? '(세트 ' + d.part + '/' + d.parts + '까지)' : '') + ', 기준에 못 미쳤어요') + '</div>');
+        body.push('<div class="j-crit"><div class="j-crit-t">못 미친 기준</div><ul>' + d.unmet.map(function(u) {
+          return '<li>' + _esc(u.label + ' ' + u.ok + '개 정답(' + u.count + '문항 중 ' + u.pass + '개 이상 필요' + (u.n < u.count ? ', 남은 문항을 다 맞혀도 모자람' : '') + ')') + '</li>';
+        }).join('') + '</ul></div>');
+      } else {
+        body.push('<div class="j-done-line">ℹ ' + _esc('드릴 ' + d.ok + '/' + d.n + ', 통과는 ' + d.need + '개 이상' + (d.need > d.ok ? '(' + (d.need - d.ok) + '개 더 필요했어요)' : '')) + '</div>');
+      }
+      body.push('<div class="j-sum">💡 ' + _esc('벌점은 없어요. ' + _boxTip(d.srsWrong) + '재도전은 약 ' + _hoursTxt(retryWait(id, now)) + ' 뒤에 열려요(드릴 기준에 못 미친 때부터 24시간).') + '</div>');
       body.push(_acts([_btn('여정 홈으로', 'Boss.home()', true)]));
       return '<div class="j-sub">' + _top(nd) + body.join('') + '</div>';
     }
@@ -975,19 +1278,26 @@ var Boss = (function() {
     if (m.active) {
       var ev = opts.eval || evaluate(nd, _m('JStats'), m.st, { now: now });
       var left = EXPIRE_MS - (now - _ms(m.active.startedAt));
-      var drillDone = _drillMet(nd, m.rec);
+      var drillDone = _bossDrillMet(nd, m.st);
+      var chunks = _chunks(nd.drill), multi = chunks.length > 1;
+      var partN = (multi && _isObj(m.active.drill) && !m.active.drill.passed && Array.isArray(m.active.drill.parts)) ? m.active.drill.parts.length : 0;
       var lineTxt;
       if (opts.drill && opts.drill.status === 'pass') lineTxt = '✅ 드릴 ' + opts.drill.ok + '/' + opts.drill.n + ' 통과! 이제 6인 실전이에요';
-      else if (opts.drill && opts.drill.status === 'incomplete') lineTxt = 'ℹ 드릴을 끝까지 풀어야 실전으로 넘어가요';
+      else if (opts.drill && opts.drill.status === 'part') lineTxt = '✅ 드릴 세트 ' + opts.drill.part + '/' + opts.drill.parts + ' 끝(' + opts.drill.ok + '/' + opts.drill.n + '). 다음 세트로 넘어가요';
+      else if (opts.drill && opts.drill.status === 'incomplete') lineTxt = multi ? 'ℹ 이 세트를 끝까지 풀어야 다음으로 넘어가요(끝낸 세트는 남아요)' : 'ℹ 드릴을 끝까지 풀어야 실전으로 넘어가요';
+      else if (!drillDone && partN > 0) lineTxt = 'ℹ 드릴 세트 ' + partN + '/' + chunks.length + '까지 끝냈어요';
       else if (opts.afterGame) lineTxt = 'ℹ 아직이에요' + (ev.more ? '. 핸드 ' + (ev.est ? '약 ' : '') + ev.more + '개 더' : '') + (ev.hold ? '(판정 기회 모으는 중)' : '');
       else lineTxt = 'ℹ 시험 진행 중';
       lineTxt += ', 남은 시간 ' + _hoursTxt(left);
-      body.push('<div class="j-done-line' + (opts.drill && opts.drill.status === 'pass' ? ' is-ok' : '') + '">' + _esc(lineTxt) + '</div>');
+      body.push('<div class="j-done-line' + (opts.drill && (opts.drill.status === 'pass' || opts.drill.status === 'part') ? ' is-ok' : '') + '">' + _esc(lineTxt) + '</div>');
       body.push(_statusHTML(ev, '지금 상태'));
-      if (opts.afterGame || ev.items.some(function(it) { return !it.ok && !it.ref && !it.drill; })) body.push(_needHTML(ev));
+      if (opts.afterGame || ev.items.some(function(it) { return !it.ok && !it.ref && !it.drill && !(!drillDone && it.kind === 'puzzleSet'); })) body.push(_needHTML(ev, !drillDone));
+      var drillLabel = multi
+        ? '▶ 드릴 세트 ' + (Math.min(partN, chunks.length - 1) + 1) + '/' + chunks.length + (opts.drill && opts.drill.status === 'incomplete' ? ' 다시' : (partN > 0 ? ' 이어서' : ' 시작'))
+        : '▶ 드릴 ' + (opts.drill && opts.drill.status === 'incomplete' ? '처음부터 다시' : '시작');
       var primary = drillDone
         ? _btn('▶ ' + (_num(m.active.hands, 0) > 0 ? '이어서 ' : '') + '실전 5핸드', 'Boss._go(' + _q(id) + ')', true)
-        : _btn('▶ 드릴 ' + (opts.drill && opts.drill.status === 'incomplete' ? '처음부터 다시' : '시작'), 'Boss._go(' + _q(id) + ')', true);
+        : _btn(drillLabel, 'Boss._go(' + _q(id) + ')', true);
       body.push(_acts([primary, _btn('나중에', 'Boss.back()')]));
       return '<div class="j-sub">' + _top(nd) + body.join('') + '</div>';
     }
@@ -1008,11 +1318,15 @@ var Boss = (function() {
       '<div class="j-block-d">' + _esc(locked
         ? '잠긴 시험에 바로 도전하는 건너뛰기예요. 통과하면 이 단계까지의 노드가 전부 건너뜀 통과가 돼요.'
         : '이 단계 노드를 모두 통과했어요. 드릴부터 풀고 6인 실전으로 마무리해요.') + '</div></div>');
-    if (m.last && m.last.result === 'expired') body.push('<div class="j-done-line">ℹ 지난 시도는 48시간이 지나 실전 핸드를 처음부터 다시 세요(벌점 없음)</div>');
-    if (m.other) { var on = _node(m.other.node); body.push('<div class="j-why" style="margin:8px 2px 0">' + _esc('진행 중인 ' + (on ? on.title : m.other.node) + '은(는) 이 시험을 시작하면 멈춰요(벌점 없음)') + '</div>'); }
+    if (m.last && m.last.result === 'expired') {
+      body.push('<div class="j-done-line">ℹ ' + (m.last.partsDone
+        ? '지난 시도는 드릴 세트 ' + m.last.partsDone + '개를 끝낸 채 48시간이 지났어요. 드릴 세트도 처음부터 다시 풀어요(벌점 없음)'
+        : '지난 시도는 48시간이 지나 실전 핸드를 처음부터 다시 세요(벌점 없음)') + '</div>');
+    }
+    if (m.other) { var on = _node(m.other.node); body.push('<div class="j-why" style="margin:8px 2px 0">' + _esc('이 시험을 시작하면 진행 중인 시험(' + (on ? on.title : m.other.node) + ')은 멈춰요(벌점 없음)') + '</div>'); }
     body.push(_critHTML(nd));
     body.push('<div class="j-sum">💡 떨어져도 벌점은 없어요. 드릴 기준에 못 미치면 24시간 뒤에 다시 도전할 수 있고, 실전 조건은 핸드를 더 치면서 채우면 돼요.</div>');
-    var go = _drillMet(nd, m.rec) ? '▶ 실전부터 시작(드릴 통과 기록 있음)' : '▶ 드릴부터 시작';
+    var go = _bossDrillMet(nd, m.st) ? '▶ 실전부터 시작(드릴 통과 기록 있음)' : '▶ 드릴부터 시작';
     body.push(_acts([_btn(go, 'Boss._go(' + _q(id) + ')', true), _btn('나중에', 'Boss.back()')]));
     return '<div class="j-sub">' + _top(nd) + body.join('') + '</div>';
   }
@@ -1066,17 +1380,25 @@ var Boss = (function() {
     if (m.rec.status === 'passed' || !m.sup.ok) { show(id, { now: now }); return; }
     if (!m.active) {
       if (m.wait > 0) { show(id, { now: now }); return; }
-      if (m.other) { var on = _node(m.other.node); _toast((on ? on.title : '진행 중인 시험') + '은(는) 멈췄어요(벌점 없음)', 2600); }
+      if (m.other) { var on = _node(m.other.node); _toast('진행 중이던 시험' + (on ? '(' + on.title + ')' : '') + '은 멈췄어요(벌점 없음)', 2600); }
       begin(id, now);
     }
     var st = _jst();
-    if (!_drillMet(nd, _recOf(st, id))) { _runDrill(id); return; }
+    if (!_bossDrillMet(nd, st)) { _runDrill(id); return; }
     _runGame(id);
   }
   function _runDrill(id) {
     var nd = _node(id);
-    var spec = _spec(nd);
-    spec.title = nd.title + ' 드릴';
+    var chunks = _chunks(nd.drill), spec;
+    if (chunks.length > 1) {
+      var st = _jst(), a = st ? _activeFor(st, id) : null;
+      var idx = (a && _isObj(a.drill) && !a.drill.passed && Array.isArray(a.drill.parts)) ? a.drill.parts.length : 0;
+      spec = _partSpec(nd, chunks, Math.min(idx, chunks.length - 1));
+      spec.title = nd.title + ' 드릴 ' + (Math.min(idx, chunks.length - 1) + 1) + '/' + chunks.length;
+    } else {
+      spec = _spec(nd);
+      spec.title = nd.title + ' 드릴';
+    }
     var fired = false;
     spec.onDone = function(r) { if (fired) return; fired = true; _onDrill(id, r); };
     if (!_can('PuzzleUI', 'start')) { _toast('드릴 화면을 열 수 없어요'); show(id); return; }
@@ -1089,6 +1411,7 @@ var Boss = (function() {
     if (!r) { show(id, { now: now }); return; }
     var res = recordDrill(id, r, now);
     if (res.status === 'pass') _toast('드릴 통과! 이제 6인 실전 5핸드씩', 2600);
+    else if (res.status === 'part') _toast('세트 ' + res.part + '/' + res.parts + ' 끝! 다음 세트로', 2200);
     show(id, { now: now, drill: res });
   }
   function _runGame(id) {
@@ -1148,7 +1471,7 @@ var Boss = (function() {
 
   var api = {
     KINDS: KINDS.slice(), EXPIRE_MS: EXPIRE_MS, RETRY_MS: RETRY_MS, MIN_OPP: MIN_OPP, CHUNK: CHUNK,
-    context: context, evalCondition: evalCondition, evaluate: evaluate, supported: supported,
+    context: context, evalCondition: evalCondition, evaluate: evaluate, supported: supported, drillChunks: _chunks,
     active: active, expire: expire, retryWait: retryWait, begin: begin, recordDrill: recordDrill, judge: judge,
     lockCoach: lockCoach, unlockCoach: unlockCoach, restoreStale: restoreStale,
     onSessionStart: onSessionStart, onSessionEnd: onSessionEnd, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd,

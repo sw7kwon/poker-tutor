@@ -84,6 +84,8 @@ var HistoryUI = (function() {
     }
     var actLabel = ACTION_KOR[m.action] || m.action;
     var bestLabel = (m.verdict && VERDICT_KOR[m.verdict]) || ACTION_KOR[m.bestAction] || m.bestAction || '?';
+    // 공짜 스팟(콜 금액 0, 포스트플랍)의 레이즈 판정은 벳이다(Coach._label과 같은 규칙, M5 F5 밸류벳 판정이 여기로 온다)
+    if (m.verdict === 'raise' && m.toCall === 0 && m.street && m.street !== 'preflop') bestLabel = '벳';
     var icon = (m.light && LIGHT_ICON[m.light]) ? LIGHT_ICON[m.light] + ' ' : '';
     var cardsPart = (m.heroCards && m.heroCards.length)
       ? '<span class="hm-cards">' + _cardsHTML(m.heroCards) + (m.heroPos ? ' ' + _esc(m.heroPos) : '') + '</span> '

@@ -8,6 +8,8 @@
 // M4-P8(계약 T9): recordTheater(극장 1편 기록, 명장면 카드 도감 최대 100장, XP 10 + 비자명 적중 건당 2, JStats theater, touchDay)와
 //   highlightOfDay(오늘의 명장면, 날짜 시드 결정론). 오늘의 5분 재미 블록의 명장면 가용(avail.highlights)은 카드가 있고
 //   TheaterUI.showCard가 있을 때다(카드를 다시 보여 줄 화면이 있어야 블록이 열린다).
+// M5-BOSS: 결정 기록 필드(계약 F2) decisionFields(pre, ctx) → { mw, oop, pt }를 'dec' 페이로드에 싣는다. 실수 SRS 연결(계약 F4):
+//   연습 핸드 끝(onHandEnd, ctx.practice)에 ReviewQueue.onPracticeHandEnd(ctx), todayCtx.mistakes = ReviewQueue.due(now, 3)(없으면 []).
 // 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다(전부 함수 안에서 typeof 가드).
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
@@ -924,6 +926,51 @@ var Journey = (function() {
     });
   }
 
+  // ── 결정 기록 필드(M5-BOSS, 계약 F2) ─────────────────
+  // pre = 히어로 결정 직전 상태(app.js afterDecision의 state). → { mw, oop, pt }, 알 수 없는 값은 null(필터 판정에서 빠진다)
+  //   mw  = 결정 시점에 폴드하지 않은 상대가 2명 이상(올인한 상대 포함, 프리플랍은 아직 말하지 않은 상대도 포함)
+  //   oop = 포스트플랍에서 남은 상대(폴드, 올인 제외) 중 한 명이라도 히어로 뒤에 말한다(마지막에 말해야 IP). 프리플랍은 null
+  //   pt  = 프리플랍 레이즈 수로 정한 팟 종류 0 'limp', 1 'srp', 2 '3bet', 3 이상 '4bet'. 프리플랍 결정은 그때까지의 레이즈 수,
+  //         포스트플랍 결정은 이 핸드 히어로의 마지막 프리플랍 결정 뒤 레이즈 수(_hand.pf), 그 기록이 없으면 프리플랍 레이저가
+  //         없을 때만 'limp'이고 아니면 null
+  var POST_ORDER = ['SB', 'BB', 'UTG', 'HJ', 'CO', 'BTN'];
+  var PT_NAMES = ['limp', 'srp', '3bet', '4bet'];
+  function _ptOf(n) { return PT_NAMES[Math.min(3, Math.max(0, Math.floor(_num(n, 0))))]; }
+  function decisionFields(pre, ctx) {
+    ctx = ctx || {};
+    var out = { mw: null, oop: null, pt: null };
+    if (!_isObj(pre)) return out;
+    var names = Array.isArray(pre.names) ? pre.names : (_isObj(pre.players) ? Object.keys(pre.players) : []);
+    var folded = _isObj(pre.folded) ? pre.folded : {};
+    var opp = names.filter(function(n) { return n !== 'Hero' && !folded[n]; });
+    if (names.length) out.mw = opp.length >= 2;
+    var street = pre.street || null;
+    if (street === 'preflop') {
+      var sbc = Math.max(0, Math.floor(_num(pre.streetBetCount, 0)));
+      out.pt = _ptOf(sbc);
+      var act = ctx.executed || ctx.action;
+      var raised = (act === 'raise' || act === 'allin' || act === 'bet') && _num(ctx.amount, 0) > _num(pre.currentBet, 0) + 1e-9;
+      if (!_hand) _hand = {};
+      _hand.pf = { seed: pre.seed, n: sbc + (raised ? 1 : 0) };
+    } else if (street === 'flop' || street === 'turn' || street === 'river') {
+      var pf = _hand && _hand.pf;
+      if (pf && pf.seed === pre.seed) out.pt = _ptOf(pf.n);
+      else if (pre.pfAggressor === null) out.pt = 'limp';                               // advanceStreet가 프리플랍 레이저 없음을 null로 남긴다
+      var players = _isObj(pre.players) ? pre.players : {};
+      var heroPos = (players.Hero && players.Hero.pos) || ctx.heroPos || null;
+      var hi = POST_ORDER.indexOf(heroPos);
+      if (hi >= 0) {
+        var stacks = _isObj(pre.stacks) ? pre.stacks : {};
+        out.oop = opp.some(function(n) {
+          var p = players[n];
+          if (!p || (stacks[n] != null && !(_num(stacks[n], 0) > 0))) return false;      // 올인한 상대는 더 말하지 않는다
+          return POST_ORDER.indexOf(p.pos) > hi;
+        });
+      }
+    }
+    return out;
+  }
+
   // ── app.js 훅(9절 M1-P2 페이로드) ───────────────────
   function _excluded(ctx) { return !!(ctx.practice || (ctx.gtoMode && ctx.gtoRound === 2) || ctx.hu); }
 
@@ -953,10 +1000,12 @@ var Journey = (function() {
       var V0 = ctx.verdict || null, g = ctx.grade || null, pre = ctx.state || {};
       var node = _session ? _session.node : null;
       var payload = null;
+      var df = decisionFields(pre, ctx);                                // 판정이 없어도 프리플랍 레이즈 수는 따라간다(pt)
       if (V0 && g && g.light) {
         payload = { street: pre.street || null, source: V0.source || null, concept: V0.concept || null, light: g.light,
           marginal: !!V0.marginal, pattern: g.pattern || null, pos: ctx.heroPos || null, hu: !!ctx.hu, mode: ctx.mode || null,
-          node: node, hint: !!ctx.hint, evLoss: Math.max(0, -_num(g.delta, 0)), estimated: !!g.estimated };
+          node: node, hint: !!ctx.hint, evLoss: Math.max(0, -_num(g.delta, 0)), estimated: !!g.estimated,
+          mw: df.mw, oop: df.oop, pt: df.pt };
         if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) JStats.record('dec', payload, now);
       }
       if (typeof HeroStats !== 'undefined' && _fn(HeroStats, 'observe') && ctx.state) {
@@ -970,7 +1019,7 @@ var Journey = (function() {
         if (base > 0) addXp('decision', base, now);
         if (g.light === 'red' && typeof ReviewQueue !== 'undefined' && _fn(ReviewQueue, 'add')) {
           ReviewQueue.add(ctx.mode || null, ctx.heroPos || null, pre.seed, pre.street || null,
-            { light: g.light, pattern: g.pattern || null, concept: V0.concept || null, evLoss: payload.evLoss });
+            { light: g.light, pattern: g.pattern || null, concept: V0.concept || null, evLoss: payload.evLoss, estimated: !!g.estimated });
         }
       }
       if (typeof Boss !== 'undefined' && _fn(Boss, 'afterDecision')) Boss.afterDecision(ctx, payload);
@@ -997,6 +1046,10 @@ var Journey = (function() {
           .forEach(function(nd) { recordMissionHand(nd.id, now); });
       }
       if (typeof Boss !== 'undefined' && _fn(Boss, 'onHandEnd')) Boss.onHandEnd(ctx, { excluded: excluded });
+      // 실수 SRS(계약 F4): 연습 핸드는 집계하지 않지만 다시 풀기 판정으로 ReviewQueue에 넘긴다
+      if (ctx.practice && typeof ReviewQueue !== 'undefined' && _fn(ReviewQueue, 'onPracticeHandEnd')) {
+        try { ReviewQueue.onPracticeHandEnd(ctx); } catch (e2) { _warn(e2); }
+      }
       _hand = null;
     } catch (e) { _warn(e); }
   }
@@ -1057,6 +1110,11 @@ var Journey = (function() {
     });
     return best;
   }
+  // 실수 핸드 복습 기한(계약 F4, ReviewQueue.due(now, 3)). ReviewQueue가 없거나(머지 전 스텁) 실패하면 빈 배열
+  function _mistakes(now) {
+    if (typeof ReviewQueue === 'undefined' || !_fn(ReviewQueue, 'due')) return [];
+    try { var r = ReviewQueue.due(now, 3); return Array.isArray(r) ? r : []; } catch (e) { _warn(e); return []; }
+  }
   function todayCtx(now) {
     now = _now(now);
     var st = _st();
@@ -1068,7 +1126,7 @@ var Journey = (function() {
     }
     return {
       now: now, weekday: new Date(now).getDay(), goalMinutes: _num(st.goal && st.goal.minutes, 5), stage: st.stage,
-      nextNode: next, due: _dueItems(now), weak: _weak(now), avail: _avail(st),
+      nextNode: next, due: _dueItems(now), mistakes: _mistakes(now), weak: _weak(now), avail: _avail(st),
       daily5Done: !!(_isObj(d) && d.daily5), theaterEpisode: (st.theater && st.theater.mini) || null,
       placementDone: !!(st.placement && st.placement.done), nodesPassed: _countPassed(st),
       prevPlan: (_isObj(d) && d.plan) || null, curriculumSession: nn ? sessionFor(nn.id) : null,
@@ -1096,6 +1154,9 @@ var Journey = (function() {
     if (act) {
       var left = Math.max(0, _missionMin(nd) - _num(act.hands, 0));
       var bb = _bossEval(nd, st), bm = (bb && !bb.pass) ? _num(bb.more, 0) : 0;
+      // 드릴을 아직 못 끝낸 시도(M5-BOSS: 세트 나눔 드릴은 다음 세트 번호)
+      var di = (bb && Array.isArray(bb.items)) ? bb.items.filter(function(x) { return x && x.drill; })[0] : null;
+      if (di && !di.ok) return '시험 중, 드릴' + (di.part ? ' 세트 ' + di.part + '/' + di.parts : '') + '부터';
       if (bm > left) return '시험 중, 핸드 ' + (bb.est ? '약 ' : '') + bm + '개 더';
       return '시험 중' + (left > 0 ? ', 핸드 ' + left + '개 더' : '');
     }
@@ -1165,7 +1226,7 @@ var Journey = (function() {
     recordTheater: recordTheater, highlightOfDay: highlightOfDay,
     todayCtx: todayCtx, active: active, shouldEndSession: shouldEndSession,
     startSession: startSession, session: session, endSession: endSession,
-    playersSpec: playersSpec, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd,
+    playersSpec: playersSpec, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd, decisionFields: decisionFields,
     routePractice: routePractice, sessionFor: sessionFor, mapModel: mapModel, summary: summary, showFirstCard: showFirstCard,
     lastPass: lastPass, lastTouch: lastTouch, castList: _castList, node: _node,
     _setData: _setData, _setStore: _setStore

@@ -3,6 +3,7 @@
 // 결정 직후: #last-verdict 판정 스트립 + 신호등 토스트, 반복 실수 경고, 레벨 자동 페이드
 // M3-P4b: snapshot()/restore(s)(보스 코칭 고정 뒤 복원), 고정 벌점은 bb 대신 '(큰 실수)/(작은 실수)', 림퍼 뒤 체크리스트
 // M4-P9: 림퍼 2명 이상 체크리스트(한 칸 좁은 표), 결정 기록 손해 표기 decLoss/lossTally/lossTallyText/lossTallyLight(결과 패널과 리뷰 공용)
+// M5-COACH: 벳 직면 설명 줄(explainLines)이 판정 근거(다음 1장, 축소 레인지)와 HUD 승률 차이를 밝힌다. 체크리스트 ②는 다음 1장 기준.
 // 로드 시 DOM 접근 금지 — 초기화는 window load 이벤트에서만
 var CoachUI = (function() {
   var KEY = 'poker_coach';
@@ -165,9 +166,12 @@ var CoachUI = (function() {
       ];
     }
     if (toCall > 0) {
+      // 리버는 더 올 카드가 없어 '다음 1장'과 아웃츠 셈이 없다(코치도 상대 벳 레인지 기준으로 판정)
+      var river = state.street === 'river' || (state.board && state.board.length >= 5);
       return [
         '① 필요 승률 = 콜 ÷ (팟+콜) = ?',
-        '② 내 승률이 그보다 높은가? (아웃츠×2, 플랍에서 끝까지 보면 ×4)',
+        river ? '② 상대가 벳할 만한 패와 비교한 내 승률이 그보다 높은가? (리버는 더 올 카드 없음)'
+          : '② 다음 1장 기준 내 승률이 그보다 높은가? (아웃츠×2, ×4는 올인일 때만)',
         '③ 상대의 큰 벳은 대개 강한 패 신호'
       ];
     }
@@ -178,15 +182,37 @@ var CoachUI = (function() {
     ];
   }
 
+  // M5-COACH: 벳 직면 판정 근거(V.basis)가 다음 1장('next')이나 축소 레인지('river')면 그 이름으로 승률을 말하고,
+  //   HUD 승률(V.eq, 리버까지 MC)과 숫자가 다를 때 왜 다른지 한 줄, 상대 레인지를 지웠으면 몇 콤보에서 몇 콤보로 줄었는지 한 줄.
+  //   왜 다른지: 플랍은 HUD가 2장(턴, 리버)을 다 본 값, 턴과 리버는 HUD도 같은 카드까지라 레인지를 줄이기 전 값(리뷰 수정).
+  //   'allin'(플랍 올인 콜)은 HUD 승률 그대로 판정하고 왜 끝까지 보는지 한 줄.
   function explainLines(V) {
     if (!V) return [];
     if (V.toCall > 0 && V.source !== 'chart') {
       var po = Math.round((V.potOdds || 0) * 100);
-      var eq = Math.round((V.eq || 0) * 100);
-      return [
+      var based = V.basis === 'next' || V.basis === 'river', allin = V.basis === 'allin';
+      var eqU = ((based || allin) && typeof V.eqUsed === 'number') ? V.eqUsed : V.eq;
+      var eq = Math.round((eqU || 0) * 100);
+      var name = allin ? '리버까지 본 승률' : !based ? '내 승률' : V.basis === 'next' ? '다음 1장 기준 승률' : '상대 벳 레인지 기준 승률';
+      var lines = [
         '필요 승률 ' + po + '% = 10번 중 ' + (po / 10).toFixed(1) + '번 이겨야 본전',
-        '내 승률 ' + eq + '% = 10번 중 ' + (eq / 10).toFixed(1) + '번'
+        name + ' ' + eq + '% = 10번 중 ' + (eq / 10).toFixed(1) + '번' + ((based || allin) ? '(참고)' : '')
       ];
+      if (allin) lines.push('올인이라 더 벳이 없어 남은 카드 2장을 다 봐요(아웃츠×4)');
+      if (based) {
+        var hud = Math.round((V.eq || 0) * 100);
+        if (hud !== eq) {
+          var cut = !!(V.range && V.range.removed > 0);
+          lines.push(V.basis === 'next' && V.street !== 'turn'
+            ? 'HUD 승률 ' + hud + '%는 리버까지 본 값이에요'
+            : cut ? 'HUD 승률 ' + hud + '%는 상대 레인지를 줄이기 전 값이에요'
+            : 'HUD 승률 ' + hud + '%는 어림 계산이라 조금 달라요');
+        }
+        if (V.range && V.range.removed > 0) {
+          lines.push('상대가 벳했으니 안 맞은 패 중 약한 절반은 뺐어요(' + V.range.before + ' → ' + V.range.after + '콤보)');
+        }
+      }
+      return lines;
     }
     return V.why ? [String(V.why)] : [];
   }

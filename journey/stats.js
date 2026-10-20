@@ -4,6 +4,7 @@
 // 저장은 localStorage(try/catch), 실패하면 메모리에만 유지한다. 로드 시 DOM/타이머 접근 없음.
 // M3-P4a: 핸드 순번 hseq(집계한 'handEnd' 수)와 링 결정의 h(그 결정이 나온 핸드 순번 = 기록 당시 hseq)를 더했다.
 //   미션/보스의 "최근 n핸드" 창은 h ≥ hseq - n 인 결정이다(진행 중 핸드는 h === hseq). h가 없는 예전 결정은 핸드 창에서 빠진다.
+// M5-BOSS(계약 F2): 'dec' 링 항목에 mw(boolean), oop(boolean, 프리플랍은 기록 안 함), pt('limp'|'srp'|'3bet'|'4bet')를 보존한다.
 var JStats = (function() {
   var KEY = 'poker_journey_stats';
   var V = 1;
@@ -204,6 +205,10 @@ var JStats = (function() {
         if (e.h === null) delete e.h;
         if (p.hint) e.hint = true;
         if (p.estimated) e.est = true;
+        // M5-BOSS(계약 F2): 멀티웨이 mw, 포지션 불리 oop(프리플랍 null), 팟 종류 pt. 값이 있는 것만 보존(없는 예전 기록은 필터 판정에서 빠짐)
+        if (typeof p.mw === 'boolean') e.mw = p.mw;
+        if (typeof p.oop === 'boolean') e.oop = p.oop;
+        if (p.pt === 'limp' || p.pt === 'srp' || p.pt === '3bet' || p.pt === '4bet') e.pt = p.pt;
         st.recent.push(e);
         if (st.recent.length > RECENT_MAX) st.recent.splice(0, st.recent.length - RECENT_MAX);
         break;

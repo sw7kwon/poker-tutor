@@ -1,4 +1,4 @@
-// journey/today.js (채우는 패키지: M1-P1c, M2-P6 퍼즐 블록과 약점 채움)
+// journey/today.js (채우는 패키지: M1-P1c, M2-P6 퍼즐 블록과 약점 채움, M5-P8 실수 핸드 항목)
 // "▶ 오늘의 5분" 구성 알고리즘(설계서 4.1절, 9절 M1-P1c, M2-P6, 계약 C9). 순수 함수만 둔다.
 // 로드 시와 호출 시 모두 DOM, 저장소, 타이머에 접근하지 않는다. 같은 ctx면 같은 plan(결정론).
 //
@@ -6,6 +6,7 @@
 //         due: [{type, key, box, due}], weak: ['pot_odds', ...], avail: { puzzles, lessons, theater, daily5,
 //         highlights, rush, weekly }, daily5Done, theaterEpisode: {...}|null, placementDone, nodesPassed,
 //         prevPlan: plan|null, curriculumSession: n|null, rating: {r, rd}|null, puzzleTypes?: [...] }
+//         mistakes?: [{key, box, due, ...}](M5 계약 F4, Journey.todayCtx 또는 TodayUI.ctx가 ReviewQueue.due(now, 3)로 채움) }
 //   puzzleTypes(C9, TodayUI.ctx가 채움) = 등록된 퍼즐 유형 ['potodds', ...] 또는 [{type, stage}].
 //     단계가 없으면 TYPE_STAGE(부록 A 노드에서 그 유형이 처음 나오는 단계)를 쓴다. 없으면(undefined/null) M1 출력 그대로.
 // plan = { day, blocks: [ review, learn, fun, wrap ], estMin, lessonNode, fillToday? }
@@ -14,6 +15,8 @@
 //   review { id:'review', items:[{type,key,box}], daily5, est }
 //     채움 항목(C9) = { type(등록 유형), key:null, box:null, concept, fill:true, spots? }(spots는 preflop만)
 //     puzzleTypes가 없을 때의 채움 항목은 M1 형식 { type:'puzzle', key:null, box:null, concept, fill:true }
+//     실수 핸드 항목(F4) = { type:'mistake', key, box }: 블록 끝(채움 뒤)에 목표 5/10/15분이면 1/2/3개, (box asc, due asc, key asc).
+//       기한 전(due > now)과 졸업(box 4 이상) 항목은 뺀다. 복습 상한(8/15/25)과 채움 판정에는 세지 않는다. 추정 1개 60초(연습 1핸드).
 //   learn  { id:'learn', kind:'placement'|'lesson'|'drill'|'mission'|'curriculum'|'gto', node, est, ... }
 //     drill은 puzzleTypes가 있으면 노드 drill 명세의 set, variant, spots를 함께 싣는다.
 //   fun    { id:'fun', kind:'theater'|'highlight'|'free'|'rush'|'weeklyIntro', est, hands? }
@@ -22,7 +25,7 @@
 var Today = (function() {
   // 추정 시간 단위(초): 레슨 장면 20, 퍼즐 25, 복습 드릴 10, 극장 1편 90, 게임 1핸드 60(4.1절).
   // 러시와 배치 고사는 이름 그대로 3분(5.5절 "3분 러시", 2.6절 "실력 확인 3분").
-  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180 };
+  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180, mistake: 60 };
   // 복습 상한: 전체 8/15/25, 성숙(box 4 이상) 3/5/8
   var CAPS = { 5: { total: 8, mature: 3 }, 10: { total: 15, mature: 5 }, 15: { total: 25, mature: 8 } };
   var MATURE_BOX = 4;
@@ -31,6 +34,8 @@ var Today = (function() {
   var FILL_WHEN = 3;
   var FILL_TO = { 5: 4, 10: 7, 15: 10 };
   var HANDS = { gto: 5, mission: 5, free: 3 };
+  // 실수 핸드 다시 풀기(F4): 목표 5/10/15분에 1/2/3개
+  var MISTAKES = { 5: 1, 10: 2, 15: 3 };
   var DRILL_SET = 10;        // 드릴 세트 1회 = 노드 지정 유형 10문항(노드 count가 더 작으면 그 수)
   var DEFAULT_SCENES = 7;    // 레슨 장면 수를 모를 때(레슨 길이 6~9장면의 가운데)
   var DEFAULT_CURRICULUM_MIN = 3;
@@ -271,6 +276,23 @@ var Today = (function() {
     return out;
   }
 
+  // 실수 핸드 항목: 기한이 된 것만(box asc, due asc, key asc), 목표별 개수까지. ctx.mistakes가 없으면 []
+  function mistakeItems(list, goal, now) {
+    var hasNow = (typeof now === 'number' && isFinite(now));
+    var seen = {}, out = [];
+    (Array.isArray(list) ? list : []).forEach(function(it) {
+      if (!it || typeof it.key !== 'string' || !it.key || seen[it.key]) return;
+      var box = Math.max(0, Math.floor(_num(it.box, 0)));
+      if (box >= MATURE_BOX) return;                        // 졸업(실수 SRS의 box 4)
+      var d = _num(it.due, 0);
+      if (hasNow && d > now) return;
+      seen[it.key] = true;
+      out.push({ key: it.key, box: box, due: d });
+    });
+    out.sort(function(a, b) { return (a.box - b.box) || (a.due - b.due) || _cmp(a.key, b.key); });
+    return out.slice(0, MISTAKES[_goal(goal)]).map(function(it) { return { type: 'mistake', key: it.key, box: it.box }; });
+  }
+
   // ── 블록 1: 복습 ──
   function _reviewBlock(ctx, goal, now, fallback, avail, stages, fillUsed) {
     var items = orderReview(ctx.due, caps(goal), now);
@@ -291,6 +313,8 @@ var Today = (function() {
         }
       }
     }
+    // 실수 핸드 다시 풀기(F4)는 블록 끝에. 퍼즐 가용과 상관없이(App.startPractice로 연다)
+    items = items.concat(mistakeItems(ctx.mistakes, goal, now));
     return { block: { id: 'review', items: items, daily5: !!(avail.daily5 && !ctx.daily5Done), est: 0 }, added: added };
   }
 
@@ -390,7 +414,7 @@ var Today = (function() {
     if (!b || typeof b !== 'object') return 0;
     if (b.id === 'review') {
       var s = 0;
-      (b.items || []).forEach(function(it) { s += (it && it.fill) ? SEC.puzzle : SEC.review; });
+      (b.items || []).forEach(function(it) { s += (it && it.type === 'mistake') ? SEC.mistake : ((it && it.fill) ? SEC.puzzle : SEC.review); });
       if (b.daily5) s += DAILY5_N * SEC.puzzle;
       return s;
     }
@@ -449,7 +473,8 @@ var Today = (function() {
 
   var api = {
     build: build, caps: caps, orderReview: orderReview, estimate: estimate, sessionFor: sessionFor, conceptTypes: conceptTypes,
-    SEC: SEC, CAPS: CAPS, LIMITS: LIMITS, HANDS: HANDS, MATURE_BOX: MATURE_BOX,
+    mistakeItems: mistakeItems,
+    SEC: SEC, CAPS: CAPS, LIMITS: LIMITS, HANDS: HANDS, MATURE_BOX: MATURE_BOX, MISTAKES: MISTAKES,
     CONCEPT_TYPES: CONCEPT_TYPES, CONCEPT_SPOTS: CONCEPT_SPOTS, TYPE_STAGE: TYPE_STAGE, TYPE_BASE: TYPE_BASE
   };
   if (typeof module !== 'undefined') module.exports = api;

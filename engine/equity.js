@@ -1,6 +1,7 @@
 // engine/equity.js — 프리플랍 룩업 + 포스트플랍 인라인 MC (file:// Worker 차단 우회)
 // 모바일 성능(A-4a): 정수 카드(r*4+s) + 부분 Fisher–Yates, 반복마다 덱 생성/셔플/filter 제거,
 // 핸드 클래스 룩업 상수화. calc(state, cb)는 기존처럼 cb를 동기로 호출한다.
+// M5-COACH: calc(state, cb, { toStreet: 'next' })와 순수 nextCard(heroCards, range, board)(다음 1장 열거), liveCombos.
 var Equity = (function() {
   var RANKS = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
   var SUITS = ['s','h','d','c'];
@@ -27,11 +28,18 @@ var Equity = (function() {
 
   var api = { ITERATIONS: 500 };
 
-  function calc(state, cb) {
+  // calc(state, cb, opts): opts 없으면 예전 그대로(프리플랍 룩업 또는 리버까지 MC 500회).
+  // M5-COACH: opts.toStreet === 'next'이고 보드가 3~5장이면 nextCard(다음 1장 열거, 리버는 지금 승부 열거)로 cb.
+  //   상대 레인지는 state.villainRange(없으면 랜덤). 프리플랍은 다음 1장이 아니라 3장이라 예전 경로 그대로.
+  function calc(state, cb, opts) {
     if (!state || !state.heroCards || state.heroCards.length < 2) {
       cb(0.5); return;
     }
     var board = state.board || [];
+    if (opts && opts.toStreet === 'next' && board.length >= 3 && board.length <= 5) {
+      var nx = nextCard(state.heroCards, state.villainRange || null, board);
+      cb(nx == null ? 0.5 : nx); return;   // 살아 있는 콤보가 없으면 MC 경로와 같은 0.5
+    }
     // 프리플랍 룩업은 vs랜덤 값 — 빌런 레인지가 지정된 스팟은 룩업 대신 레인지 MC 사용 (07-20 7차-3)
     if (board.length === 0 && !state.villainRange && typeof PreflopEquity !== 'undefined') {
       var key = _preflopKey(state.heroCards);
@@ -157,7 +165,119 @@ var Equity = (function() {
     return c1.rank + c2.rank + (i1 === i2 ? '' : (c1.suit === c2.suit ? 's' : 'o'));
   }
 
+  // ── 다음 1장 에쿼티(M5-COACH, 설계서 3.2절 출제 제외 1번 (b), 10절 8번 (a)) ──
+  // nextCard(heroCards, range, board) → 0~1 또는 null.
+  //   보드 3장(플랍)은 턴 1장, 4장(턴)은 리버 1장을 열거한다. 남은 덱 = 52 - 내 2장 - 보드(플랍 47장, 턴 46장)이고
+  //   상대 콤보마다 그 콤보의 2장도 빼서(플랍 45장, 턴 44장) (콤보, 다음 카드) 쌍을 모두 센다. 내가 앞서면 1, 같으면 0.5.
+  //   콤보마다 카드 수가 같아 쌍 평균 = 레인지 콤보 균등 가중 평균이다. 보드 5장은 남은 카드 없이 지금 승부를 콤보마다 센다.
+  //   range: null 또는 빈 값 = 랜덤(데드카드를 뺀 전체 콤보). Set 또는 배열 원소는 클래스 라벨('AKs', 'QQ', '72o') 또는
+  //   콤보 4글자('AhKd'). 유효 원소가 하나도 없으면 랜덤, 살아 있는 콤보가 0개이거나 보드가 3~5장이 아니면 null.
+  //   gen-postflop facingbet-next의 '다음 1장'(GenPostflop.equityNextCard)과 같은 정의다(j-coach-ext 테스트로 고정).
+  // _nextInfo(...) → { eq, n(쌍 수), combos(살아 있는 콤보 수), cards(콤보당 다음 카드 수, 리버 0) } 또는 null.
+  function _score(ev) {   // HandEval 결과 → 정수(클수록 강함). 족보, 그다음 tiebreakers 사전순(hand-eval.js 점수와 같은 순서)
+    var s = (10 - ev.type) * 1048576, tb = ev.tiebreakers, m = 65536;
+    for (var i = 0; i < tb.length && i < 5; i++) { s += tb[i] * m; m /= 16; }
+    return s;
+  }
+  function _cardStrInt(s) {
+    if (typeof s !== 'string' || s.length !== 2) return -1;
+    var r = RANK_IDX[s.charAt(0)], u = SUIT_IDX[s.charAt(1)];
+    return (r === undefined || u === undefined) ? -1 : r * 4 + u;
+  }
+  // 레인지 → 살아 있는 콤보 [a, b](정수, a < b) 목록. null = 랜덤
+  function _liveCombos(range, dead) {
+    var list = null;
+    if (range) list = (range instanceof Set) ? Array.from(range) : (Array.isArray(range) ? range : null);
+    if (list && !list.length) list = null;   // 빈 레인지 = 랜덤(MC 경로와 같음)
+    var mask = null, explicit = [], a, b;
+    if (list && list.length) {
+      mask = new Uint8Array(169);
+      var anyClass = false;
+      list.forEach(function(k) {
+        if (typeof k !== 'string') return;
+        if (k.length === 4) {
+          var x = _cardStrInt(k.slice(0, 2)), y = _cardStrInt(k.slice(2, 4));
+          if (x >= 0 && y >= 0 && x !== y) explicit.push(x < y ? [x, y] : [y, x]);
+          return;
+        }
+        var id = CLASS_INDEX[k];
+        if (id !== undefined) { mask[id] = 1; anyClass = true; }
+      });
+      if (!anyClass) mask = null;
+      if (!mask && !explicit.length) list = null;   // 유효 원소 없음 → 랜덤
+    }
+    var out = [], seen = new Uint8Array(52 * 52);
+    function add(p, q) {
+      if (dead[p] || dead[q] || seen[p * 52 + q]) return;
+      seen[p * 52 + q] = 1; out.push([p, q]);
+    }
+    if (!list) {
+      for (a = 0; a < 52; a++) for (b = a + 1; b < 52; b++) add(a, b);
+      return out;
+    }
+    if (mask) for (a = 0; a < 52; a++) for (b = a + 1; b < 52; b++) if (mask[CLASS_ID[a * 52 + b]]) add(a, b);
+    explicit.forEach(function(p) { add(p[0], p[1]); });
+    return out;
+  }
+  function _nextInfo(heroCards, range, board) {
+    if (!heroCards || heroCards.length !== 2 || !board || board.length < 3 || board.length > 5) return null;
+    if (typeof HandEval === 'undefined' || !HandEval.evaluateIdx) return null;
+    var dead = new Uint8Array(52), hero = [], bd = [], i, j;
+    for (i = 0; i < 2; i++) hero.push(_cardInt(heroCards[i]));
+    for (i = 0; i < board.length; i++) bd.push(_cardInt(board[i]));
+    var all = hero.concat(bd);
+    for (i = 0; i < all.length; i++) {
+      if (!(all[i] >= 0 && all[i] < 52) || dead[all[i]]) return null;   // 잘못된 카드 또는 중복
+      dead[all[i]] = 1;
+    }
+    var combos = _liveCombos(range, dead);
+    if (!combos.length) return null;
+    var evalIdx = HandEval.evaluateIdx, tot = 0, cnt = 0, per = 0;
+    if (bd.length === 5) {   // 리버: 남은 카드 없음, 지금 승부
+      var h5 = _score(evalIdx(all)), vb5 = [0, 0].concat(bd);
+      for (i = 0; i < combos.length; i++) {
+        vb5[0] = combos[i][0]; vb5[1] = combos[i][1];
+        var v5 = _score(evalIdx(vb5));
+        tot += h5 > v5 ? 1 : h5 === v5 ? 0.5 : 0; cnt++;
+      }
+      return { eq: tot / cnt, n: cnt, combos: combos.length, cards: 0 };
+    }
+    var deck = [];
+    for (i = 0; i < 52; i++) if (!dead[i]) deck.push(i);
+    var hb = all.concat([0]), vb = [0, 0].concat(bd, [0]), last = vb.length - 1, hs = new Array(deck.length);
+    for (j = 0; j < deck.length; j++) { hb[hb.length - 1] = deck[j]; hs[j] = _score(evalIdx(hb)); }
+    for (i = 0; i < combos.length; i++) {
+      var c0 = combos[i][0], c1 = combos[i][1], m = 0;
+      vb[0] = c0; vb[1] = c1;
+      for (j = 0; j < deck.length; j++) {
+        var x = deck[j];
+        if (x === c0 || x === c1) continue;
+        vb[last] = x;
+        var v = _score(evalIdx(vb)), h = hs[j];
+        tot += h > v ? 1 : h === v ? 0.5 : 0; cnt++; m++;
+      }
+      per = m;
+    }
+    return cnt ? { eq: tot / cnt, n: cnt, combos: combos.length, cards: per } : null;
+  }
+  function nextCard(heroCards, range, board) {
+    var r = _nextInfo(heroCards, range, board);
+    return r ? r.eq : null;
+  }
+  // liveCombos(range, deadCards) → 콤보 4글자 목록(높은 카드 먼저 아님, 정수 순서). 레인지 해석은 nextCard와 같다(null = 랜덤).
+  // Coach의 레인지 축소가 이 목록을 걸러 nextCard에 다시 넘긴다.
+  var _CR = '23456789TJQKA', _CS = 'shdc';
+  function _intStr(i) { return _CR.charAt(i >> 2) + _CS.charAt(i & 3); }
+  function liveCombos(range, deadCards) {
+    var dead = new Uint8Array(52);
+    (deadCards || []).forEach(function(c) { var i = _cardInt(c); if (i >= 0 && i < 52) dead[i] = 1; });
+    return _liveCombos(range, dead).map(function(p) { return _intStr(p[0]) + _intStr(p[1]); });
+  }
+
   api.calc = calc;
+  api.nextCard = nextCard;
+  api.liveCombos = liveCombos;
+  api._nextInfo = _nextInfo;
   api._mc = _monteCarlo;
   if (typeof module !== 'undefined') module.exports = api;
   return api;

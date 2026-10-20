@@ -17,6 +17,8 @@
 //     결과값을 다시 구해 정답 규칙 L4(pick 또는 보기 첫 숫자가 정확히 하나만 같음)를 확인한다.
 //     결과값 = calc.of(있으면) 아니면 유형의 첫 변수(LessonCore.answerValue와 같은 규칙, 순서 문제의 '마지막'은 of 'last').
 //     (M4-P7) 이 파일이 직접 계산하지 않는 유형(outs, band 등 M4 이후 L3 유형)은 LessonCore.calc로 계산한다.
+//     (M5-P0) 레슨 calc 등록부(계약 L9) 유형도 LessonCore.calc로 계산하고, 결과값 이름은 LessonCore.CALC_MAIN(등록 때 main이
+//     더해진다), 없으면 LessonCore.calcDef(type).main이다(wantOf와 calcResult가 같은 규칙). 그림은 그리지 않고 note만.
 //   등록 meta: confidence 'exact', rated false, srs 'srs', stage 6, group 'other', concept 'lesson', label '레슨 복습'.
 //     base는 레이팅 창에서 한참 먼 값이라 Puzzles.pickType(rated:false 포함)의 가중치가 0이 된다
 //     (문항 difficulty는 노드 단계 기준값으로 따로 채운다). 레이팅, 데일리 5, pickType, 약점 채움 제외(L6).
@@ -45,6 +47,20 @@ var GenLesson = (function() {
   function _stages() { var S = _pickSrc('stages', typeof JOURNEY_STAGES !== 'undefined' ? JOURNEY_STAGES : null); return Array.isArray(S) ? S : []; }
   function _precalc() { var P = _pickSrc('precalc', typeof PRECALC !== 'undefined' ? PRECALC : null); return (P && typeof P === 'object') ? P : {}; }
   function _use(src) { _src = (src && typeof src === 'object') ? src : null; }
+  function _lc() { return (typeof LessonCore !== 'undefined' && LessonCore) ? LessonCore : null; }
+  function _own(o, k) { return !!o && typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k); }
+  // 유형의 결과값 이름: 이 파일 표(L3 내장), LessonCore.CALC_MAIN(L9 등록 때 main 추가), LessonCore.calcDef(type).main 순
+  function _mainOf(type) {
+    if (_own(MAIN, type)) return MAIN[type];
+    var LC = _lc();
+    if (LC && _own(LC.CALC_MAIN, type) && LC.CALC_MAIN[type]) return LC.CALC_MAIN[type];
+    if (LC && typeof LC.calcDef === 'function') {
+      var d = null;
+      try { d = LC.calcDef(type); } catch (e) { d = null; }
+      if (d && typeof d.main === 'string' && d.main) return d.main;
+    }
+    return null;
+  }
 
   // ── 작은 도구 ─────────────────────────────────────────
   function _n(x) { var v = Number(x); return (x === null || x === '' || x === undefined || !isFinite(v)) ? NaN : v; }
@@ -200,12 +216,13 @@ var GenLesson = (function() {
       default: {
         // (M4-P7) M4에 더한 유형(outs, band)과 앞으로 더할 유형은 LessonCore.calc(계약 L3)로 계산한다.
         // 레슨 데이터 자체는 j-lessons가 독립 경로로 검산하므로 여기서는 같은 계산을 다시 부르기만 한다.
-        var LC = (typeof LessonCore !== 'undefined' && LessonCore) ? LessonCore : null;
+        // (M5-P0) 레슨 calc 등록부(L9) 유형도 같은 길이고 결과값 이름은 _mainOf(CALC_MAIN 또는 calcDef의 main)다.
+        var LC = _lc();
         if (!LC || typeof LC.calc !== 'function') return null;
         var lr = null;
         try { lr = LC.calc(c); } catch (x) { lr = null; }
         if (!lr || typeof lr !== 'object' || lr.error) return null;
-        return { vars: lr, main: MAIN[c.type] || (LC.CALC_MAIN && LC.CALC_MAIN[c.type]) || null };
+        return { vars: lr, main: _mainOf(c.type) };
       }
     }
     return { vars: v, main: MAIN[c.type] };
@@ -215,7 +232,7 @@ var GenLesson = (function() {
   function wantOf(c) {
     if (!c) return null;
     if (typeof c.of === 'string' && c.of) return c.of;
-    return MAIN[c.type] || null;
+    return _mainOf(c.type);
   }
 
   // 계약 L4: calc가 있는 ask의 정답 번호가 엔진 결과와 맞는지. choices는 템플릿을 채운 문자열.

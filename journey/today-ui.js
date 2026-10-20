@@ -1,4 +1,4 @@
-// journey/today-ui.js (채우는 패키지: M1-P3, M2 연결: M2-P7)
+// journey/today-ui.js (채우는 패키지: M1-P3, M2 연결: M2-P7, M5-P8 실수 핸드 단계)
 // ▶ 오늘의 5분 진행 셸: 계획(Today.build) → 블록 실행(기존 화면 어댑터) → 복귀 시 결과 반영 → 다음 블록 카드 → 마무리 카드.
 // 계획과 진행은 poker_journey.daily[오늘].plan에 저장해 "여기까지" 뒤 다시 열면 남은 블록부터 이어간다.
 // 블록 하나라도 끝나면 Journey.markBlock + Journey.touchDay(활동일, 36h 스트릭). 다른 패키지 모듈은 전부 typeof 가드.
@@ -21,6 +21,13 @@
 //   마지막 블록의 결과 줄은 마무리 카드 위에 보인다(다음 블록 카드가 없으므로).
 //   가정(P5와 맞출 것): 편마다 recordTheater를 onDone보다 먼저 부른다. start와 showCard는 onDone을 부른 뒤 화면을 직접 옮기지
 //     않는다(다음 화면은 TodayUI가 그린다). 한 편도 못 보고 나오면 onDone({episodes:0, ...}), 열지 못할 때만 onDone(null).
+// M5-P8 실수 핸드 단계(계약 F4)
+//   ctx.mistakes가 없으면(Journey.todayCtx가 아직 채우지 않음) ReviewQueue.due(now, 3)로 채운다. Today.build가 복습 블록 끝에
+//   { type:'mistake', key, box }를 붙인다. 복습 블록 단계 순서: 퍼즐 → DrillUI → 데일리 5 → 실수 핸드(ReviewQueue.practice 연쇄).
+//   연쇄의 핸드마다 onItem으로 결과를 받아 블록 진행(b.prog)에 저장하고, 끝나면(onDone) 블록을 마친다. 연습은 XP와 레이팅에 없다.
+//   이어하기: 블록 진행 b.prog = { pz, sub, n, ok, xp, rd, used, mk:[푼 키], mkN, mkOk, d5:{score,n,ok}|null }를 계획에 저장해 새로고침이나 다시 시작 때
+//   끝난 단계(퍼즐 세트, DrillUI 묶음, 푼 실수 핸드)를 건너뛰고 쌓인 결과를 이어 센다. 실수 핸드 중 뒤로(안드로이드)나 메뉴로
+//   여정에 돌아오면 resume이 연쇄를 정리(ReviewQueue.abort)하고 거기까지를 블록 결과로 낸다. 남은 실수 핸드는 다음 복습에 다시 나온다.
 var TodayUI = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
   var ICON = { review: '🔁', learn: '📖', fun: '🎲', wrap: '🎉' };
@@ -148,9 +155,17 @@ var TodayUI = (function() {
     var s = _state();
     if (s.placement && s.placement.declinedAt) c.placementDone = true;   // 첫 카드 "그냥 시작"
     c.puzzleTypes = puzzleTypes();                                          // C9: 약점 채움에 쓸 수 있는 퍼즐 유형
+    // F4: 실수 핸드(Journey.todayCtx가 채우기 전에도). 연습을 열 수 없으면 계획에 넣지 않는다
+    if (!_mkCan()) c.mistakes = [];
+    else if (c.mistakes === undefined) {
+      var mk = _call('ReviewQueue', 'due', _num(c.now, now), 3);
+      c.mistakes = Array.isArray(mk) ? mk : [];
+    }
     if (extra) Object.keys(extra).forEach(function(k) { c[k] = extra[k]; });
     return c;
   }
+  // 실수 핸드 연습을 열 수 있나(ReviewQueue 연쇄와 App.startPractice)
+  function _mkCan() { return _can('ReviewQueue', 'practice') && _can('App', 'startPractice'); }
   function _copy(o) { var r = {}; Object.keys(o).forEach(function(k) { r[k] = o[k]; }); return r; }
   function _fallbackCtx(now) {
     var s = _state(), D = _m('Drills');
@@ -205,7 +220,7 @@ var TodayUI = (function() {
     if (b.id === 'review') {
       var rp = _reviewPlan(b);
       return rp.pz.reduce(function(a, it) { return a + (it.fill ? 25 : 10); }, 0) + rp.groups.reduce(function(a, g) { return a + g.count * 10; }, 0) +
-        (rp.d5 ? 5 * 25 : 0);
+        (rp.d5 ? 5 * 25 : 0) + rp.mk.length * 60;
     }
     if (b.id === 'wrap') return 30;
     if (b.kind === 'placement') return 180;
@@ -225,7 +240,7 @@ var TodayUI = (function() {
   function _blockReady(b) {
     if (b.id !== 'review') return true;
     var rp = _reviewPlan(b);
-    return rp.pz.length > 0 || rp.groups.length > 0 || rp.d5;
+    return rp.pz.length > 0 || rp.groups.length > 0 || rp.d5 || rp.mk.length > 0;
   }
   function _firstRemaining(p) {
     for (var i = 0; i < p.blocks.length; i++) if (p.blocks[i].status !== 'done' && p.blocks[i].status !== 'skipped') return i;
@@ -236,9 +251,11 @@ var TodayUI = (function() {
   // 칩 문구
   function label(b) {
     if (b.id === 'review') {
-      var rp = _reviewPlan(b), n = rp.total;
-      if (rp.d5) return n ? '복습 ' + n + ', 데일리 5' : '데일리 5';
-      return n ? '복습 ' + n : '복습 없음';
+      var rp = _reviewPlan(b), n = rp.total, m = rp.mk.length, parts = [];
+      if (n) parts.push('복습 ' + n);
+      if (rp.d5) parts.push('데일리 5');
+      if (m) parts.push('실수 핸드 다시 풀기 ' + m);
+      return parts.length ? parts.join(', ') : '복습 없음';
     }
     if (b.id === 'wrap') return '마무리';
     if (b.id === 'fun' && b.fallback === 'free') return '자유 게임 ' + FREE_HANDS + '핸드';   // 극장, 명장면을 열 수 없어 바꿈
@@ -355,15 +372,25 @@ var TodayUI = (function() {
     var t = FILL_TYPE[concept];
     return (t && usable.indexOf(t) >= 0) ? t : null;
   }
-  // 블록 → { pz: PuzzleUI.review 항목, groups: DrillUI [{type, count}], d5: 데일리 5를 열지, total: 문항 수 }
-  function _reviewPlan(b) {
+  // 블록 → { pz: PuzzleUI.review 항목, groups: DrillUI [{type, count}], d5: 데일리 5를 열지, total: 퍼즐과 드릴 문항 수,
+  //          mk: 실수 핸드 [{type:'mistake', key, box}](연습을 열 수 있을 때만) }
+  // live(블록 실행): 블록 진행(b.prog)에서 끝난 단계와 푼 실수 핸드를 빼고, 실수 핸드는 지금도 기한인 것만 남긴다.
+  function _reviewPlan(b, live) {
     var items = (b && b.items) || [];
     var useP = _can('PuzzleUI', 'review');
     var types = useP ? puzzleTypes() : [];
-    var pz = [], order = [], cnt = {};
+    var pz = [], order = [], cnt = {}, mk = [], mkSeen = {};
+    var prog = live ? _prog(b) : null, canMk = _mkCan(), now = _now();
     items.forEach(function(it) {
       if (!it || !it.type) return;
       var t = it.type;
+      if (t === 'mistake') {
+        if (!canMk || typeof it.key !== 'string' || !it.key || mkSeen[it.key]) return;
+        mkSeen[it.key] = true;
+        if (live && !_mkLive(it.key, prog, now)) return;
+        mk.push({ type: 'mistake', key: it.key, box: it.box == null ? null : it.box });
+        return;
+      }
       if (t === 'puzzle') {                         // 구형 채움 항목: 개념으로 유형을 고른다(퍼즐 우선, 없으면 DrillUI 유형)
         var drillTypes = ['preflop', 'potodds'].filter(_drillCan);
         t = _fillType(it.concept, types) || _fillType(it.concept, drillTypes);
@@ -382,17 +409,57 @@ var TodayUI = (function() {
       cnt[t]++;
     });
     var groups = order.map(function(t) { return { type: t, count: cnt[t] }; });
+    if (prog && prog.pz) pz = [];
+    if (prog && prog.sub > 0) groups = groups.slice(prog.sub);
     var total = pz.length + groups.reduce(function(a, g) { return a + g.count; }, 0);
-    return { pz: pz, groups: groups, d5: _daily5Open(b), total: total };
+    return { pz: pz, groups: groups, d5: _daily5Open(b), total: total, mk: mk };
+  }
+  // 블록 진행(이어하기용, 계획에 저장). 없으면 null
+  function _prog(b) {
+    var g = b && b.prog;
+    if (!g || typeof g !== 'object') return null;
+    return { pz: !!g.pz, sub: Math.max(0, Math.floor(_num(g.sub, 0))), n: Math.max(0, _num(g.n, 0)), ok: Math.max(0, _num(g.ok, 0)),
+      xp: Math.max(0, _num(g.xp, 0)), rd: _num(g.rd, 0), used: !!g.used,
+      mk: Array.isArray(g.mk) ? g.mk.filter(function(k) { return typeof k === 'string'; }) : [],
+      mkN: Math.max(0, _num(g.mkN, 0)), mkOk: Math.max(0, _num(g.mkOk, 0)),
+      d5: (g.d5 && typeof g.d5 === 'object' && g.d5.score != null && isFinite(Number(g.d5.score))) ?
+        { score: Number(g.d5.score), n: Math.max(0, _num(g.d5.n, 0)), ok: Math.max(0, _num(g.d5.ok, 0)) } : null };
+  }
+  // 실행할 실수 핸드인가: 이 블록에서 아직 안 풀었고, 큐에 있고 졸업 전이며 지금 기한
+  function _mkLive(key, prog, now) {
+    if (prog && prog.mk.indexOf(key) >= 0) return false;
+    if (!_can('ReviewQueue', 'get')) return true;
+    var it = _call('ReviewQueue', 'get', key);
+    return !!(it && _num(it.box, 0) < 4 && it.due != null && _num(it.due, Infinity) <= now);
   }
   function _review(b, i) {
     if (Array.isArray(b)) b = { id: 'review', items: b };   // 구 호출 형식(items 배열)
-    var rp = _reviewPlan(b);
-    if (!rp.pz.length && !rp.groups.length && !rp.d5) return false;
-    var p = _base(i, 'review', { pz: rp.pz, groups: rp.groups, sub: 0, d5: rp.d5, acc: { n: 0, ok: 0 }, xpR: 0, xpOwn: 0,
-      rd: 0, pzDone: !rp.pz.length, d5Done: false, d5Res: null, used: false });
+    var rp = _reviewPlan(b, true), prog = _prog(b);
+    var p = _base(i, 'review', { pz: rp.pz, groups: rp.groups, sub: 0, sub0: prog ? prog.sub : 0, d5: rp.d5, acc: { n: 0, ok: 0 },
+      xpR: 0, xpOwn: 0, rd: 0, pzDone: !rp.pz.length, pzOk: !!(prog && prog.pz), d5Done: false, d5Res: null, used: false,
+      mk: rp.mk, mkDone: !rp.mk.length, mkKeys: [], mkAcc: { n: 0, ok: 0 }, mkN0: 0 });
+    if (prog) {                                // 이어하기: 앞서 끝낸 단계의 결과를 이어 센다
+      p.acc.n = prog.n; p.acc.ok = prog.ok; p.xpR = prog.xp; p.rd = prog.rd; p.used = prog.used;
+      p.mkKeys = prog.mk.slice(); p.mkAcc = { n: prog.mkN, ok: prog.mkOk }; p.mkN0 = prog.mkN;
+      if (prog.d5) { p.d5Done = true; p.d5Res = prog.d5; }          // 끝낸 데일리 5 점수도 결과 줄에
+    }
+    if (!rp.pz.length && !rp.groups.length && !rp.d5 && !rp.mk.length) {
+      if (prog && (p.acc.n > 0 || p.mkAcc.n > 0 || p.d5Done)) { _finishReview(p); return true; }   // 남은 단계 없이 쌓인 결과만: 블록 마무리
+      return false;
+    }
+    p.init = true;
     _reviewStep(p);
-    return true;
+    p.init = false;
+    return !p.launchFail;
+  }
+  // 블록 진행을 계획에 저장(새로고침 뒤 이어하기)
+  function _saveProg(p) {
+    var pl = plan(), b = pl && pl.blocks[p.idx];
+    if (!b || b.id !== 'review') return;
+    var d5 = (p.d5Done && p.d5Res) ? { score: Number(p.d5Res.score), n: _num(p.d5Res.n, 0), ok: _num(p.d5Res.ok, 0) } : null;
+    b.prog = { pz: !!p.pzOk, sub: p.sub0 + p.sub, n: p.acc.n, ok: p.acc.ok, xp: p.xpR + p.xpOwn, rd: p.rd, used: !!p.used,
+      mk: p.mkKeys.slice(), mkN: p.mkAcc.n, mkOk: p.mkAcc.ok, d5: d5 };
+    _savePlan(pl);
   }
   // 다음 단계 실행(남은 게 없으면 블록 마무리)
   function _reviewStep(p) {
@@ -405,6 +472,7 @@ var TodayUI = (function() {
         _closeNav('puzzle');
         _accPuzzle(p, r);
         if (_stopped(r)) { _finishReview(p); return; }
+        if (_num(r && r.n, 0) > 0) { p.pzOk = true; _saveProg(p); }
         _reviewStep(p);
       } });
       if (!ok1 && _pending === p && p.phase === 'puzzle') { p.pzDone = true; _reviewStep(p); }   // 퍼즐 화면 실패: 다음 단계로
@@ -424,11 +492,39 @@ var TodayUI = (function() {
         p.used = true;
         p.xpR += _xpOf(r, p.phaseXp);
         p.rd += _num(r && r.ratingDelta, 0);
-        _finishReview(p);
+        if (p.d5Quit) { _finishReview(p); return; }   // 중간에 나옴: 거기까지(실수 핸드는 다음 복습에)
+        if (p.mk.length && !p.mkDone) _saveProg(p);
+        _reviewStep(p);
       } });
-      if (!ok2 && _pending === p && p.phase === 'daily5') { p.d5 = false; _finishReview(p); }
+      if (!ok2 && _pending === p && p.phase === 'daily5') { p.d5 = false; _reviewStep(p); }
       return;
     }
+    if (p.mk.length && !p.mkDone) { _mistakeStep(p); return; }
+    _finishReview(p);
+  }
+  // 실수 핸드 다시 풀기(F4): ReviewQueue.practice 연쇄. 핸드마다 onItem(진행 저장), 끝나면 onDone(블록 마무리)
+  function _mistakeStep(p) {
+    p.phase = 'mistake'; p.inJourney = false;
+    _setPending(p);
+    var opts = { tag: 'today', onItem: function(r) {
+      if (_pending !== p || p.phase !== 'mistake' || !r || !r.key) return;
+      if (p.mkKeys.indexOf(r.key) < 0) {
+        p.mkKeys.push(r.key);
+        p.mkAcc.n++;
+        if (r.ok) p.mkAcc.ok++;
+        _saveProg(p);
+      }
+    }, onDone: function(res) {
+      if (_pending !== p || p.phase !== 'mistake') return;
+      p.mkDone = true;
+      p.mkRes = res || null;
+      _finishReview(p);
+    } };
+    var started = _call('ReviewQueue', 'practice', p.mk.map(function(m) { return m.key; }), opts) === true;
+    if (started || _pending !== p) return;
+    // 연습을 열지 못함: 블록의 첫 단계였으면 할 일 없는 블록으로(runBlock이 건너뜀), 아니면 거기까지를 결과로
+    p.mkDone = true; p.mkFail = true;
+    if (p.init && !p.used && !p.acc.n && !p.mkAcc.n) { _setPending(null); p.launchFail = true; return; }
     _finishReview(p);
   }
   // 퍼즐 화면이 중간 종료를 알렸는지(계약 밖 표시도 너그럽게 받는다)
@@ -448,13 +544,21 @@ var TodayUI = (function() {
     var r = { stats: { n: p.acc.n, ok: p.acc.ok } };
     var d5 = p.d5Done && p.d5Res;
     var sc = d5 ? Number(p.d5Res.score) : NaN;
-    r.done = p.acc.n > 0 || !!d5;
+    var mk = p.mkAcc || { n: 0, ok: 0 };
+    r.done = p.acc.n > 0 || !!d5 || mk.n > 0;
     var parts = [];
     if (p.acc.n > 0) parts.push('복습 ' + p.acc.n + '문제 중 ' + p.acc.ok + '개 정답');
     if (d5) parts.push('데일리 5 ' + Math.round(sc) + '점');
+    if (mk.n > 0) {
+      parts.push('실수 핸드 ' + mk.n + '개 다시 풀기, ' + mk.ok + '개 바로잡음');
+      r.stats.mk = mk.n; r.stats.mkOk = mk.ok;
+    }
     var d5Left = p.phase === 'daily5' && !d5;       // 데일리 5를 열었지만 끝내지 않음(홈 카드에서 다시 할 수 있다)
-    r.line = parts.length ? parts.join(', ') + (d5Left ? '(데일리 5는 홈 카드에서 다시 할 수 있어요)' : '')
-      : (d5Left ? '데일리 5를 끝내지 않았어요' : '복습을 아직 풀지 않았어요');
+    // 실수 핸드를 남김: 연쇄를 중간에 나왔거나, 앞 단계에서 멈춰 실수 핸드 단계까지 가지 못함
+    var mkLeft = !!(p.mk && p.mk.length) && !p.mkFail && (mk.n - _num(p.mkN0, 0)) < p.mk.length;
+    var mkNote = mkLeft ? '(남은 실수 핸드는 다음 복습에 다시 나와요)' : ((p.mkFail && !mk.n) ? '(실수 핸드 연습을 열지 못했어요)' : '');
+    r.line = parts.length ? parts.join(', ') + (d5Left ? '(데일리 5는 홈 카드에서 다시 할 수 있어요)' : mkNote)
+      : (d5Left ? '데일리 5를 끝내지 않았어요' : (p.phase === 'mistake' ? '실수 핸드를 아직 다시 풀지 않았어요' : '복습을 아직 풀지 않았어요'));
     if (d5) {
       r.stats.daily5 = Math.round(sc);
       // 마무리 카드의 "오늘 문제 n개"에 데일리 5 문항도 센다(복습 줄의 n, ok는 복습 퍼즐만 그대로)
@@ -731,7 +835,12 @@ var TodayUI = (function() {
 
   // ── 복귀 ──────────────────────────────────────────────
   function hasPending() { return !!_pending; }
-  function pendingInfo() { return _pending ? { kind: _pending.kind, inJourney: !!_pending.inJourney, idx: _pending.idx } : null; }
+  function pendingInfo() {
+    if (!_pending) return null;
+    var o = { kind: _pending.kind, inJourney: !!_pending.inJourney, idx: _pending.idx };
+    if (_pending.phase) o.phase = _pending.phase;          // 복습 블록 단계(puzzle, drill, daily5, mistake)
+    return o;
+  }
   function running() { return _active || !!_pending; }
   function leave() { if (!_pending) { _active = false; _syncRunning(); } }
 
@@ -746,12 +855,14 @@ var TodayUI = (function() {
     if (!p) { show(); return; }
     var now = _now(), r = { done: false };
     if (p.kind === 'review') {
+      // 실수 핸드 연습 중 여정으로 돌아옴(뒤로, 메뉴): 연쇄를 정리하고 거기까지를 블록 결과로(남은 핸드는 다음 복습에)
+      if (p.phase === 'mistake') { _call('ReviewQueue', 'abort', 'today'); _finishReview(p); return; }
       if (p.phase !== 'drill') { _finishReview(p); return; }   // 퍼즐/데일리 5 화면을 onDone 없이 떠남: 거기까지를 블록 결과로
       var g = p.groups[p.sub], a = _drillStats(g.type);
       var n = a.n - p.before.n, ok = a.ok - p.before.ok;
       if (n > 0) { p.acc.n += n; p.acc.ok += ok; p.xpOwn += _addXp('review', ok * _xpConst('review', 2)); }
       // 이 유형을 끝까지 풀었으면 다음 유형(또는 데일리 5) 바로 이어서. 중간에 나왔으면 거기까지를 블록 결과로
-      if (n >= g.count) { p.sub++; _reviewStep(p); return; }
+      if (n >= g.count) { p.sub++; if (p.mk.length && !p.mkDone) _saveProg(p); _reviewStep(p); return; }
       _finishReview(p);
       return;
     } else if (p.kind === 'puzzle') {
@@ -876,6 +987,7 @@ var TodayUI = (function() {
   }
 
   function stopHere() {
+    if (_pending && _pending.phase === 'mistake') _call('ReviewQueue', 'abort', 'today');
     if (_pending) _setPending(null);
     var p = plan();
     if (p && !p.finishedAt) { p.stoppedAt = _iso(_now()); _savePlan(p); }
@@ -901,11 +1013,18 @@ var TodayUI = (function() {
       rp.pz.forEach(function(it) { if (!(it.type in cnt)) { cnt[it.type] = 0; order.push(it.type); } cnt[it.type]++; });
       rp.groups.forEach(function(g) { if (!(g.type in cnt)) { cnt[g.type] = 0; order.push(g.type); } cnt[g.type] += g.count; });
       var d5 = rp.d5 ? '데일리 5(5문제, 약 3분)' : '';
-      if (!rp.total) return '오늘의 ' + d5 + '를 풀어요. 문제마다 한 줄 해설이 나와요';
+      var m = rp.mk.length;
+      var mk = m ? '실수 핸드 다시 풀기 ' + m + '핸드(지난 게임에서 빨강 판정을 받은 핸드를 같은 카드로 다시 쳐요. 연습이라 기록과 XP에는 안 들어가요)' : '';
+      if (!rp.total) {
+        if (d5 && mk) return '오늘의 ' + d5 + '를 풀어요. 이어서 ' + mk;
+        if (mk) return mk;
+        return '오늘의 ' + d5 + '를 풀어요. 문제마다 한 줄 해설이 나와요';
+      }
       var fill = rp.pz.some(function(it) { return it.fill; });
       var due = rp.groups.length > 0 || rp.pz.some(function(it) { return !it.fill; });
       var what = (due ? '때가 된 문제와 틀렸던 문제' : '') + (due && fill ? ', ' : '') + (fill ? '약한 개념 문제' : '') + (due && !fill ? '를 다시 풀어요' : '를 풀어요');
-      return what + '(' + order.map(function(t) { return _typeName(t) + ' ' + cnt[t]; }).join(', ') + ')' + (d5 ? '. 이어서 ' + d5 : '');
+      return what + '(' + order.map(function(t) { return _typeName(t) + ' ' + cnt[t]; }).join(', ') + ')' + (d5 ? '. 이어서 ' + d5 : '') +
+        (mk ? '. 이어서 ' + mk : '');
     }
     if (b.id === 'fun' && b.fallback === 'free') return '6인 테이블에서 가볍게 ' + FREE_HANDS + '핸드. 끝나면 요약에서 돌아와요';
     switch (b.kind) {
@@ -1005,15 +1124,16 @@ var TodayUI = (function() {
     }
     if (a7 && _num(a7.n, 0) > 0) return '이번 주 ' + name + ' 판단 ' + a7.n + '번 중 초록 ' + _num(a7.g, 0) + '번';
     // 집계가 아직 없으면 오늘 계획의 블록 결과로(게임 중 차트 판정 기록과 섞지 않음)
-    var q = { n: 0, ok: 0 }, hands = 0, lessons = 0, eps = 0;
+    var q = { n: 0, ok: 0 }, hands = 0, lessons = 0, eps = 0, mks = 0;
     p.blocks.forEach(function(b) {
       var r = b.status === 'done' && b.res;
       if (!r) return;
       if (r.n || r.d5n) { q.n += _num(r.n, 0) + _num(r.d5n, 0); q.ok += _num(r.ok, 0) + _num(r.d5ok, 0); }
-      hands += _num(r.hands, 0); lessons += _num(r.lesson, 0); eps += _num(r.episodes, 0);
+      hands += _num(r.hands, 0); lessons += _num(r.lesson, 0); eps += _num(r.episodes, 0); mks += _num(r.mk, 0);
     });
     var parts = [];
     if (q.n) parts.push('문제 ' + q.n + '개 중 ' + q.ok + '개 정답');
+    if (mks) parts.push('실수 핸드 ' + mks + '개 다시 풀기');
     if (lessons) parts.push('레슨 ' + lessons + '개');
     if (hands) parts.push('실전 ' + hands + '핸드');
     if (eps) parts.push('극장 ' + eps + '편');

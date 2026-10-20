@@ -1,7 +1,11 @@
 // engine/coach.js — 8차 WP2: 단일 코치 판정
-// 프리플랍 = 레인지 차트(모든 모드), 포스트플랍 벳 직면 = 팟 오즈(큰 벳 +6%p 여유), 체크 가능 = 전략 가이드.
+// 프리플랍 = 레인지 차트(모든 모드), 포스트플랍 벳 직면 = 팟 오즈(M5-COACH: 다음 1장, 축소 레인지 기준), 체크 가능 = 전략 가이드.
 // M3-P4b: 림퍼 뒤 아이솔 판정(spot 'vs_limp', Gto.preflopHint의 limpers, size, alt), PATTERNS.overlimp, grade의 estimated.
 // M4-P9: 아이솔 표는 림퍼 수로 좁힌다(V.isoPos = Gto.preflopHint의 isoPos, 림퍼 2명 이상이면 한 칸 좁은 자리 표).
+// M5-COACH: 벳 직면은 상대 레인지 축소 1단계(narrowRange, 'air' 하위 절반 제거) 뒤 플랍/턴은 다음 1장 에쿼티(V.eqNext,
+//   basis 'next'), 리버는 축소 레인지 열거(basis 'river')로 필요 승률과 비교한다(V.eqUsed). '큰 벳 +6%p'는 예전 경로(basis 'eq')에만.
+//   플랍에서 콜이 곧 올인(더 벳 없음)이면 리버까지 본 승률(basis 'allin', 넘겨받은 eq)로 판정한다(아웃츠 x4가 맞는 경우).
+//   공짜 스팟은 PostflopGuide.guide(state, { eq })(F5), 승률 규칙 벳을 체크하면 missed_value 노란불. 결과는 여전히 코치 참고.
 // 별표, 금색 버튼, 신호등, 실수 기록, 약점 가중치, 핸드 총평이 모두 이 판정 하나를 따른다.
 var Coach = (function() {
   var KOR = { fold: '폴드', check: '체크', call: '콜', raise: '레이즈', allin: '올인' };
@@ -81,6 +85,92 @@ var Coach = (function() {
         V.draw = !!PostflopGuide.hasDraw(state.heroCards, state.board);
       }
     }
+  }
+
+  // ── 레인지 축소 1단계(M5-COACH, 설계서 10절 8번 (b), 코치 참고용) ──
+  // narrowRange(range, heroCards, board) → { combos:['AhKd', ...], before, after, air, removed } 또는 null.
+  //   range(state.villainRange: 클래스 라벨 배열 또는 Set, 콤보 4글자도 가능, null = 랜덤)를 콤보로 펴고 내 카드와 보드를 뺀 뒤,
+  //   Villain._handStrength가 'air'인 콤보를 약한 순으로 세워 하위 절반(내림)을 지운다.
+  //   약한 순 = 드로우(PostflopGuide.hasDraw) 없는 콤보 먼저, 같으면 지금 족보 점수가 낮은 콤보 먼저, 같으면 콤보 글자순(결정론).
+  //   상대가 이번 스트리트에 벳/레이즈했다는 사실만 쓰는 1단계라 스트리트마다 프리플랍 레인지에서 새로 한 번만 지운다.
+  function _sc(ev) {
+    var s = (10 - ev.type) * 1048576, tb = ev.tiebreakers, m = 65536;
+    for (var i = 0; i < tb.length && i < 5; i++) { s += tb[i] * m; m /= 16; }
+    return s;
+  }
+  function _obj2(cb) { return [{ rank: cb.charAt(0), suit: cb.charAt(1) }, { rank: cb.charAt(2), suit: cb.charAt(3) }]; }
+  function narrowRange(range, heroCards, board) {
+    if (typeof Equity === 'undefined' || !Equity.liveCombos || typeof Villain === 'undefined' || !Villain._handStrength) return null;
+    if (!heroCards || heroCards.length !== 2 || !board || board.length < 3) return null;
+    var all = Equity.liveCombos(range, heroCards.concat(board));
+    if (!all.length) return null;
+    var air = [], keep = [];
+    all.forEach(function(cb) {
+      var h = _obj2(cb), s = null;
+      try { s = Villain._handStrength(h, board); } catch (e) { s = null; }
+      if (s !== 'air') { keep.push(cb); return; }
+      var d = (typeof PostflopGuide !== 'undefined' && PostflopGuide.hasDraw) ? !!PostflopGuide.hasDraw(h, board) : false;
+      var ev = (typeof HandEval !== 'undefined' && HandEval.evaluate) ? HandEval.evaluate(h.concat(board)) : null;
+      air.push({ cb: cb, d: d ? 1 : 0, s: ev ? _sc(ev) : 0 });
+    });
+    air.sort(function(a, b) { return (a.d - b.d) || (a.s - b.s) || (a.cb < b.cb ? -1 : a.cb > b.cb ? 1 : 0); });
+    var cut = Math.floor(air.length / 2);
+    var left = keep.concat(air.slice(cut).map(function(x) { return x.cb; }));
+    return { combos: left, before: all.length, after: left.length, air: air.length, removed: cut };
+  }
+
+  // 콜하면 더 벳할 사람이 없는 올인인지(M5-COACH 리뷰): 내 스택이 콜 금액 이하(콜이 곧 올인), 또는 폴드 안 한 상대가 모두 스택 0.
+  //   그러면 남은 카드를 끝까지 공짜로 보므로(아웃츠 x4가 맞는 경우) 다음 1장이 아니라 리버까지 본 승률로 판정한다.
+  function _allInCall(state, toCall) {
+    var st = state.stacks || {};
+    if (typeof st.Hero === 'number' && st.Hero <= toCall + 1e-9) return true;
+    var ps = state.players || {}, fd = state.folded || {}, names = Object.keys(ps), any = false;
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i];
+      if (n === 'Hero' || fd[n]) continue;
+      if (typeof st[n] !== 'number' || st[n] > 1e-9) return false;
+      any = true;
+    }
+    return any;
+  }
+
+  // 벳 직면 판정 근거(M5-COACH). V.basis = 'next'(플랍/턴: 축소 레인지 상대 다음 1장 에쿼티 V.eqNext),
+  //   'river'(리버: 축소 레인지 상대 지금 승부 열거), 'eq'(예전: 넘겨받은 eq = 리버까지 MC, Equity가 없거나 opts.basis 'eq'),
+  //   'allin'(플랍 올인 콜: 턴과 리버를 다 보므로 넘겨받은 eq = 리버까지 본 HUD 승률 그대로, 큰 벳 +6%p 없음.
+  //   턴 올인은 다음 1장이 곧 리버라 'next'가 그대로 맞다).
+  //   V.eqUsed = 필요 승률과 비교한 승률, V.range = { before, after, removed }(축소했을 때). 결과는 코치 참고(승급 기준 아님).
+  //   opts.narrow === false: state.villainRange가 이미 상대 벳 레인지(명시 레인지 퍼즐)라 지우지 않는다.
+  function _betEq(V, state, opts) {
+    V.basis = 'eq'; V.eqUsed = V.eq; V.eqNext = null; V.range = null;
+    if (opts && opts.basis === 'eq') return;
+    var nb = state.board ? state.board.length : 0;
+    if (nb < 3 || nb > 5) return;
+    if (nb === 3 && _allInCall(state, V.toCall)) { V.basis = 'allin'; return; }
+    if (typeof Equity === 'undefined' || !Equity._nextInfo) return;
+    var range = state.villainRange || null, nr = null, r = null;
+    try {
+      if (!(opts && opts.narrow === false)) {
+        nr = narrowRange(range, state.heroCards, state.board);
+        if (nr) range = nr.combos;
+      }
+      r = Equity._nextInfo(state.heroCards, range, state.board);
+    } catch (e) { r = null; }
+    if (!r) return;
+    V.basis = nb === 5 ? 'river' : 'next';
+    V.eqUsed = r.eq;
+    if (nb < 5) V.eqNext = r.eq;
+    if (nr) V.range = { before: nr.before, after: nr.after, removed: nr.removed };
+  }
+
+  // 판정 근거 라벨(화면 문구 앞머리). 'eq'(예전 경로)는 빈 문자열
+  function basisLabel(basis) {
+    return basis === 'next' ? '다음 1장 기준(참고)' : basis === 'river' ? '상대 벳 레인지 기준(참고)'
+      : basis === 'allin' ? '올인이라 리버까지(참고)' : '';
+  }
+  // 문장 안에서 쓰는 승률 이름: '내 승률'(예전), '다음 1장 기준 승률', '상대 벳 레인지 기준 승률', '리버까지 본 승률'(올인)
+  function _eqName(V) {
+    return V && V.basis === 'next' ? '다음 1장 기준 승률' : V && V.basis === 'river' ? '상대 벳 레인지 기준 승률'
+      : V && V.basis === 'allin' ? '리버까지 본 승률' : '내 승률';
   }
 
   function _evVerdict(V, ev) {
@@ -182,32 +272,40 @@ var Coach = (function() {
     }
 
     _postInfo(V, state);
-    var g = null;
+    var g = null, free = !(V.toCall > 0);
     if (typeof PostflopGuide !== 'undefined' && PostflopGuide.guide) {
-      try { g = PostflopGuide.guide(state); } catch (e) { g = null; }
+      // F5: 공짜 스팟은 { eq }(가이드가 승률 >= EQ_VALUE면 체크 대신 밸류벳), 벳 직면은 예전 그대로 opts 없이
+      try { g = free ? PostflopGuide.guide(state, { eq: V.eq }) : PostflopGuide.guide(state); } catch (e) { g = null; }
     }
 
     if (V.toCall > 0) {
       var toCall = V.toCall, pot = state.pot || 0;
       V.spot = 'facing_bet'; V.source = 'potodds';
       V.potOdds = (pot + toCall) > 0 ? toCall / (pot + toCall) : 0;
+      _betEq(V, state, opts);
       var betBefore = Math.max(0.1, pot - toCall);
       var bigBet = toCall >= 0.66 * betBefore;
-      V.need = V.potOdds + (bigBet ? 0.06 : 0);
-      V.marginal = Math.abs(V.eq - V.need) < 0.04;
+      // '큰 벳 +6%p'는 리버까지 MC(basis 'eq')의 임시 보정이라 그 경로에만 남긴다. 다음 1장과 축소 레인지 판정에는 더하지 않는다
+      // (M5-COACH 표본 스팟 판정, j-coach-ext 테스트로 고정).
+      var extraOn = bigBet && V.basis === 'eq';
+      V.bigBet = bigBet;
+      V.need = V.potOdds + (extraOn ? 0.06 : 0);
+      V.marginal = Math.abs(V.eqUsed - V.need) < 0.04;
       V.concept = V.draw ? 'draws' : 'pot_odds';
-      var po = _pct(V.potOdds), eqp = _pct(V.eq);
-      var extra = bigBet ? '+여유 6%p(큰 벳)' : '';
-      if (V.eq >= V.need) {
+      var po = _pct(V.potOdds), eqp = _pct(V.eqUsed);
+      var extra = extraOn ? '+여유 6%p(큰 벳)' : '';
+      var pre = basisLabel(V.basis);
+      pre = pre ? pre + ' ' : '';
+      if (V.eqUsed >= V.need) {
         if (g && g.action === 'raise') {
           V.action = 'raise'; V.evKey = 'raise_half'; V.why = '아주 강한 패 → 레이즈로 팟 키우기';
         } else {
           V.action = 'call'; V.evKey = 'call';
-          V.why = '필요 승률 ' + po + '%' + extra + ' < 내 승률 ' + eqp + '% → 콜 (10번 중 ' + (V.eq * 10).toFixed(1) + '번)';
+          V.why = pre + '필요 승률 ' + po + '%' + extra + ' < 내 승률 ' + eqp + '% → 콜 (10번 중 ' + (V.eqUsed * 10).toFixed(1) + '번)';
         }
       } else {
         V.action = 'fold'; V.evKey = 'fold';
-        V.why = '필요 승률 ' + po + '%' + extra + ' > 내 승률 ' + eqp + '% → 폴드';
+        V.why = pre + '필요 승률 ' + po + '%' + extra + ' > 내 승률 ' + eqp + '% → 폴드';
       }
       V.label = _label(V.action, toCall, state.street);
       V.why = _clip(V.why, 70);
@@ -216,6 +314,7 @@ var Coach = (function() {
 
     // 체크 가능(공짜) 스팟
     V.spot = 'free';
+    V.eqRule = !!(g && g.eqRule);
     if (!g) {
       V.spot = 'free';
       var r = _evVerdict(V, ev);
@@ -260,6 +359,13 @@ var Coach = (function() {
     return !!(_premiumSet && _premiumSet.has(hand));
   }
 
+  // 프리플랍, 4벳 직면 전(streetBetCount 3 미만), 히어로 남은 스택 15bb 초과(EV.calcOptions의 올인 배제 조건과 같음)
+  function _deepPreflopJam(state) {
+    if (!state || state.street !== 'preflop') return false;
+    var stack = (state.stacks && state.stacks.Hero) || 0;
+    return stack > 15 && (state.streetBetCount || 0) < 3;
+  }
+
   function _grade(V, action, ev, state) {
     ev = ev || {};
     if (!V) return null;
@@ -269,9 +375,20 @@ var Coach = (function() {
       return { light: 'red', delta: -2.0, pattern: 'fold_free_check', title: '공짜 체크를 폴드',
         why: '콜할 돈이 0이면 체크! 공짜로 다음 카드를 볼 수 있어요', estimated: true };
     }
+    // 프리플랍 차트 레이즈 자리(오픈, 아이솔, 3벳, 4벳)에서 깊은 스택(15bb 초과) 올인은 크기 실수(작은 실수). EV.calcOptions가
+    // 올인을 추천 후보에서 빼는 규칙(프리플랍 스택 15bb 초과, streetBetCount 3 미만)과 같고, 5벳 잼(4벳 직면)과 짧은 스택은 그대로 정답.
+    // 손은 차트대로라 sizeOnly(플래시카드는 맞힌 것으로, app.js). M5 통합 검증: 운 미터 카드가 100bb 오픈 올인을 '결정 좋음'으로 보이던 것
+    if (V.source === 'chart' && action === 'allin' && vcat === 'raise' && _deepPreflopJam(state)) {
+      var jr = _res('yellow', -0.5, null, action, '레인지 차트로는 레이즈가 맞지만 스택 ' + Math.round(state.stacks.Hero) +
+        'bb의 올인은 너무 커요. 표준 크기로 레이즈해요(올인은 5벳이나 짧은 스택에서)');
+      jr.sizeOnly = true;
+      return jr;
+    }
     if (cat === vcat) return _res('green', 0, null, action, V.why);
 
-    var needP = _pct(V.need != null ? V.need : V.potOdds), eqp = _pct(V.eq);
+    // 벳 직면은 필요 승률과 비교한 승률(V.eqUsed, 다음 1장 또는 축소 레인지 기준)로 말한다. 예전 V(eqUsed 없음)는 V.eq
+    var eqU = (V.eqUsed != null) ? V.eqUsed : V.eq;
+    var needP = _pct(V.need != null ? V.need : V.potOdds), eqp = _pct(eqU), eqN = _eqName(V);
 
     if (V.source === 'chart') {
       var pattern = null, red = false;
@@ -305,20 +422,20 @@ var Coach = (function() {
       if (V.marginal) {
         if (cat === 'raise') return _fixed(_res('yellow', -0.3, null, action, '아슬아슬한 스팟이라 콜이나 폴드로 충분해요'));
         var r = _res('green', 0, null, action,
-          '필요 승률 ' + needP + '%와 내 승률 ' + eqp + '%가 거의 같아요: 콜, 폴드 모두 큰 차이 없음');
+          '필요 승률 ' + needP + '%와 ' + eqN + ' ' + eqp + '%가 거의 같아요: 콜, 폴드 모두 큰 차이 없음');
         r.title = '아슬아슬한 스팟';
         return r;
       }
       if (cat !== 'fold' && vcat === 'fold') {
-        var callEV = ev.call != null ? ev.call : -((V.toCall || 0) * (1 - V.eq) - V.eq * (V.pot || 0));
+        var callEV = ev.call != null ? ev.call : -((V.toCall || 0) * (1 - eqU) - eqU * (V.pot || 0));
         var d = Math.min(-0.3, callEV);
         return _res(d < -1.5 ? 'red' : 'yellow', d, 'call_below_odds', action,
-          '필요 승률 ' + needP + '%인데 내 승률 ' + eqp + '%: 콜할수록 손해');
+          '필요 승률 ' + needP + '%인데 ' + eqN + ' ' + eqp + '%: 콜할수록 손해');
       }
       if (cat === 'fold' && vcat !== 'fold') {
         var d2 = -Math.max(0.3, ev.call || 0);
         return _res(d2 < -1.5 ? 'red' : 'yellow', d2, 'fold_above_odds', action,
-          '내 승률 ' + eqp + '%가 필요 승률 ' + needP + '%보다 높아요: 콜이 이득');
+          eqN + ' ' + eqp + '%가 필요 승률 ' + needP + '%보다 높아요: 콜이 이득');
       }
       if (cat === 'raise' && vcat === 'call') return _fixed(_res('yellow', -0.3, null, action, '콜로 충분해요: ' + V.why));
       if (cat === 'call' && vcat === 'raise') return _fixed(_res('yellow', -0.3, 'missed_value', action, '아주 강한 패는 레이즈로 칩을 받아내요'));
@@ -328,6 +445,10 @@ var Coach = (function() {
       if (vcat === 'raise' && cat === 'call') {
         if (V.strength === 'nut' || V.strength === 'strong') {
           return _res('yellow', -0.3, 'missed_value', action, '강한 패는 벳해서 칩을 받아내요(밸류벳)');
+        }
+        // F5 승률 규칙(가이드가 체크 대신 밸류벳, eqRule): 감사 결함 '승률 73% 투페어 체크가 🟢'을 노란불로
+        if (V.eqRule) {
+          return _res('yellow', -0.3, 'missed_value', action, '승률 ' + _pct(V.eq) + '%면 앞설 때가 많아요: 벳해서 칩을 받아내요(밸류벳)');
         }
         return _res('green', 0, null, action, '벳도 좋지만 체크도 괜찮은 스팟');
       }
@@ -402,7 +523,8 @@ var Coach = (function() {
     return '🟢 이번 핸드는 정답! 다음에도 결정 전에 필요 승률 vs 내 승률을 먼저 떠올리기';
   }
 
-  var api = { verdict: verdict, grade: grade, category: category, PATTERNS: PATTERNS, goalFor: goalFor, rangePct: rangePct };
+  var api = { verdict: verdict, grade: grade, category: category, PATTERNS: PATTERNS, goalFor: goalFor, rangePct: rangePct,
+    narrowRange: narrowRange, basisLabel: basisLabel };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

@@ -1,10 +1,17 @@
-// engine/postflop-guide.js — P5: 포스트플랍 전략 가이드 v1 (GTO 근사 휴리스틱)
+// engine/postflop-guide.js, P5: 포스트플랍 전략 가이드 v1 (GTO 근사 휴리스틱)
 // 데이터 소스: Villain._handStrength(5단계) + Villain._isBoardWet(텍스처) + state.decisions(이니셔티브 역추적)
-// EV.buildGTOCommentary(에쿼티/팟오즈/SPR 수치)와 역할 분리 — 여기는 "왜"(텍스처·강도·이니셔티브)만 다룬다.
+// EV.buildGTOCommentary(에쿼티/팟 오즈/SPR 수치)와 역할 분리, 여기는 "왜"(텍스처, 강도, 이니셔티브)만 다룬다.
+// 화면 문구(reason, meta)에는 가운뎃점과 긴줄표를 쓰지 않는다(설계서 8.4절 4번, M5-THEATER).
+//
+// guide(state, opts) → { action: 'bet'|'check'|'call'|'fold'|'raise', label, reason, meta, eqRule? } | null
+//   opts.eq(0~1, 내 에쿼티)가 있고 벳 직면이 아니고 휴리스틱 결과가 체크이며 eq ≥ EQ_VALUE(0.65)면 action 'bet', eqRule:true,
+//   reason에 승률(계약 F5, 설계서 10절 8번 끝: "에쿼티 73% 투페어 체크가 초록" 결함). opts가 없거나 eq가 0~1 숫자가 아니면
+//   결과는 예전과 같다(극장 proThought는 opts 없이 부른다).
 var PostflopGuide = (function() {
   var STREET_KOR = { flop: '플랍', turn: '턴', river: '리버' };
+  var EQ_VALUE = 0.65;   // 이 에쿼티 이상이면 공짜 스팟에서 체크 대신 밸류벳(계약 F5)
 
-  // 이전 스트리트에서 히어로의 마지막 결정이 공격적(raise/bet/allin)이었는지 — 이니셔티브 보유 근사
+  // 이전 스트리트에서 히어로의 마지막 결정이 공격적(raise/bet/allin)이었는지, 이니셔티브 보유 근사
   // decisions는 히어로 결정만 기록(isFacing3bet과 동일 역추적 기법). 이번 스트리트 결정은 제외.
   function heroIsAggressor(state) {
     var ds = state.decisions || [];
@@ -20,13 +27,13 @@ var PostflopGuide = (function() {
   function hasDraw(heroCards, board) {
     if (!heroCards || !board || board.length < 3 || board.length >= 5) return false; // 리버엔 드로우 없음
     var all = heroCards.concat(board);
-    // 플러시드로우 — 무늬 4장, 그중 히어로 카드 1장 이상 포함
+    // 플러시드로우: 무늬 4장, 그중 히어로 카드 1장 이상 포함
     var bySuit = {};
     all.forEach(function(c) { (bySuit[c.suit] = bySuit[c.suit] || []).push(c); });
     for (var s in bySuit) {
       if (bySuit[s].length === 4 && heroCards.some(function(c) { return c.suit === s; })) return true;
     }
-    // OESD — 연속 4랭크 존재(히어로 카드 1장 이상 기여), 오픈엔드(양끝이 막히지 않음)
+    // OESD: 연속 4랭크 존재(히어로 카드 1장 이상 기여), 오픈엔드(양끝이 막히지 않음)
     var idxSet = {};
     all.forEach(function(c) { idxSet[RANKS.indexOf(c.rank)] = true; });
     for (var start = 0; start <= 9; start++) {
@@ -40,8 +47,14 @@ var PostflopGuide = (function() {
     return false;
   }
 
-  // guide(state) → { action: 'bet'|'check'|'call'|'fold'|'raise', label, reason } | null
-  function guide(state) {
+  // opts.eq가 0~1 사이 숫자면 그 값, 아니면 null
+  function _eqOf(opts) {
+    if (!opts || typeof opts.eq !== 'number' || !isFinite(opts.eq)) return null;
+    return (opts.eq >= 0 && opts.eq <= 1) ? opts.eq : null;
+  }
+
+  // guide(state, opts) → { action: 'bet'|'check'|'call'|'fold'|'raise', label, reason, meta, eqRule? } | null
+  function guide(state, opts) {
     if (!state || state.street === 'preflop' || state.street === 'showdown') return null;
     if (!state.heroCards || !state.board || state.board.length < 3) return null;
 
@@ -54,58 +67,67 @@ var PostflopGuide = (function() {
     var streetKor = STREET_KOR[state.street] || state.street;
     var sizeHint = wet ? ' (사이징: 팟 66%+ 중대형)' : ' (사이징: 팟 33% 소액)';
 
-    var action, reason;
+    var action, reason, eqRule = false;
     if (!facing) {
-      // 내 차례에 벳 없음 — 벳/체크 결정
+      // 내 차례에 벳 없음: 벳/체크 결정
       if (aggressor) {
         // c-bet 상황
         if (strength === 'nut' || strength === 'strong') {
-          action = 'bet'; reason = '이니셔티브+강한 핸드 — 밸류벳' + sizeHint;
+          action = 'bet'; reason = '이니셔티브+강한 핸드, 밸류벳' + sizeHint;
         } else if (draw && (strength === 'air' || strength === 'weak-pair')) {
-          action = 'bet'; reason = '드로우 보유 — 세미블러프 벳(폴드에쿼티+개선 아웃츠)' + sizeHint;
+          action = 'bet'; reason = '드로우 보유, 세미블러프 벳(폴드에쿼티+개선 아웃츠)' + sizeHint;
         } else if (!wet && (strength === 'medium' || strength === 'weak-pair' || strength === 'air')) {
-          action = 'bet'; reason = '드라이보드 c-bet — 레인지 우위로 넓게 소액 벳' + sizeHint;
+          action = 'bet'; reason = '드라이보드 c-bet, 레인지 우위로 넓게 소액 벳' + sizeHint;
         } else if (wet && strength === 'medium') {
-          action = 'bet'; reason = '웻보드 — 미디엄은 보호벳(에쿼티 거부)' + sizeHint;
+          action = 'bet'; reason = '웻보드, 미디엄은 보호벳(에쿼티 거부)' + sizeHint;
         } else {
-          action = 'check'; reason = '웻보드에서 약한 핸드 c-bet은 체크레이즈에 취약 — 체크';
+          action = 'check'; reason = '웻보드에서 약한 핸드 c-bet은 체크레이즈에 취약, 체크';
         }
       } else {
         if (strength === 'nut' || strength === 'strong') {
           action = 'bet'; reason = '이니셔티브 없어도 강한 핸드는 밸류벳/도네벳 가능' + sizeHint;
         } else if (draw) {
-          action = 'bet'; reason = '드로우 보유 — 세미블러프로 주도권 탈환 시도 가능(체크도 무방)' + sizeHint;
+          action = 'bet'; reason = '드로우 보유, 세미블러프로 주도권 탈환 시도 가능(체크도 무방)' + sizeHint;
         } else {
-          action = 'check'; reason = '이니셔티브 없음 — 체크 후 상대 액션 관찰';
+          action = 'check'; reason = '이니셔티브 없음, 체크 후 상대 액션 관찰';
         }
+      }
+      // 에쿼티 임계(계약 F5): 휴리스틱이 체크여도 내 에쿼티가 높으면 밸류벳
+      var eq = _eqOf(opts);
+      if (action === 'check' && eq !== null && eq >= EQ_VALUE) {
+        action = 'bet'; eqRule = true;
+        reason = '내 승률 ' + Math.round(eq * 100) + '%(' + Math.round(EQ_VALUE * 100) + '% 이상)라 체크보다 밸류벳' + sizeHint;
       }
     } else {
       // 벳을 마주함
       if (strength === 'nut') {
-        action = 'raise'; reason = '넛급 — 레이즈로 팟 키우기';
+        action = 'raise'; reason = '넛급, 레이즈로 팟 키우기';
       } else if (strength === 'strong') {
-        action = 'call'; reason = '강한 핸드 — 콜로 약한 레인지 유지시키기';
+        action = 'call'; reason = '강한 핸드, 콜로 약한 레인지 유지시키기';
       } else if (strength === 'medium') {
-        action = 'call'; reason = wet ? '웻보드 미디엄 — 팟오즈 맞으면 1회 콜, 추가 압박 시 재평가' : '드라이보드 미디엄 — 블러프캐처로 콜 가능';
+        action = 'call'; reason = wet ? '웻보드 미디엄, 팟 오즈 맞으면 1회 콜, 추가 압박 시 재평가' : '드라이보드 미디엄, 블러프캐처로 콜 가능';
       } else if (draw) {
-        action = 'call'; reason = '드로우 — 팟오즈/임플라이드 맞으면 콜(에쿼티 리포트 참조)';
+        action = 'call'; reason = '드로우, 팟 오즈/임플라이드 맞으면 콜(에쿼티 리포트 참조)';
       } else if (strength === 'weak-pair') {
-        action = wet ? 'fold' : 'call'; reason = wet ? '웻보드 약페어 — 역임플라이드 위험, 폴드 우선' : '드라이보드 약페어 — 저렴하면 1회 콜';
+        action = wet ? 'fold' : 'call'; reason = wet ? '웻보드 약페어, 역임플라이드 위험, 폴드 우선' : '드라이보드 약페어, 저렴하면 1회 콜';
       } else {
-        action = 'fold'; reason = '에어 — 팟오즈 무관 폴드 (블러프레이즈는 리버 스토리 있을 때만)';
+        action = 'fold'; reason = '에어, 팟 오즈 무관 폴드 (블러프레이즈는 리버 스토리 있을 때만)';
       }
     }
 
     var ACTION_KOR = { bet: '벳', check: '체크', call: '콜', fold: '폴드', raise: '레이즈' };
-    return {
+    var out = {
       action: action,
       label: ACTION_KOR[action] || action,
       reason: reason,
-      meta: streetKor + ' · ' + texture + ' · ' + (aggressor ? '이니셔티브 보유' : '이니셔티브 없음')
-        + ' · 강도 ' + strength + (draw ? '+드로우' : '')
+      meta: streetKor + ', ' + texture + ', ' + (aggressor ? '이니셔티브 보유' : '이니셔티브 없음')
+        + ', 강도 ' + strength + (draw ? '+드로우' : '')
     };
+    if (eqRule) out.eqRule = true;
+    return out;
   }
 
-  if (typeof module !== 'undefined') module.exports = { guide: guide, heroIsAggressor: heroIsAggressor, hasDraw: hasDraw };
-  return { guide: guide, heroIsAggressor: heroIsAggressor, hasDraw: hasDraw };
+  var api = { guide: guide, heroIsAggressor: heroIsAggressor, hasDraw: hasDraw, EQ_VALUE: EQ_VALUE };
+  if (typeof module !== 'undefined') module.exports = api;
+  return api;
 })();

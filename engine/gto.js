@@ -35,7 +35,8 @@ var Gto = (function() {
       UTG: { fourbet: ['QQ+','AKs','AKo'], call: ['JJ','TT','AQs','AJs','KQs'] },
       HJ:  { fourbet: ['JJ+','AKs','AKo'], call: ['TT','99','AQs','AJs','KQs','KJs'] },
       CO:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','ATs','KQs','KJs','QJs'] },
-      BTN: { fourbet: ['99+','ATs+','A5s-A4s','KQs','AKo'], call: ['88','77','AJs','ATo','KJs','KTs','QJs','JTs'] },
+      BTN: { fourbet: ['99+','ATs+','A5s-A4s','KQs','AKo'], call: ['88','77','AJs','ATo+','KJs','KTs','QJs','JTs'] },
+      // BTN 콜의 'ATo+'(ATo, AJo, AQo, AKo는 4벳이 먼저): 예전 'ATo'만 있어 AJo, AQo가 폴드인데 ATo는 콜인 역전이었다(M5 통합 검증)
       SB:  { fourbet: ['TT+','AQs+','AKo'], call: ['99','88','AJs','KQs','KJs'] },
       // BB는 오픈이 없어 림퍼 상대 아이솔 레이즈 뒤 재레이즈를 맞을 때만 이 표를 쓴다(M3-P4b).
       // 표가 없으면 AA도 폴드로 판정되던 빈칸이라, 같은 OOP 자리인 SB 표와 같은 값으로 근사한다.

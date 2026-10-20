@@ -51,6 +51,9 @@
 //   readOf(reader, target, state, opts{action, amount}) → {grade:'strong'|'medium'|'weak'|'air', text}.
 //     보드가 3장 미만이면 null이다. state.hideTypes면 유형에 기대는 문구를 쓰지 않는다.
 //   진실 등급은 Thinking.strength 기준이다: nut, strong → strong / medium → medium / weak-pair, draw → weak / air → air.
+//   (M5-THEATER 보강, 로드맵 결정 사항 14번) opts.table === 'theater'면 극장 계획 AI 실측 읽기 표(Thinking.THEATER_READ)를
+//     쓴다. opts.prev = 대상이 이 스트리트에서 먼저 한 액션들이고, 키 checkraise(체크 뒤 레이즈)와 betcall(벳 뒤 콜)을 더
+//     나눈다. 실측 비율 45% 미만인 장면(과 리버 체크레이즈)은 null을 돌려준다(읽지 않음). table이 없으면 게임 표 그대로다.
 //
 // T6 극장 코어(P1, 이 파일)
 //   Theater.newEpisode(spec{seed?, cast?, ai?(T4 모양을 주입, 없으면 TheaterAI.decide가 있을 때 그것, 없으면 계획 없이
@@ -92,8 +95,9 @@
 //     'pmax', 'bigpot', 'plan'(Theater.REASON_KOR). Theater.isDecisive(info)는 상한 없는 순수 판정이다.
 //   계획 전환: decide가 switched(계획키)를 돌려주면 ep.plans[이름]을 {key:새 키, kor, switched:새 키, from:이전 키}로
 //     바꾼다(decide가 이미 key를 바꿨으면 그대로 둔다). event.planKey는 이 액션에 적용된 계획(전환 뒤면 새 계획).
-//   read: 포스트플랍에서 bet과 raise는 다음에 응답할 상대가, call은 마지막 공격자가 읽는다. readOf opts = {action, amount, label}.
-//     misread = truthGrade(대상 카드, 보드) !== read.grade.
+//   read: 포스트플랍에서 bet과 raise는 다음에 응답할 상대가, call은 마지막 공격자가 읽는다. readOf opts = {action, amount, label,
+//     table:'theater', prev(대상이 이 스트리트에서 먼저 한 액션들)}(M5-THEATER). readOf가 null이면 읽기와 배지가 없다.
+//     misread = truthGrade(대상 카드, 보드) !== read.grade(배지는 실제 카드와 다를 때만, 그대로).
 //   올인 런아웃: 칩이 남은 생존자가 1명 이하이고 그 사람이 낼 콜 금액이 없으면 남은 액션 없이 스트리트를 하나씩 연다.
 //   result 추가: winners = 이번 핸드 순이익이 양수인 좌석, hands{이름:{desc, strength(Thinking.strength 원값), grade,
 //     folded}}, board. tally 추가: planPred, planHit. predict는 decisive 액션 이벤트만, 이벤트당 1회만 tally에 넣는다.
@@ -336,7 +340,7 @@ var Theater = (function() {
     Object.defineProperty(ep, '_x', { enumerable: false, value: {
       ai: ai, readOf: _resolveRead(spec), rnd: _rng(seed >>> 0), txt: txt,
       resample: spec.resample != null ? Math.max(0, Math.floor(spec.resample)) : RESAMPLE,
-      start: start, moved: {}, predicted: {}
+      start: start, moved: {}, acts: {}, predicted: {}
     } });
     return ep;
   }
@@ -456,6 +460,10 @@ var Theater = (function() {
     }
     if (switched && typeof decision.caption === 'string' && decision.caption) ev.caption = decision.caption;
     x.moved[name + '|' + s.street] = true;
+    // 이 스트리트에서 이 사람이 먼저 한 액션들(극장 읽기 키 checkraise, betcall용, M5-THEATER)
+    var actKey = name + '|' + s.street;
+    var prevActs = (x.acts[actKey] || []).slice();
+    (x.acts[actKey] = x.acts[actKey] || []).push(va.action);
     // 상대 읽기와 오독(포스트플랍만)
     if (x.readOf && s.street !== 'preflop' && (s.board || []).length >= 3) {
       var reader = null;
@@ -469,7 +477,11 @@ var Theater = (function() {
       if (reader) {
         var rd = null;
         // 라벨('올인')까지 넘긴다: 팟 절반짜리 올인을 '작은 벳'으로 읽지 않게(M4 통합 검증)
-        try { rd = x.readOf(reader, name, before, { action: va.action, amount: va.amount, label: va.label || null }); } catch (e) { rd = null; }
+        // table 'theater'와 prev: 극장 계획 AI 실측 읽기 표(M5-THEATER). 확신이 낮은 장면은 readOf가 null이라 읽기가 없다.
+        try {
+          rd = x.readOf(reader, name, before, { action: va.action, amount: va.amount, label: va.label || null,
+            table: 'theater', prev: prevActs });
+        } catch (e) { rd = null; }
         if (rd && rd.grade) {
           ev.read = { reader: reader, grade: rd.grade, text: rd.text != null ? String(rd.text) : '' };
           ev.misread = truthGrade(before.holeCards[name], before.board) !== rd.grade;

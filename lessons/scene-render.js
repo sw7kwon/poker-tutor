@@ -1,4 +1,5 @@
-// lessons/scene-render.js (채우는 패키지: M2-P4a, M3-P1a가 table/bar/compare/sum을 이어서 추가)
+// lessons/scene-render.js (채우는 패키지: M2-P4a, M3-P1a가 table/bar/compare/sum을 이어서 추가, M5-P0이 bar kind 'pct'.
+//   M5에서 그룹은 이 파일을 고치지 않는다)
 // 레슨 장면과 퍼즐 장면(계약 C3)을 그리는 순수 HTML 문자열 함수(계약 C4, puzzles/puzzle-core.js 머리 주석).
 // 로드할 때도 호출할 때도 document, window, localStorage, matchMedia에 손대지 않는다.
 // 다른 모듈(GtoChart, Gto, Coach)은 호출 시점에 typeof 가드로만 쓴다. 스타일은 css/lesson.css의 sr- 접두.
@@ -30,11 +31,15 @@
 //                           {kind:'equity', rows:[{label, precalc} | {label, exact:{hero, vs, board}}]}: 0~100% 승률 막대, 값을 모르면 '?'.
 //                           {kind:'compare', precalc | exact, need:{potTotal, toCall}, hero?, board?}: ring과 같은 축(AXIS)에
 //                           필요 승률 막대, 내 승률 막대, 콜/폴드 바늘(판정 규칙도 ring과 같다). 이름표는 축 왼쪽(x0 - 8)에 붙는다.
+//   bar(spec, vars)         (M5-P0, 계약 L9) {kind:'pct', rows:[{label, v, hl?}]}: 줄 값 = vars[v](0~100, 같은 장면 calc 변수),
+//                           막대 길이 값/100, 글자 'n%'(값 그대로). vars가 없거나 그 변수가 없거나 0~100 밖이면 '?'와 빈 막대.
+//                           라벨 칩은 LessonPlayer가 calc로 붙인다(여기서는 '엔진 계산' 꼬리표를 그리지 않는다).
 //   compareScene(spec)      (M3-P1a) 세 사람의 속마음 3열. spec{cols:[{who, text}], mine?(열 번호 0부터 = 강조, 글 = 아래 줄)}. 렌더만.
 //   sum(spec)               (M3-P1a) 한 줄 정리 카드. spec{text}. {{이름}}은 vars(spec)로 채우고 모르면 '?'.
 //   eqExact(hero, vs, board) (M3-P1a) 특정 손 대 특정 손의 히어로 에쿼티 0~1. 보드 3~5장, 남은 카드 전부 열거(무승부 반).
 //                           카드는 배열(['Ah','Kd'] 또는 {rank,suit}) 또는 이은 글자('AhKd'). HandEval이 없거나 입력이 틀리면 null.
-//   render(obj)             obj.t로 디스패치('cards', 'grid', 'ring', 'scene', 'table', 'bar', 'compare', 'sum', t 없음은 scene).
+//   render(obj, vars?)      obj.t로 디스패치('cards', 'grid', 'ring', 'scene', 'table', 'bar', 'compare', 'sum', t 없음은 scene).
+//                           vars(M5-P0)는 bar kind 'pct'만 쓴다(LessonPlayer가 LessonCore.vars(scene)를 넘긴다).
 //                           그 밖의 t(say, ask, widget 등, LessonPlayer 몫)는 ''. 캡션과 label 칩은 LessonPlayer가 그린다.
 //   보조: need(potTotal, toCall), rangeInfo(spec), cellAction(spec, hand), handRC(hand), vars(obj), parseCard(x)
 //   vars(obj)               ring: pct=need=필요 승률, grid: pct=레인지 %, bar: eq=첫 줄 승률 %(equity의 둘째 줄부터 eq2, eq3...),
@@ -827,7 +832,7 @@ var SceneRender = (function() {
     return out;
   }
 
-  function bar(spec) {
+  function bar(spec, vars) {
     spec = spec || {};
     var kind = spec.kind;
     if (kind === 'amount') {
@@ -855,6 +860,19 @@ var SceneRender = (function() {
       return '<div class="sr-bars sr-bequity" role="group" aria-label="승률 막대">' + _ctxRows(spec) +
         '<div class="sr-bscale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>' + eh +
         (any ? '<p class="sr-bfoot"><span class="sr-tag sr-tag-eng"><span aria-hidden="true">✓</span> 엔진 계산</span></p>' : '') + '</div>';
+    }
+    if (kind === 'pct') {
+      var pr = Array.isArray(spec.rows) ? spec.rows : [];
+      var vv = (vars && typeof vars === 'object') ? vars : null;
+      var ph = pr.map(function(r) {
+        r = r || {};
+        var x = (vv && typeof r.v === 'string' && _has(vv, r.v)) ? vv[r.v] : null;
+        var ok = x != null && x !== '' && typeof x !== 'boolean' && isFinite(Number(x)) && Number(x) >= 0 && Number(x) <= 100;
+        return _brow(r.label, ok ? _esc(String(x)) + '%' : '?', ok ? Number(x) / 100 : null, r.hl ? ' is-hl' : '',
+          ok ? ' data-pct="' + _esc(String(x)) + '"' : '');
+      }).join('');
+      return '<div class="sr-bars sr-bpct" role="group" aria-label="퍼센트 막대">' +
+        '<div class="sr-bscale" aria-hidden="true"><span>0</span><span>50</span><span>100%</span></div>' + ph + '</div>';
     }
     if (kind === 'compare') {
       var nd = spec.need && typeof spec.need === 'object' ? need(spec.need.potTotal, spec.need.toCall) : null;
@@ -928,9 +946,10 @@ var SceneRender = (function() {
     sum: sum
   };
 
-  function render(obj) {
+  function render(obj, vars) {
     if (!obj || typeof obj !== 'object') return '';
     if (obj.t == null) return scene(obj);
+    if (obj.t === 'bar') return bar(obj, vars);
     return _has(RENDERERS, obj.t) ? RENDERERS[obj.t](obj) : '';
   }
   function supports(t) { return _has(RENDERERS, t); }

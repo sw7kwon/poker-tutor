@@ -104,6 +104,19 @@ var EV = (function() {
   function _fmt(v) { v = v || 0; return (v >= 0 ? '+' : '') + v.toFixed(2) + 'bb'; }
   function _pct(v) { return ((v || 0) * 100).toFixed(0) + '%'; }
 
+  // M5-COACH 리뷰: 벳 직면 코치 판정(V.source 'potodds')이 다음 1장('next')이나 상대 벳 레인지('river') 기준이면
+  //   판정에 쓴 승률(V.eqUsed)로 말한다. HUD 에쿼티(리버까지 MC, 줄이기 전 레인지)와 비교하면 '콜이 이득'인데 추천은 폴드처럼
+  //   엇갈려 보이기 때문. hud = 왜 HUD 숫자와 다른지(플랍은 리버까지 본 값, 턴과 리버는 레인지를 줄이기 전 값).
+  function _basisEq(V, equity) {
+    if (V && V.source === 'potodds' && (V.basis === 'next' || V.basis === 'river') && typeof V.eqUsed === 'number') {
+      return { eq: V.eqUsed, based: true, need: V.need != null ? V.need : V.potOdds,
+        name: V.basis === 'next' ? '다음 1장 기준 승률' : '상대 벳 레인지 기준 승률',
+        hud: (V.basis === 'next' && V.street !== 'turn') ? '리버까지 본 값'
+          : (V.range && V.range.removed > 0) ? '상대 레인지를 줄이기 전 값' : '어림 계산 값' };
+    }
+    return { eq: equity, based: false, name: '내 승률', need: null, hud: '' };
+  }
+
   function buildCoaching(state, ev, equity) {
     var pot = state.pot;
     var toCall = Math.max(0, state.currentBet - ((state.playerBets && state.playerBets['Hero']) || 0));
@@ -112,7 +125,8 @@ var EV = (function() {
     if (V && V.source === 'chart') return '📋 레인지 차트: ' + V.label + ' / ' + V.why;
     if (V && V.source === 'potodds') {
       var need = V.need != null ? V.need : (V.potOdds != null ? V.potOdds : potOdds);
-      return '내 승률 ' + _pct(equity) + ' vs 필요 승률 ' + _pct(need) + ' → ' + V.label;
+      var be = _basisEq(V, equity);
+      return be.name + ' ' + _pct(be.eq) + (be.based ? '(참고)' : '') + ' vs 필요 승률 ' + _pct(need) + ' → ' + V.label;
     }
     if (V && V.source === 'guide') return V.label + ': ' + V.why;
     var best = ev.bestAction;
@@ -152,7 +166,11 @@ var EV = (function() {
       allin:' '+ev.allinAmt.toFixed(1)+'bb'
     };
     var bestEV = ev[best] || 0;
-    var eqComment = toCall > 0 ? (equity > potOdds ? '✓ 에쿼티 우위' : '✗ 에쿼티 부족') : '체크 옵션';
+    // M5-COACH 리뷰: 벳 직면 판정이 다음 1장(리버는 상대 벳 레인지) 기준이면 우위/부족도 그 승률로(추천 줄과 엇갈리지 않게)
+    var be = _basisEq(V, equity);
+    var eqComment = toCall <= 0 ? '체크 옵션'
+      : be.based ? be.name + ' ' + (be.eq * 100).toFixed(0) + '%(참고) ' + (be.eq >= be.need ? '✓ 우위' : '✗ 부족')
+      : (equity > potOdds ? '✓ 에쿼티 우위' : '✗ 에쿼티 부족');
     var reasons = {
       fold: '에쿼티가 팟 오즈 미달 — 폴드가 장기 기댓값 보호',
       call: toCall===0 ? '체크로 팟 컨트롤 + 다음 스트리트 정보 수집' : '팟 오즈 대비 에쿼티 충분 — 콜로 팟 가담',
@@ -184,6 +202,17 @@ var EV = (function() {
     var fmt = _fmt;
     var eqPct = (equity * 100).toFixed(0);
     var oddsPct = (potOdds * 100).toFixed(0);
+    // M5-COACH 리뷰: 코치가 다음 1장(리버는 상대 벳 레인지) 승률로 콜/폴드를 정했으면 그 근거로 말하고,
+    //   EV 숫자는 HUD 승률(리버까지, 줄이기 전 레인지)로 센 추정이라고 밝힌다('에쿼티 41% < 팟 오즈 25%' 같은 거짓 비교 방지)
+    var be = _basisEq(ev.verdict, equity);
+    if (be.based && toCall > 0 && (best === 'fold' || best === 'call')) {
+      var bp = (be.eq * 100).toFixed(0), up = be.eq >= be.need;
+      return [
+        '판정 근거: ' + be.name + ' ' + bp + '%(참고) ' + (up ? '&gt;=' : '&lt;') + ' 팟 오즈 ' + oddsPct + '%',
+        '추정 EV(HUD 승률 ' + eqPct + '%로 계산): 콜 ' + fmt(ev.call) + ', 레이즈 ' + fmt(ev.raise_half),
+        up ? '이번 콜 가격이면 콜이 이득' : '이번 콜 가격에는 못 미쳐 폴드'
+      ];
+    }
 
     if (best === 'fold') return [
       'EV: 폴드 0bb &gt; 콜 ' + fmt(ev.call) + ' &gt; 레이즈 ' + fmt(ev.raise_half),
@@ -246,8 +275,16 @@ var EV = (function() {
       lines.push('📊 내 승률(에쿼티)은 약 ' + eqPct + '%예요. 돈을 더 넣지 않고 다음 카드를 볼 수 있으니 손해볼 게 없는 상황이에요.');
     } else {
       var oddsPct = (potOdds * 100).toFixed(0);
-      var verdictStr = equity > potOdds ? '콜이 이득이에요' : '콜이 손해예요';
-      lines.push('📊 내 승률(에쿼티) 약 ' + eqPct + '% / 콜에 필요한 최소 승률(팟 오즈) ' + oddsPct + '% → ' + verdictStr + '.');
+      var be = _basisEq(V, equity);
+      if (be.based) {
+        // M5-COACH 리뷰: 코치가 다음 1장(리버는 상대 벳 레인지) 승률로 판정하므로 그 숫자로 비교하고, HUD 숫자는 왜 다른지만 말한다
+        var verdictB = be.eq >= be.need ? '콜이 이득이에요' : '콜이 손해예요';
+        lines.push('📊 내 승률(에쿼티) 약 ' + eqPct + '%는 ' + be.hud + '이에요. 이번 콜은 ' + be.name + ' 약 ' +
+          (be.eq * 100).toFixed(0) + '%(참고)와 필요 승률(팟 오즈) ' + oddsPct + '%로 판단해요 → ' + verdictB + '.');
+      } else {
+        var verdictStr = equity > potOdds ? '콜이 이득이에요' : '콜이 손해예요';
+        lines.push('📊 내 승률(에쿼티) 약 ' + eqPct + '% / 콜에 필요한 최소 승률(팟 오즈) ' + oddsPct + '% → ' + verdictStr + '.');
+      }
     }
 
     // 3. 추천 액션 + 근거
@@ -270,12 +307,14 @@ var EV = (function() {
       lines.push('📐 위 승률은 ' + (state.villainRangeLabel || '상대의 예상 레인지') + '를 기준으로 계산했어요.');
     }
 
-    // 4. 상황 팁 (해당 시에만, 최대 1줄)
+    // 4. 상황 팁 (해당 시에만, 최대 1줄). 벳 직면은 코치 판정에 쓴 승률 기준(M5-COACH 리뷰, 위 📊 줄과 같은 숫자)
+    //   다음 1장 승률은 드로우일 때 낮게 나오므로 '무리한 콜' 팁은 그 승률이 필요 승률보다도 낮을 때만(콜 판정과 엇갈리지 않게)
+    var bt = toCall > 0 ? _basisEq(V, equity) : null, eqTip = bt ? bt.eq : equity;
     if (spr < 2) {
       lines.push('💡 남은 스택이 팟의 2배도 안 돼요. 한 번 들어가면 올인까지 가는 스팟이에요.');
-    } else if (equity >= 0.55) {
+    } else if (eqTip >= 0.55) {
       lines.push('💡 승률이 높은 편이라 밸류를 극대화하는 방향(레이즈/콜)이 좋아요.');
-    } else if (equity < 0.30 && toCall > 0) {
+    } else if (eqTip < 0.30 && toCall > 0 && !(bt && bt.based && eqTip >= bt.need)) {
       lines.push('💡 승률이 낮은데 돈을 더 넣는 건 무리한 콜이 될 수 있어요, 주의하세요.');
     }
 

@@ -6,8 +6,10 @@
 //     toCall = currentBetBefore - haveBefore, 팟 = potBefore로 계산한다.
 //     대사 변형은 opts.rnd가 있으면 그것으로, 없으면 (이름, 스트리트, 보드, 액션, 홀카드, 핸드 번호) 해시로 고른다.
 //     같은 입력이면 같은 문장이다. 리버에는 '드로우' 문구를 쓰지 않는다(스트리트 분기).
-//   readOf(reader, target, state, opts{action, amount, label?, snapshot?}) → { grade, text, conf, examples } | null
+//   readOf(reader, target, state, opts{action, amount, label?, snapshot?, table?, prev?}) → { grade, text, conf, examples } | null
 //     grade는 'strong'|'medium'|'weak'|'air'(T5 4단계, 보드 3장 미만이면 null). 상대 유형 + 액션으로 추정한다.
+//     opts.table === 'theater'면 극장 계획 AI 실측 표(THEATER_READ, M5-THEATER)를 쓰고 확신이 낮은 장면은 null이다.
+//     없으면 게임 엔진 빌런 기준 표(READ_TABLE) 그대로다.
 //   truthGrade(hole, board): T5 대응(nut, strong → strong / medium → medium / weak-pair, draw → weak / air → air).
 //   rangeExamples(arr, opts) → 대표 조합 문자열(말 이름 + 기호, 예 '에이스퀸 A♠Q♦'). 엔진 표(GTO_RANGES)를 Range로 펼치고
 //     보드와 죽은 카드에 겹치는 조합은 뺀다. 보드가 있으면 진실 등급으로 거른다.
@@ -717,6 +719,103 @@ var Thinking = (function() {
     NEUTRAL: { up: '성향은 아직 모르니 액션만 보면', down: '성향은 아직 모르니 액션만 보면',
       call: '성향은 아직 모르니 액션만 보면', check: '성향은 아직 모르니 액션만 보면' }
   };
+  // ── 극장 읽기 표(M5-THEATER, 로드맵 결정 사항 14번) ──
+  // 극장(theater/theater-core.js)만 readOf(..., { table: 'theater', prev })로 쓴다. 위 READ_TABLE(게임 엔진 빌런 기준)은 그대로다.
+  // 극장 계획 AI(theater/cast-ai.js)는 계획대로 함정과 블러프를 더 많이 해서 게임 표로 읽으면 은행 500편 읽기 3282건 중 60.5%가
+  // 오독이었다. 그래서 극장 AI를 실제로 돌려 잰 표를 따로 둔다.
+  //   실측(2026-10-21): 은행 500편(읽기 3282건)과 은행 밖 시드 100001~200000 중 드라마 점수 78 이상 574편(읽기 3743건)을
+  //   합쳐 유형 x 읽기 키 x 스트리트마다 실제 강도(truthGrade) 분포를 쟀다. 칸 표본이 15개 미만이면 유형을 합친 같은 키와 스트리트
+  //   (NEUTRAL 줄과 같음)를 쓴다. 칸의 가장 흔한 등급을 읽기로 쓰고, 그 비율이 45% 미만이면 읽지 않는다(readOf가 null, 극장에서는
+  //   읽기 줄과 배지가 없다). 결과: 은행 읽기 약 78%만 남고 그중 오독 약 30%(은행 밖 같은 점수대 시드로 검증하면 약 34%).
+  //   유형, 액션, 크기, 스트리트, 같은 스트리트의 앞 액션까지 봐도 같은 장면에서 실제 손이 넓게 퍼져서(계획이 손을 숨긴다)
+  //   모든 장면을 읽으면 오독이 36% 아래로 내려가지 않는다.
+  // 읽기 키: allin, raise, betBig, betSmall, call(게임 표와 같은 뜻)에 같은 스트리트 앞 액션(opts.prev)으로 둘을 더 나눈다.
+  //   checkraise = 이 스트리트에서 체크한 사람의 레이즈(올인 포함), betcall = 이 스트리트에서 벳이나 레이즈를 한 사람의 콜.
+  // 칸 표기 '플랍 턴 리버': 첫 글자 S 강함, M 중간, W 약함, A 빈손. 대문자면 그 등급으로 읽고, 소문자면 읽지 않는다.
+  //   숫자는 그 등급의 실측 비율(%)이다. 소문자는 비율이 45% 미만인 칸, 그리고 리버 체크레이즈(극장 AI에서는 3배럴 블러프만
+  //   리버에 체크레이즈를 해서 빈손이 92%이지만 실전에서는 강한 손이 많은 줄이라 그렇게 가르치지 않는다).
+  //   극장 AI(cast-ai, plans, cast)가 바뀌어 은행을 다시 만들면 이 표도 다시 잰다(tests/j-highlight.test.js 14가 은행 오독 비율을 본다).
+  var THEATER_READ_KEYS = ['allin', 'checkraise', 'raise', 'betBig', 'betSmall', 'betcall', 'call'];
+  var THEATER_STREETS = ['flop', 'turn', 'river'];
+  var THEATER_MIN_P = 45;
+  var THEATER_READ_SRC = {
+    TAG: {
+      allin: 'S63 S64 S86', checkraise: 'S53 S53 a92', raise: 's34 S80 S88', betBig: 'w43 S75 S96',
+      betSmall: 'W53 w38 M100', betcall: 'W66 S68 S60', call: 'M56 s40 S66'
+    },
+    LAG: {
+      allin: 'S63 S50 S60', checkraise: 'M61 S48 a100', raise: 's28 S80 S72', betBig: 'w40 w43 S83',
+      betSmall: 'A51 A48 M100', betcall: 'W71 W54 S68', call: 's42 S50 S57'
+    },
+    Fish: {
+      allin: 'S63 S60 S86', checkraise: 'M60 M51 a92', raise: 's35 S80 S95', betBig: 'W73 S60 S100',
+      betSmall: 'W69 S65 M70', betcall: 'W72 S66 S82', call: 'm38 s43 S64'
+    },
+    Nit: {
+      allin: 'S63 S64 S89', checkraise: 'M59 S57 a92', raise: 's34 S80 S96', betBig: 'W62 S81 S100',
+      betSmall: 'M76 w38 M80', betcall: 'M45 S67 S81', call: 'S67 S57 S57'
+    },
+    Mixed: {
+      allin: 'S63 S64 S78', checkraise: 'M65 S45 a87', raise: 's34 S80 S88', betBig: 'W47 s44 S94',
+      betSmall: 'W50 W53 M53', betcall: 'W83 S52 S75', call: 'S50 S64 m44'
+    },
+    Station: {
+      allin: 'S63 S64 S93', checkraise: 'M52 M52 a92', raise: 'm41 S80 S96', betBig: 'W83 S69 S100',
+      betSmall: 'W82 w43 M84', betcall: 'W73 S53 S76', call: 'w39 s39 S49'
+    },
+    NEUTRAL: {
+      allin: 'S63 S64 S81', checkraise: 'M57 S48 a92', raise: 's34 S80 S90', betBig: 'W62 S51 S95',
+      betSmall: 'W51 w38 M80', betcall: 'W71 S55 S75', call: 'm36 s44 S57'
+    }
+  };
+  var THEATER_LETTER = { S: 'strong', M: 'medium', W: 'weak', A: 'air' };
+  // → { 유형: { 키: { flop|turn|river: { grade(읽지 않으면 null), guess(가장 흔한 등급), p(그 비율 %) } } } }
+  function _parseTheaterRead(src) {
+    var out = {};
+    Object.keys(src).forEach(function(ty) {
+      out[ty] = {};
+      Object.keys(src[ty]).forEach(function(k) {
+        var cells = String(src[ty][k]).split(/\s+/);
+        out[ty][k] = {};
+        THEATER_STREETS.forEach(function(st, i) {
+          var c = cells[i] || '', ch = c.charAt(0), up = ch.toUpperCase();
+          var g = THEATER_LETTER[up] || null;
+          out[ty][k][st] = { grade: (g && ch === up) ? g : null, guess: g, p: Number(c.slice(1)) || 0 };
+        });
+      });
+    });
+    return out;
+  }
+  var THEATER_READ = _parseTheaterRead(THEATER_READ_SRC);
+  // 극장 읽기 이유(유형 말 없이 액션과 스트리트로만, 등급 방향에 맞는 문장). cls: strong, medium, low(약함과 빈손).
+  //   값이 문자열이면 모든 스트리트, 객체면 스트리트별(any는 나머지).
+  var THEATER_WHY = {
+    allin: { strong: '올인까지 밀었으니', medium: '올인이지만 맞은 손으로 버티며 밀 때가 많아서',
+      low: '올인이지만 블러프로 밀 때도 있어서' },
+    checkraise: { strong: '체크로 기다렸다가 레이즈했으니', medium: '체크했다가 올리는 건 맞은 손일 때가 많아서',
+      low: { river: '쇼다운으로 못 이기는 손이 리버에서 쓰는 수일 때가 많아서', any: '체크했다가 올렸지만 드로우로 칠 때도 많아서' } },
+    raise: { strong: { flop: '플랍부터 레이즈로 맞섰으니', turn: '턴에서 레이즈로 맞섰으니', river: '리버에서 레이즈로 맞섰으니' },
+      medium: '레이즈는 맞은 손으로 할 때가 많아서', low: '레이즈지만 드로우나 블러프로 칠 때도 많아서' },
+    betBig: { strong: { flop: '플랍부터 크게 걸었으니', turn: '턴에서 크게 걸었으니', river: '리버에서 크게 걸었으니' },
+      medium: '크게 걸었지만 맞은 손을 지키려는 벳일 때가 많아서',
+      low: { river: '리버에서 크게 거는 건 블러프일 때도 많아서', any: '크게 걸었지만 드로우로 밀 때가 많아서' } },
+    betSmall: { strong: '작게 걸어 콜을 받아내려는 것 같아서',
+      medium: { river: '리버에서 작게 거는 건 적당히 맞은 손일 때가 많아서', any: '작게 거는 건 적당히 맞은 손일 때가 많아서' },
+      low: '아무 손으로나 칠 수 있는 크기라' },
+    betcall: { strong: '레이즈를 받고도 따라왔으니', medium: '레이즈를 받고 콜만 했으니',
+      low: { river: '레이즈를 받고 콜만 했으니', any: '걸었다가 레이즈를 받자 콜만 했으니' } },   // 앞 액션이 벳이든 레이즈든 맞는 말
+    call: { strong: { flop: '플랍부터 조용히 따라왔으니', turn: '턴까지 따라왔으니', river: '리버까지 따라왔으니' },
+      medium: '레이즈 대신 콜로 받았으니', low: '콜로만 따라오니' }
+  };
+  function _theaterWhy(key, grade, pst) {
+    var w = THEATER_WHY[key];
+    if (!w) return '';
+    var v = w[(grade === 'strong' || grade === 'medium') ? grade : 'low'];
+    if (v && typeof v === 'object') v = v[pst] || v.any || '';
+    return v || '';
+  }
+  function _theaterConf(p) { return p >= 70 ? 'high' : p >= 55 ? 'mid' : 'low'; }
+
   var READ_POOLS = {
     strong: [
       function(c) { return c.t + '의 ' + c.act + '. ' + c.why + ' 강한 손으로 본다.'; },
@@ -755,8 +854,12 @@ var Thinking = (function() {
     ]
   };
 
-  // readOf(reader, target, state, opts{action, amount, label, snapshot, rnd}) → { grade, text, conf, examples, key } | null
+  // readOf(reader, target, state, opts{action, amount, label, snapshot, rnd, table?, prev?}) → { grade, text, conf, examples, key } | null
   //   key = 읽기 표의 액션 키(allin, raise, betBig, betSmall, bet, call, check, fold)
+  //   opts.table === 'theater'면 극장 읽기 표(THEATER_READ)를 쓴다. opts.prev = 대상이 이 스트리트에서 먼저 한 액션들
+  //   (예 ['check']). 그때 key는 checkraise, betcall일 수 있고, 표가 읽지 않는 칸이면 null이다. 반환에 table:'theater'와
+  //   p(그 등급의 실측 비율 %)가 붙고, conf는 p로 정한다(70 이상 high, 55 이상 mid). 표에 없는 키(fold, check, 금액 없는 bet)는
+  //   게임 표로 읽는다. 이유 문장은 유형 말 없이 액션과 스트리트로만 쓴다.
   function readOf(reader, target, state, opts) {
     opts = opts || {};
     state = state || {};
@@ -792,6 +895,22 @@ var Thinking = (function() {
     var aggr = key !== 'call' && key !== 'check' && key !== 'fold';
     var whyT = READ_WHY[type || 'NEUTRAL'];
     var why = aggr ? ((grade === 'strong' || grade === 'medium') ? whyT.up : whyT.down) : (key === 'call' ? whyT.call : whyT.check);
+    var tcell = null;
+    if (opts.table === 'theater') {
+      var prev = Array.isArray(opts.prev) ? opts.prev : [];
+      var tkey = key;
+      if ((key === 'raise' || key === 'allin') && prev.indexOf('check') >= 0) {
+        tkey = 'checkraise'; actTxt = key === 'allin' ? '체크 뒤 올인' : '체크레이즈';
+      } else if (key === 'call' && prev.some(_isAggro)) tkey = 'betcall';
+      var trow = THEATER_READ[type || 'NEUTRAL'];
+      tcell = (trow && trow[tkey] && trow[tkey][pst]) || null;
+      if (tcell) {
+        if (!tcell.grade) return null;          // 실측 확신이 낮은 장면은 읽지 않는다
+        key = tkey;
+        grade = tcell.grade;
+        why = _theaterWhy(tkey, grade, pst);
+      }
+    }
     var pick = _picker(['ro', reader, target, state.street, _cardsKey(board), action, opts.amount || 0,
       state.handNum == null ? '' : state.handNum].join('|'), opts.rnd);
     var poolKey = key === 'fold' ? 'fold'
@@ -808,7 +927,9 @@ var Thinking = (function() {
     var conf = (!type || type === 'Mixed') ? 'low'
       : (aggr && (type === 'Nit' || type === 'Station' || type === 'Fish') && grade === 'strong') ? 'high'
       : (aggr && type === 'LAG') ? 'low' : 'mid';
-    return { grade: grade, text: body + _exampleTail(examples), conf: conf, examples: examples, key: key };
+    var res = { grade: grade, text: body + _exampleTail(examples), conf: conf, examples: examples, key: key };
+    if (tcell) { res.conf = _theaterConf(tcell.p); res.table = 'theater'; res.p = tcell.p; }
+    return res;
   }
 
   // 히어로 3단계 생각 선택지
@@ -989,6 +1110,8 @@ var Thinking = (function() {
     readOf: readOf, truthGrade: truthGrade, rangeExamples: rangeExamples, comboText: comboText,
     INTENT_KOR: INTENT_KOR, STREET_KOR: STREET_KOR, READ_KOR: READ_KOR, CONF_KOR: CONF_KOR, TRUTH: TRUTH,
     POOLS: { preflop: PF, postflop: PO, read: READ_POOLS }, TAILS: TAILS, NEUTRAL_TAIL: NEUTRAL_TAIL, TAIL_GROUPS: TAIL_GROUPS, READ_TABLE: READ_TABLE, READ_KEYS: READ_KEYS,
+    THEATER_READ: THEATER_READ, THEATER_READ_SRC: THEATER_READ_SRC, THEATER_READ_KEYS: THEATER_READ_KEYS,
+    THEATER_STREETS: THEATER_STREETS, THEATER_MIN_P: THEATER_MIN_P, THEATER_WHY: THEATER_WHY,
     _tone: _tone, _rangeOf: _rangeOf
   };
   if (typeof module !== 'undefined') module.exports = api;

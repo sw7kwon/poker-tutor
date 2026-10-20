@@ -215,7 +215,7 @@ var App = (function() {
               gtoEl.style.display = 'block';
             }
           } else {
-            var pfg = (typeof PostflopGuide !== 'undefined') ? PostflopGuide.guide(_state) : null;
+            var pfg = (typeof PostflopGuide !== 'undefined') ? PostflopGuide.guide(_state, { eq: eq }) : null;
             if (pfg) {
               var line = '👁 ' + pfg.meta + ' → ' + pfg.label + ' (' + pfg.reason + ')';
               // 정량 통념 테이블 1줄 (빈도·사이즈·MDF — 솔버 근사)
@@ -370,7 +370,7 @@ var App = (function() {
       }
     }
     if (logIt && V && g && V.source === 'chart' && typeof Drills !== 'undefined' && Drills.recordFromGame) {
-      Drills.recordFromGame(pre, _heroPos, V, g.light === 'green');
+      Drills.recordFromGame(pre, _heroPos, V, g.light === 'green' || !!g.sizeOnly);   // 깊은 스택 올인(sizeOnly)은 손은 맞혔으니 플래시카드는 정답
     }
     Table.render(_state);
     // 말풍선은 render 뒤에 — render가 좌석 innerHTML을 갈아 끼워 즉시 지워지던 문제
@@ -576,6 +576,9 @@ var App = (function() {
       HUD.updatePracticeTrend([]);
       var resume = _practice.resume;
       _practice = null;
+      // 실수 SRS 연쇄(계약 F4)는 resume 유무와 상관없이 먼저: 연쇄 2번째 핸드부터는 앞 연습 핸드가 resume으로 잡혀
+      // resume 없음 분기에만 두면 ▶가 그 상태로 돌아가 새 일반 핸드를 연다(M5-REVIEW 리뷰 실기)
+      if (typeof ReviewQueue !== 'undefined' && ReviewQueue.onPracticeExit && ReviewQueue.onPracticeExit()) return;
       if (!resume) {
         HistoryUI.open('menu');
         return;
@@ -646,6 +649,7 @@ var App = (function() {
       // 신호등 + 핸드 복기는 총평 패널에 통합 (연습 모드에서도 동일하게 렌더)
       if (typeof CoachUI !== 'undefined' && CoachUI.onHandEnd) CoachUI.onHandEnd({decisions:decisionsSnap, practice:!!_practice, gtoMode:_gtoMode, gtoRound:_gtoRound, sessionId:_sessionId});
       if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: result, state: _state, net: heroNet, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, heroFolded: !!(_state.folded && _state.folded.Hero) });
+      if (typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: result, state: _state, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, sessionId: _sessionId, hu: (_state.names || []).length === 2, heroFolded: !!(_state.folded && _state.folded.Hero) }); // 운 미터(M5-HUD, F1)
       _renderHandSummary(result);
       // 액션바 교체
       var actionBar = document.getElementById('action-bar');
@@ -1024,6 +1028,7 @@ var App = (function() {
         (st.big || st.small ? '차트나 가이드로 판정한 실수는 bb 대신 큰 실수, 작은 실수로 셌어요. ' : '') +
         '칩 손익에는 운이 섞여 있어요.</div>';
     }
+    if (statsEl && typeof HeroStats !== 'undefined' && HeroStats.renderSession) HeroStats.renderSession(statsEl, { sessionId: _sessionId, hands: _sessionHands.length }); // 거울 HUD 칩, 이번 세션 운 미터(M5-HUD)
     if (!st.decisions) {
       handsEl.innerHTML = '<div style="text-align:center;color:#8b949e;padding:1rem">평가할 결정이 없었어요</div>';
       return;

@@ -1,6 +1,7 @@
-// lessons/lesson-core.js (채우는 패키지: M3-P1b, M4-P7이 calc outs, band와 potodds pctd, 아웃츠 표 검산을 더함)
+// lessons/lesson-core.js (채우는 패키지: M3-P1b, M4-P7이 calc outs, band와 potodds pctd, 아웃츠 표 검산을 더함,
+//   M5-P0이 calc 등록부 L9와 bar kind 'pct'를 더함. M5에서 그룹은 이 파일을 고치지 않는다)
 //
-// 그룹 간 계약 정본 L1~L8 (M3 사전 등록). 각 패키지는 이 계약에 맞춰 구현한다. 설계서와 다르면 이 주석이 우선한다.
+// 그룹 간 계약 정본 L1~L9 (M3 사전 등록, L9는 M5-P0). 각 패키지는 이 계약에 맞춰 구현한다. 설계서와 다르면 이 주석이 우선한다.
 //
 // L1 레슨 객체: LESSONS.push({ id, node, title, est, source, scenes }).
 //   id = node = 노드 id(journey-data의 lesson 필드와 같음). est는 분(2~4), source는 1차 출처 또는 '엔진 계산'.
@@ -23,6 +24,7 @@
 //     | {kind:'equity', rows:[{label, precalc} | {label, exact:{hero, vs, board}}]}
 //     | {kind:'compare', precalc | exact, need:{potTotal, toCall}}(같은 축에 내 승률 막대와 필요 승률, 콜/폴드 바늘),
 //     변수 eq(첫 줄), need.
+//     | {kind:'pct', rows:[{label, v, hl?}], calc}(M5-P0, L9): 줄 값 = 같은 장면 변수 v(0~100), 막대 길이 값/100, 글자 'n%'.
 //   ask {id(레슨 안에서 유일, 예 'q1'), q, choices[2~4], answer(0부터), why(한 줄), calc?, pick?[], ref?}:
 //     ref는 커리큘럼 문항 id('c4-1')를 가리키는 예약 필드로 M3 데이터에서는 쓰지 않는다.
 //   compare {cols:[{who, text}] 3개, mine?}(S4 이상, 렌더만).
@@ -31,6 +33,7 @@
 //     LessonPlayer가 say, ask, widget과 모든 장면의 caption 줄과 label 칩.
 //
 // L3 calc 유형과 템플릿 변수. 표기: 퍼센트는 정수 반올림(Math.round), bb는 소수 둘째 자리까지 끝 0 제거(15, 7.5, 2.25).
+//   아래는 내장 유형(BUILTIN_CALCS). M5부터 새 유형은 L9 등록부로 더한다.
 //   예외(M4-P7): 설계 표가 소수 첫째 자리인 값(potodds pctd, outs pct1과 pct2, band lo와 mid와 hi)은 소수 첫째 자리.
 //   potodds {potTotal, toCall} → pct = toCall/(potTotal+toCall), potTotal, toCall,
 //     pctd = 같은 값의 소수 첫째 자리 문자열(27.3, 25.0, M4-P7, s2-09의 27.3% 링).
@@ -100,6 +103,33 @@
 //     호출자는 journey-ui _act('lesson')와 today-ui 레슨 블록(이미 연결됨).
 //   SceneRender 추가(P1a): render가 table, bar, compare, sum 처리, supports(t), vars(scene)에 bar 변수, eqExact(hero, vs, board).
 //   Boss와 CoachUI는 설계서 2.5절과 7.3절 9번(CoachUI.snapshot() → {auto, level, recent}, CoachUI.restore(s)) 그대로.
+//
+// L9 레슨 calc 등록부(M5-P0). L3 내장 유형 밖의 calc는 lessons/calc/<파일>.js가 로드 때 등록한다
+//   (유형 소유 표는 docs/JOURNEY_ROADMAP.md M5 계약 F7, 다른 그룹 유형은 쓰지 않고 필요하면 자기 이름으로 새로 등록).
+//   LessonCore.defineCalc(type, def) → boolean. type은 영문자로 시작하는 영숫자. 내장 L3 유형 이름, 이미 등록된 이름,
+//     Object 기본 속성 이름이면 false(덮어쓰기 금지), def 형식이 틀려도 false.
+//   def = { calc(c) → 변수 객체 | {error},
+//     main: 정답 비교 기본 변수 이름(L4 결과값, 등록 때 CALC_MAIN에 더한다),
+//     verify(c) → 변수 객체 | {error}: calc 코드를 부르지 않는 독립 경로(직접 열거, 다른 공식 형태, EV.calcOptions 같은 다른 엔진 함수).
+//       j-lessons 검산기는 verify가 낸 변수만 정의된 것으로 보므로 장면과 질문이 쓰는 변수(main, 템플릿, pct 막대 v)는 verify도 낸다,
+//     cases: [{ c(type 없이 입력만), want: { 변수: 값 }(main 포함) }] 손으로 확인한 값 2개 이상,
+//     qNums?(c) → [ask.q에 꼭 나와야 하는 입력 숫자],
+//     qCards?(c) → [ask.q의 카드와 같아야 하는 카드 문자열](빈 배열이 아니면 q에 카드가 없어도 불일치. 레슨 복습은 등록 유형 그림을
+//       그리지 않고 질문 문장만 보이므로 카드가 필요한 질문은 q에 카드를 적는다),
+//     chip?: 'exact'(기본, '엔진 계산') | 'chart'('이 앱 차트 기준', 차트 레인지에서 나온 값) | 'appdef'('이 앱의 분류 기준')
+//       (calc가 있는 장면의 라벨 칩, 설계서 8.2절. approx 내용은 장면 label '참고'가 따로 붙는다) }.
+//   입력에 pot 필드 금지(potTotal = 상대 벳 포함 팟, potBefore = 벳 전 팟). 표기(F7): 퍼센트 변수는 정수 반올림,
+//     SPR은 소수 첫째 자리 문자열. 등록 유형 calc 결과가 객체가 아니거나 main 변수가 없으면 calc가 오류를 낸다.
+//   calc, CALC_MAIN, wantKey, answerIndex, vars, fill, check(정의 안 된 변수, 정답 칸, pot 필드, 숫자 템플릿)는 등록 유형을
+//     내장 유형과 똑같이 다룬다. puzzles/gen-lesson.js(wantOf, calcResult)도 등록 유형 main을 써서 오답을 Leitner 복습으로 복원한다.
+//   tests/j-lessons.test.js: 등록 유형 calc는 def.verify로 검산하고, 장면마다 LessonCore.calc와 def.verify의 공통 변수가 같아야 하고,
+//     모든 등록 유형 cases를 calc와 verify 둘 다로 대조하고, qNums와 qCards로 질문 문장을 대조한다(ask.q).
+//   calcDef(type) → def | null(등록 유형만), calcTypes() → 등록 유형 이름 배열(등록 순서), BUILTIN_CALCS = 내장 유형 이름 배열,
+//     _undefineCalc(type) → boolean은 테스트 전용(등록 유형만 지운다).
+//   bar kind 'pct' 장면: { t:'bar', kind:'pct', rows:[{ label, v:'같은 장면 calc 변수 이름', hl? }], calc }.
+//     줄 값 = 그 변수(0~100), 막대 길이 값/100, 글자 'n%'(레인지 적중 분포, MDF, 알파 막대, 설계서 3.1절 6번).
+//     SceneRender.render(obj, vars)가 두 번째 인자로 값을 받고(없거나 모르는 변수면 '?'), LessonPlayer가 LessonCore.vars(scene)를 넘기고,
+//     check가 rows, label(숫자+%와 숫자+bb 금지, 값은 v로), v 정의와 0~100 범위를 본다.
 //
 // 구현 메모(M3-P1b, 위 계약의 의미는 바꾸지 않고 구현에서 정한 것만 적는다)
 //   M1 상태기계. phase 'show' → (ask에서 answer) 'answered' → (마지막 장면에서 next) 'done'.
@@ -361,12 +391,61 @@ var LessonCore = (function() {
       return { lo: Number(b.lo), mid: Number(b.mid), hi: Number(b.hi), pct: Math.round(Number(b.mid)) };
     }
   };
+  var BUILTIN_CALCS = Object.keys(CALCS);
+
+  // ── calc 등록부(L9) ──────────────────────────────────
+  var REG = {}, REG_ORDER = [];
+  var CHIPS = ['exact', 'chart', 'appdef'];
+  var TYPE_RE = /^[A-Za-z][A-Za-z0-9]*$/;
+  function _defOk(def) {
+    if (!_isObj(def) || typeof def.calc !== 'function' || typeof def.verify !== 'function') return false;
+    if (def.verify === def.calc) return false;
+    if (typeof def.main !== 'string' || !TYPE_RE.test(def.main)) return false;
+    if (!Array.isArray(def.cases) || def.cases.length < 2) return false;
+    for (var i = 0; i < def.cases.length; i++) {
+      var cs = def.cases[i];
+      if (!_isObj(cs) || !_isObj(cs.c) || !_isObj(cs.want) || !_has(cs.want, def.main) || _hasPot(cs.c, 0)) return false;
+    }
+    if (def.qNums != null && typeof def.qNums !== 'function') return false;
+    if (def.qCards != null && typeof def.qCards !== 'function') return false;
+    if (def.chip != null && CHIPS.indexOf(def.chip) < 0) return false;
+    return true;
+  }
+  function defineCalc(type, def) {
+    if (typeof type !== 'string' || !TYPE_RE.test(type) || type in Object.prototype) return false;
+    if (_has(CALCS, type) || _has(REG, type) || _has(CALC_MAIN, type)) return false;
+    if (!_defOk(def)) return false;
+    REG[type] = def;
+    REG_ORDER.push(type);
+    CALC_MAIN[type] = def.main;
+    return true;
+  }
+  function calcDef(type) { return (typeof type === 'string' && _has(REG, type)) ? REG[type] : null; }
+  function calcTypes() { return REG_ORDER.slice(); }
+  // 테스트 전용: 등록 유형만 지운다(내장 유형은 false)
+  function _undefineCalc(type) {
+    if (!calcDef(type)) return false;
+    delete REG[type];
+    delete CALC_MAIN[type];
+    REG_ORDER = REG_ORDER.filter(function(t) { return t !== type; });
+    return true;
+  }
+  function _err(e) { return 'calc 계산 실패: ' + (e && e.message ? e.message : e); }
+
   function calc(c) {
     if (!_isObj(c) || !c.type) return { error: 'calc에 type이 없어요' };
     if (_has(c, 'pot')) return { error: 'pot 필드는 쓰지 않아요(potTotal만)' };
-    var f = CALCS[c.type];
-    if (!f) return { error: '알 수 없는 calc 유형: ' + c.type };
-    try { return f(c); } catch (e) { return { error: 'calc 계산 실패: ' + (e && e.message ? e.message : e) }; }
+    if (_has(CALCS, c.type)) {
+      try { return CALCS[c.type](c); } catch (e) { return { error: _err(e) }; }
+    }
+    var d = calcDef(c.type);
+    if (!d) return { error: '알 수 없는 calc 유형: ' + c.type };
+    var r;
+    try { r = d.calc(c); } catch (e2) { return { error: _err(e2) }; }
+    if (!_isObj(r)) return { error: c.type + ' calc 결과가 객체가 아니에요' };
+    if (r.error) return { error: String(r.error) };
+    if (!_has(r, d.main) || r[d.main] == null || r[d.main] === '') return { error: c.type + ' calc 결과에 ' + d.main + ' 값이 없어요' };
+    return r;
   }
 
   // ── 템플릿 변수(L3) ──────────────────────────────────
@@ -457,7 +536,7 @@ var LessonCore = (function() {
   function wantKey(ask) {
     var c = _isObj(ask) && _isObj(ask.calc) ? ask.calc : {};
     if (typeof c.of === 'string' && c.of) return c.of;
-    return CALC_MAIN[c.type];
+    return (typeof c.type === 'string' && _has(CALC_MAIN, c.type)) ? CALC_MAIN[c.type] : undefined;
   }
   // order 질문이 마지막 자리를 묻는데 calc.of가 없으면 첫 자리(first)와 비교하게 되므로 데이터 오류(j-lessons ask.of와 같은 규칙)
   function _lastWithoutOf(ask) {
@@ -753,7 +832,19 @@ var LessonCore = (function() {
           } else if (kind === 'compare') {
             srcOk(sc, 'bar compare');
             if (!_isObj(sc.need) || _need(sc.need.potTotal, sc.need.toCall) == null) e(i, 'bar compare에 need{potTotal, toCall}가 필요해요');
-          } else e(i, "bar kind는 'amount', 'equity', 'compare'예요");
+          } else if (kind === 'pct') {
+            // (M5-P0, L9) 줄 값 = 같은 장면 변수(0~100). 값은 v로만 오고 label에는 숫자+%를 쓰지 않는다
+            if (!Array.isArray(sc.rows) || !sc.rows.length) e(i, 'bar pct에 rows가 없어요');
+            else sc.rows.forEach(function(r, k) {
+              var where = 'bar pct ' + (k + 1) + '번 줄';
+              if (!_isObj(r) || typeof r.label !== 'string' || !r.label.trim()) { e(i, where + '에 label이 없어요'); return; }
+              if (NUM_UNIT.test(r.label)) e(i, where + ' label에 숫자+% 또는 숫자+bb를 쓰지 않아요(값은 v 변수로): ' + r.label);
+              if (typeof r.v !== 'string' || !r.v) { e(i, where + '에 v(같은 장면 변수 이름)가 없어요'); return; }
+              if (!_has(v, r.v) || v[r.v] == null || v[r.v] === '') { e(i, where + '의 변수 ' + r.v + '가 정의되지 않았어요'); return; }
+              var x = Number(v[r.v]);
+              if (!_fin(v[r.v]) || typeof v[r.v] === 'boolean' || x < 0 || x > 100) e(i, where + '의 ' + r.v + ' = ' + v[r.v] + '는 0~100 숫자가 아니에요');
+            });
+          } else e(i, "bar kind는 'amount', 'equity', 'compare', 'pct'예요");
           break;
         }
         case 'cards':
@@ -772,10 +863,11 @@ var LessonCore = (function() {
   }
 
   var api = {
-    TYPES: TYPES.slice(), CALC_MAIN: CALC_MAIN, WRONG_MS: WRONG_MS, CAP_MAX: CAP_MAX,
+    TYPES: TYPES.slice(), CALC_MAIN: CALC_MAIN, WRONG_MS: WRONG_MS, CAP_MAX: CAP_MAX, BUILTIN_CALCS: BUILTIN_CALCS.slice(),
     find: find, create: create, vars: vars, fill: fill, check: check,
     calc: calc, eqExact: eqExact, wantKey: wantKey, answerValue: answerValue, answerIndex: answerIndex, tplNames: _tplNames,
-    outsOf: outsOf
+    outsOf: outsOf,
+    defineCalc: defineCalc, calcDef: calcDef, calcTypes: calcTypes, _undefineCalc: _undefineCalc
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

@@ -6,9 +6,11 @@
 //   facingbet-river  exact(주어진 상대 레인지 기준). 보드 5장, 상대 벳 레인지를 콤보 목록으로 명시(보드와 내 카드 블로커 제외),
 //                    히어로 vs 명시 레인지 열거 에쿼티(무승부 0.5) vs need = 콜/(팟+콜). |eq - need| >= 0.08만,
 //                    히어로 강도 nut/strong 제외, Coach.verdict가 raise면 폐기. 'multiway'는 명시 레인지 2개를 모두 이겨야 승리.
-//                    'marginal'(둘 다 OK, S5)은 M5-P7로 미뤄 null.
+//                    'marginal'(둘 다 OK, S5)은 소비처 s5-05가 M6이라 M6으로 이월(M5-P0 결정, 지금은 null).
 //   facingbet-next   exact. 플랍/턴, 상대는 명시한 손 1개 또는 작은 레인지. 남은 덱의 다음 1장을 열거해 "다음 카드 뒤 앞서는 비율"을
 //                    지금 콜 가격과 비교(마진 0.08). 'draw'는 히어로 드로우 스팟. 강도 제외와 raise 폐기도 리버와 같이 적용.
+// M5-COACH: raise 폐기 판정 때 코치에 명시 콤보를 그대로 넘긴다(헤즈업, { narrow: false }). 코치가 같은 레인지로 다시 센
+//   승률(Equity.nextCard 경로)이 문항 eq와 다르면 폐기한다. 멀티웨이는 { basis: 'eq' }(넘긴 eq 그대로).
 // 높이 규칙(설계서가 정하지 않은 구름(paired)과 안개(monotone)): 보드에서 가장 높은 카드가 Q 이상이면 하이, 10 또는 J면 미드, 9 이하면 로우.
 //   나머지 5클래스는 설계서 그대로다(맑음: a-high-dry, broadway-dry = 하이(가장 높은 카드 Q 이상), low-dry = 로우(J 이하),
 //   비: mid-wet = 미드(10 이상), low-wet = 로우(9 이하)). 구름과 안개 규칙은 classifyFlop의 두 경계(Q, 10)를 그대로 이은 것이다.
@@ -148,16 +150,26 @@ var GenPostflop = (function() {
   }
 
   // 코치 판정(raise면 폐기). Coach가 없으면 'none', 예외면 'error'(폐기 쪽).
-  function _coachAction(hero, board, potTotal, toCall, eq, heroPos, others) {
-    if (typeof Coach === 'undefined' || typeof Coach.verdict !== 'function') return 'none';
+  // M5-COACH: 헤즈업은 명시 콤보를 state.villainRange로 넘기고 { narrow: false }(이미 상대 벳 레인지라 지우지 않음).
+  //   그러면 코치가 같은 레인지로 다음 1장(플랍/턴) 또는 리버 승부를 직접 열거한다(V.eqUsed = 문항 eq, verify가 대조).
+  //   멀티웨이(combos 없음)는 코치가 레인지 1개만 다루므로 { basis: 'eq' }로 넘겨받은 eq(두 레인지를 모두 이길 확률) 그대로.
+  function _coachVerdict(hero, board, potTotal, toCall, eq, heroPos, others, combos) {
+    if (typeof Coach === 'undefined' || typeof Coach.verdict !== 'function') return null;
     var players = { Hero: { pos: heroPos } };
     (others || []).forEach(function(p, i) { players['V' + (i + 1)] = { pos: p }; });
     var state = {
       street: _streetOf(board.length), board: _objs(board), heroCards: _objs(hero), pot: potTotal, currentBet: toCall,
-      playerBets: { Hero: 0 }, players: players, decisions: [], folded: {}, stacks: { Hero: 100 }, bigBlind: 1
+      playerBets: { Hero: 0 }, players: players, decisions: [], folded: {}, stacks: { Hero: 100 }, bigBlind: 1,
+      villainRange: combos ? combos.slice() : null
     };
+    return Coach.verdict(state, null, eq, heroPos, combos ? { narrow: false } : { basis: 'eq' });
+  }
+  function _coachAction(hero, board, potTotal, toCall, eq, heroPos, others, combos) {
+    if (typeof Coach === 'undefined' || typeof Coach.verdict !== 'function') return 'none';
     try {
-      var V = Coach.verdict(state, null, eq, heroPos);
+      var V = _coachVerdict(hero, board, potTotal, toCall, eq, heroPos, others, combos);
+      // 헤즈업에서 코치가 다시 센 승률이 문항 승률과 다르면(정의 불일치) 폐기 쪽
+      if (V && combos && V.eqUsed != null && V.basis !== 'eq' && Math.abs(V.eqUsed - eq) > 1e-9) return 'error';
       return (V && V.action) || 'none';
     } catch (e) { return 'error'; }
   }
@@ -656,7 +668,7 @@ var GenPostflop = (function() {
         var Z = _chooseSize(eq, P, RIVER_FRACS, 0, target, rnd);
         if (!Z) continue;
         var B = Z.B, potTotal = Z.potTotal, need = Z.need;
-        var coach = _coachAction(hero, board, potTotal, B, eq, 'BB', [sc.vpos]);
+        var coach = _coachAction(hero, board, potTotal, B, eq, 'BB', [sc.vpos], flat.items.map(function(x) { return x.c; }));
         if (coach === 'raise' || coach === 'error') break;
         var info = _groupInfo(flat.groups, heroScore);
         var combos = flat.items.map(function(x) { return x.c; });
@@ -764,7 +776,7 @@ var GenPostflop = (function() {
     if (!_ready()) return null;
     rnd = _rnd(rnd);
     var v = opts && opts.variant;
-    if (v === 'marginal') return null; // 둘 다 OK 변형은 M5-P7
+    if (v === 'marginal') return null; // 둘 다 OK 변형은 M6(소비처 s5-05)
     return v === 'multiway' ? _riverMW(rnd) : _riverHU(rnd);
   }
   function _combosOk(list, dead) {
@@ -813,7 +825,7 @@ var GenPostflop = (function() {
       if (q.data && typeof q.data.eq === 'number' && Math.abs(q.data.eq - r.eq) > 1e-9) return false;
       if (q.answer !== (r.eq > need ? 'call' : 'fold')) return false;
       var vp = q.data && q.data.villPos, others = Array.isArray(vp) ? vp : [vp || 'BTN'];
-      var ca = _coachAction(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', others);
+      var ca = _coachAction(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', others, q.variant === 'multiway' ? null : s.range.combos);
       return ca !== 'raise' && ca !== 'error';
     } catch (e) { return false; }
   }
@@ -948,7 +960,7 @@ var GenPostflop = (function() {
       var pref = sizes.filter(function(o) { return (res.eq > o.need ? 'call' : 'fold') === target; });
       if (!pref.length && deal < 70) continue;          // 70딜 안에 못 맞추면 어느 쪽이든 받는다
       var Z = _pick(pref.length ? pref : sizes, rnd);
-      var coach = _coachAction(hero, board, Z.potTotal, Z.B, res.eq, 'BB', [sc.vpos]);
+      var coach = _coachAction(hero, board, Z.potTotal, Z.B, res.eq, 'BB', [sc.vpos], vill.combos);
       if (coach === 'raise' || coach === 'error') continue;
       var answer = res.eq > Z.need ? 'call' : 'fold';
       var phrase = street === 'flop' ? PHRASE_FLOP : PHRASE_TURN;
@@ -990,7 +1002,7 @@ var GenPostflop = (function() {
       if (Math.abs(r.eq - need) < MARGIN) return false;
       if (q.data && typeof q.data.eq === 'number' && Math.abs(q.data.eq - r.eq) > 1e-9) return false;
       if (q.answer !== (r.eq > need ? 'call' : 'fold')) return false;
-      var ca = _coachAction(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', [(q.data && q.data.villPos) || 'BTN']);
+      var ca = _coachAction(s.hero, s.board, s.potTotal, s.toCall, r.eq, 'BB', [(q.data && q.data.villPos) || 'BTN'], s.range.combos);
       return ca !== 'raise' && ca !== 'error';
     } catch (e) { return false; }
   }
@@ -1031,7 +1043,7 @@ var GenPostflop = (function() {
     topHeight: topHeight, heightOf: heightOf, axesOf: axesOf, classifyIndep: _classifyIndep, axesIndep: _axesIndep,
     equityVsCombos: equityVsCombos, equityMultiway: equityMultiway, equityNextCard: equityNextCard,
     cardText: cardText, classCombos: _classCombos,
-    _scoreOf: _scoreOf, _eqMultiFast: _eqMultiFast, _nextFast: _nextFast, _itemOf: _itemOf
+    _scoreOf: _scoreOf, _eqMultiFast: _eqMultiFast, _nextFast: _nextFast, _itemOf: _itemOf, _coachAction: _coachAction, _coachVerdict: _coachVerdict
   };
   if (typeof module !== 'undefined' && module) module.exports = api;
   return api;

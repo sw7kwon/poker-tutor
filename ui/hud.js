@@ -42,6 +42,14 @@ var HUD = (function() {
         return '<tr class="' + cls + '"><td>' + r.label + (isBest ? ' ★' : '') + '</td>' +
           '<td>' + (r.val >= 0 ? '+' : '') + r.val.toFixed(2) + '</td></tr>';
       }).join('');
+      // M5-COACH 리뷰: 벳 직면 ★는 코치 판정(다음 1장, 리버는 상대 벳 레인지 기준)이고 EV 숫자는 HUD 승률로 센 추정이라
+      //   콜/폴드가 엇갈리면(★ 폴드인데 콜 EV가 플러스, ★ 콜인데 콜 EV가 마이너스) 왜 다른지 한 줄
+      var Vh = ev.verdict, cev = ev.call;
+      var flip = typeof cev === 'number' && (ev.bestAction === 'fold' ? cev > 0 : cev < 0);
+      if (ev.bestSource === 'potodds' && Vh && (Vh.basis === 'next' || Vh.basis === 'river') && flip) {
+        tbody.innerHTML += '<tr><td colspan="2">★는 ' + (Vh.basis === 'next' ? '다음 1장' : '상대 벳 레인지') +
+          ' 기준 판정(참고), 숫자는 HUD 승률로 센 추정</td></tr>';
+      }
     }
     document.getElementById('coaching-text').textContent = hide ? '' : EV.buildCoaching(state, ev, equity);
     var gtoEl = document.getElementById('gto-hint');

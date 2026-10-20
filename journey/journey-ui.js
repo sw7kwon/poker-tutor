@@ -4,6 +4,9 @@
 //        카드 영역의 데일리 5 카드(C6). 퍼즐 결과의 XP는 PuzzleUI가 준다(여기서는 recordDrillSet과 통과 판정만).
 // M4-P8: 카드 영역의 오늘의 명장면(Journey.highlightOfDay 카드가 있고 TheaterUI.cardHTML이 있을 때만, "자세히 보기"는
 //        TheaterUI.showCard). 빠른 줄 🎭는 TheaterUI.open(계약 T8)이 생기면 "곧"이 풀리고 바로 연다.
+// M5-WEEKLY: 카드 영역의 📅 주간 리포트 카드(WeeklyView.cardInfo가 리포트 내용이 있다고 할 때만, 월요일에 이번 주 리포트를 아직 안
+//        봤으면 맨 앞에 강조), 서브뷰 제목 weekly = '📅 주간 리포트'(뷰는 WeeklyView.open, 계약 F8), 노드 시트 롤링 줄의 판정 전 항목
+//        (Boss.evaluate item.wait, 계약 F3)은 '⏳ ' 접두와 '판정 전(기준 ...)'.
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 패키지 모듈은 전부 typeof 가드로 부르고,
 //       없거나 실패하면 화면이 깨지지 않게 대체 표시로 내려간다(병렬 구현 중 스텁일 수 있음).
 // 화면 구조: #journey-root > .j-view(홈 또는 서브뷰, TodayUI 셸) + .j-layer(노드 시트). 토스트는 body의 #journey-toast.
@@ -50,7 +53,7 @@ var JourneyUI = (function() {
   var COACH_NAME = { 0: '풀코칭', 1: '먼저 판단', 2: '예측', 3: '실전' };   // index.html 코칭 보조 선택지와 같은 이름
   var PATTERN_FALLBACK = { overlimp: '림퍼 뒤에 콜로 따라 들어가기' };   // Coach.PATTERNS.overlimp(M3) 전 라벨
   var VIEWS = { dashboard: 'DashboardView', weekly: 'WeeklyView', collection: 'CollectionView', placement: 'PlacementView', settings: 'SettingsView' };
-  var VIEW_TITLE = { dashboard: '📊 내 실력', weekly: '📅 주간 챌린지', collection: '🗂 수집', placement: '📝 실력 확인 3분',
+  var VIEW_TITLE = { dashboard: '📊 내 실력', weekly: '📅 주간 리포트', collection: '🗂 수집', placement: '📝 실력 확인 3분',
     settings: '⚙ 설정', rush: '⚡ 퍼즐 러시', theater: '🎭 속마음 극장' };
   var HABITS = [ { id: '출근길', text: '출근길에' }, { id: '점심 후', text: '점심 먹고' }, { id: '자기 전', text: '자기 전에' } ];
   var SETTINGS_KEY = 'poker_journey_settings';
@@ -515,15 +518,19 @@ var JourneyUI = (function() {
     }
   }
 
-  // (5) 카드 영역: 첫 완주 뒤 설정 카드, 데일리 5, 오늘의 명장면, 실력 확인(건너뛴 경우), 월초 백업 안내
+  // (5) 카드 영역: 첫 완주 뒤 설정 카드, (월요일 강조면) 주간 리포트, 데일리 5, 오늘의 명장면, 주간 리포트, 실력 확인(건너뛴 경우),
+  //     월초 백업 안내
   function _cardsHTML(s, sm) {
     var out = [];
     var sc = settingsCard();
     if (sc) out.push(sc);
+    var wk = _weeklyInfo(), wkHTML = weeklyCard(wk);
+    if (wkHTML && wk.emph) out.push(wkHTML);
     var d5 = daily5Card();
     if (d5) out.push(d5);
     var hl = highlightCard();
     if (hl) out.push(hl);
+    if (wkHTML && !wk.emph) out.push(wkHTML);
     var pl = s.placement || {};
     if (!pl.done && pl.declinedAt && sm.nodesPassed === 0) {
       out.push('<div class="j-card"><div class="j-card-t">📝 실력 확인 3분</div>' +
@@ -536,6 +543,22 @@ var JourneyUI = (function() {
         '<div class="j-card-acts"><button type="button" class="j-btn" onclick="BackupUI.open()">백업하기</button></div></div>');
     }
     return out.join('');
+  }
+
+  // 📅 주간 리포트 카드(M5-WEEKLY): WeeklyView.cardInfo(ReviewQueue, now)가 내용이 있다고 할 때만. 없으면 빈 문자열(홈 출력 그대로).
+  // emph(월요일, 이번 주 리포트 아직 안 봄)면 강조 테두리와 주 버튼, 카드 영역 맨 앞(_cardsHTML)
+  function _weeklyInfo() {
+    if (!_can('WeeklyView', 'cardInfo') || !_m('ReviewQueue')) return null;
+    var c = _call('WeeklyView', 'cardInfo', _m('ReviewQueue'), _now());
+    return (c && typeof c === 'object' && c.show) ? c : null;
+  }
+  function weeklyCard(info) {
+    var c = info === undefined ? _weeklyInfo() : info;
+    if (!c) return '';
+    return '<div class="j-card j-wk-card' + (c.emph ? ' is-new' : '') + '" role="group" aria-label="주간 리포트">' +
+      '<div class="j-card-t">' + _esc(c.title || '📅 주간 리포트') + '</div>' +
+      (c.desc ? '<div class="j-card-d">' + _esc(c.desc) + '</div>' : '') +
+      '<div class="j-card-acts"><button type="button" class="j-btn' + (c.emph ? ' j-primary' : '') + '" onclick="JourneyUI.view(\'weekly\')">📅 리포트 보기</button></div></div>';
   }
 
   // 데일리 5 카드(C6): 오늘 미완이면 시작 버튼, 완료면 점수. PuzzleModes.daily5/daily5Status가 없으면 숨긴다.
@@ -829,7 +852,10 @@ var JourneyUI = (function() {
     if (!r || !Array.isArray(r.items)) return [];
     return r.items.map(function(it) {
       if (it.need == null) return '';
-      return (it.ok ? '✓ ' : '○ ') + (it.label || _condText(it) || it.kind) + ': ' + (it.have == null ? '-' : it.have) + '/' + it.need + (it.opp != null ? '(기회 ' + it.opp + ')' : '');
+      var label = it.label || _condText(it) || it.kind;
+      // 판정 전(F3 wait: 판정 창 안 핸드 0개 또는 기회 0). ok, pass 의미는 그대로이고 표시만 '⏳ 판정 전(기준 ...)'
+      if (it.wait) return '⏳ ' + label + ': ' + (it.have == null ? '판정 전' : it.have) + '(기준 ' + it.need + (it.opp != null ? ', 기회 ' + it.opp : '') + ')';
+      return (it.ok ? '✓ ' : '○ ') + label + ': ' + (it.have == null ? '-' : it.have) + '/' + it.need + (it.opp != null ? '(기회 ' + it.opp + ')' : '');
     }).filter(Boolean);
   }
   function _lessonSum(nd) {
@@ -1273,6 +1299,8 @@ var JourneyUI = (function() {
     puzzleSpec: puzzleSpec, viewRoute: viewRoute,
     // M4-P8 연결(오늘의 명장면 카드 문자열)
     highlightCard: highlightCard,
+    // M5-WEEKLY 연결(주간 리포트 카드 문자열, 노드 시트 롤링 줄)
+    weeklyCard: weeklyCard, rollLines: _rollLines,
     // 인라인 onclick 핸들러
     _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _act: _act,
     _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings,
