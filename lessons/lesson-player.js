@@ -15,7 +15,7 @@
 //     아직 끝내지 않은 레슨일 때(다시 보기로 XP를 모으지 않게). 같은 페이지에서 나갔다 이어 볼 때도 문항당 1번.
 //   장면 그림: say, ask, widget은 여기서, 나머지는 SceneRender.supports(t)일 때 SceneRender.render. 아직 없는 장면은 안내 카드
 //     (sum은 문장 카드로 대신 그린다). 격자 장면은 줄을 누르면 그 줄이 커지는 2단계 선택(SceneRender.gridSelect)으로 둘러본다.
-//     모든 장면의 caption 줄, label '참고' 회색 칩, calc가 있는 장면의 '엔진 계산'(chart, rangePct는 '이 앱 차트 기준') 칩.
+//     모든 장면의 caption 줄, label '참고' 회색 칩, calc가 있는 장면의 '엔진 계산'(chart, rangePct, band는 '이 앱 차트 기준') 칩.
 //   용어 밑줄: GLOSSARY {term, easy, same[]}가 있으면 caption과 say 문장에서 장면마다 용어별 첫 번째만 밑줄, 누르면 easy 팁.
 //   '이상해요': Journey.load()의 flags[레슨 id]에 {at(ISO), scene} 추가 후 Journey.save(레슨당 최근 30개).
 //   스타일은 css/journey.css 끝의 lp- 절(css/lesson.css는 장면 그림 sr- 전용).
@@ -138,7 +138,9 @@ var LessonPlayer = (function() {
     if (sc.label === '참고') out.push(_chip(LABELS.ref));
     // 승률 막대(bar equity, compare)는 SceneRender가 막대 아래에 '엔진 계산' 라벨을 직접 그린다(칩을 또 달면 두 번 보임)
     var ownTag = sc.t === 'bar' && (sc.kind === 'equity' || sc.kind === 'compare');
-    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag) out.push(_chip(sc.calc.type === 'chart' || sc.calc.type === 'rangePct' ? LABELS.chart : LABELS.exact));
+    // band(M4-P7, HeroStats.bandsFromChart)도 이 앱 차트에서 나온 값이라 차트 칩(설계서 8.2절 2번)
+    var chartCalc = sc.calc && (sc.calc.type === 'chart' || sc.calc.type === 'rangePct' || sc.calc.type === 'band');
+    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag) out.push(_chip(chartCalc ? LABELS.chart : LABELS.exact));
     return out.length ? '<div class="lp-meta">' + out.join('') + '</div>' : '';
   }
   // 받침이 있으면 '은', 없으면 '는'(한글이 아니면 '은')

@@ -1,6 +1,7 @@
 // engine/coach.js — 8차 WP2: 단일 코치 판정
 // 프리플랍 = 레인지 차트(모든 모드), 포스트플랍 벳 직면 = 팟 오즈(큰 벳 +6%p 여유), 체크 가능 = 전략 가이드.
 // M3-P4b: 림퍼 뒤 아이솔 판정(spot 'vs_limp', Gto.preflopHint의 limpers, size, alt), PATTERNS.overlimp, grade의 estimated.
+// M4-P9: 아이솔 표는 림퍼 수로 좁힌다(V.isoPos = Gto.preflopHint의 isoPos, 림퍼 2명 이상이면 한 칸 좁은 자리 표).
 // 별표, 금색 버튼, 신호등, 실수 기록, 약점 가중치, 핸드 총평이 모두 이 판정 하나를 따른다.
 var Coach = (function() {
   var KOR = { fold: '폴드', check: '체크', call: '콜', raise: '레이즈', allin: '올인' };
@@ -102,14 +103,22 @@ var Coach = (function() {
     var lbl = V.label;
     if (V.spot === 'vs_limp') {
       var n = V.limpers || 1, sz = _bbNum(V.size) + 'bb';
+      // 아이솔 기준 표(M4-P9): 림퍼 1명 = 내 자리 RFI 표, 2명 이상 = 한 칸 좁은 자리(V.isoPos) RFI 표, BB = vsLimpBB
+      var isoAt = V.isoPos || pos;
       var GR = (typeof Gto !== 'undefined' && Gto.GTO_RANGES) ? Gto.GTO_RANGES : null;
-      var isoArr = !GR ? null : pos === 'BB' ? GR.vsLimpBB : (GR.rfi ? GR.rfi[pos] : null);
+      var isoArr = !GR ? null : pos === 'BB' ? GR.vsLimpBB : (GR.rfi ? GR.rfi[isoAt] : null);
       var ip = isoArr ? Math.round(rangePct(isoArr) * 100) : 0;
       var top = ip ? '(상위 약 ' + ip + '%)' : '';
       if (pos === 'BB') {
         if (V.action === 'raise') return '림퍼 ' + n + '명, BB에서 ' + hand + '는 아주 강한 패' + top + ' → ' + sz + '로 아이솔 레이즈';
         if (V.alt === 'raise') return '림퍼 ' + n + '명, BB에서 ' + hand + '는 공짜 체크도, ' + sz + ' 아이솔 레이즈도 괜찮아요';
         return '림퍼만 있으면 BB는 공짜로 플랍을 봐요 → ' + hand + '는 체크';
+      }
+      if (isoAt !== pos) {
+        // 림퍼 2명 이상: 한 칸 좁은 표 기준(예: CO에서 림퍼 2명 → HJ 표)
+        var narrow = '림퍼 ' + n + '명, 2명 이상이면 한 칸 좁은 ' + isoAt + ' 오픈 표' + top;
+        if (V.action === 'raise') return narrow + ' → ' + hand + '는 ' + sz + '로 아이솔 레이즈';
+        return narrow + ' → ' + hand + '는 표 밖, 따라 콜 말고 폴드';
       }
       if (V.action === 'raise') return '림퍼 ' + n + '명, ' + pos + '에서 ' + hand + '는 오픈 레인지' + top + ' 안 → ' + sz + '로 아이솔 레이즈';
       return '림퍼가 있어도 ' + pos + ' 오픈 레인지' + top + ' 밖이면 폴드 → ' + hand + '는 따라 콜 말고 폴드';
@@ -123,7 +132,8 @@ var Coach = (function() {
       }
       if (V.action === 'fold') {
         var n = BEHIND[pos];
-        return pos + '는 ' + (n ? '뒤에 ' + n + '명이 남아 ' : '') + (p ? '상위 약 ' + p + '% 패만 ' : '강한 패만 ') +
+        // BTN(버튼)은 받침이 있어 '은', 나머지 자리 이름은 '는'
+        return pos + (pos === 'BTN' ? '은 ' : '는 ') + (n ? '뒤에 ' + n + '명이 남아 ' : '') + (p ? '상위 약 ' + p + '% 패만 ' : '강한 패만 ') +
           '오픈해요 → ' + hand + '는 폴드';
       }
       return pos + '에서 ' + hand + ' → ' + lbl;
@@ -160,7 +170,7 @@ var Coach = (function() {
       var iso = f === false && h.limpers > 0;
       V.spot = iso ? 'vs_limp' : f === false ? 'rfi' : f === true ? 'vs_open' : f === 'vs3bet' ? 'vs_3bet'
         : f === 'vs4bet' ? 'vs_4bet' : f === 'cold3bet' ? 'cold_3bet' : 'vs_3bet';
-      if (iso) { V.limpers = h.limpers; V.size = h.size; V.alt = h.alt || null; }
+      if (iso) { V.limpers = h.limpers; V.size = h.size; V.alt = h.alt || null; V.isoPos = h.isoPos || null; }
       V.concept = (V.spot === 'rfi' || V.spot === 'vs_limp') ? 'rfi'
         : V.spot === 'vs_open' ? ((pos === 'SB' || pos === 'BB') ? 'blind_defense' : 'vs_rfi') : 'vs_3bet';
       var lr = state.lastRaiser;
@@ -242,6 +252,14 @@ var Coach = (function() {
 
   function _fixed(r) { r.estimated = true; return r; }
 
+  // 림퍼 뒤 '아주 강한 패'(Gto.GTO_RANGES.vsLimpBB, BB가 체크 대신 레이즈해야 하는 손과 같은 표)인지. hand = 'AA', 'AKo' 등 클래스 라벨
+  var _premiumSet = null;
+  function _premiumIso(hand) {
+    if (!hand || typeof Gto === 'undefined' || !Gto.rangeClassSet || !Gto.GTO_RANGES || !Gto.GTO_RANGES.vsLimpBB) return false;
+    if (!_premiumSet) _premiumSet = Gto.rangeClassSet(Gto.GTO_RANGES.vsLimpBB);
+    return !!(_premiumSet && _premiumSet.has(hand));
+  }
+
   function _grade(V, action, ev, state) {
     ev = ev || {};
     if (!V) return null;
@@ -263,7 +281,8 @@ var Coach = (function() {
       var bbIso = iso && V.toCall === 0;   // BB는 콜로 따라 들어갈 수 없으니 오버림프가 아니다
       if (vcat === 'fold' && cat === 'raise') pattern = (rfi || iso) ? 'open_too_loose' : 'call_too_loose_pre';
       else if (vcat === 'fold' && cat === 'call') pattern = rfi ? 'limp' : iso ? 'overlimp' : 'call_too_loose_pre';
-      // 림퍼 뒤 아이솔 손을 폴드: 아이솔 표는 림퍼 수와 상관없는 오픈 표라 놓친 기회일 뿐, 작은 실수이고 패턴 없음
+      // 림퍼 뒤 아이솔 손을 폴드: 아이솔 표(림퍼 1명 = 내 자리 RFI 표, 2명 이상 = 한 칸 좁은 표, M4-P9) 안의 손을 버린 건
+      // 대개 놓친 기회라 작은 실수이고 패턴 없음(fold_too_tight_pre는 상대 오픈 상대 방어용). 아주 강한 패는 아래에서 큰 실수.
       else if (vcat !== 'fold' && cat === 'fold') pattern = iso ? null : 'fold_too_tight_pre';
       else if (V.action === 'raise' && cat === 'call') pattern = rfi ? 'limp' : (iso && !bbIso) ? 'overlimp' : null;
       if (vcat === 'fold' && cat !== 'fold') {
@@ -275,6 +294,9 @@ var Coach = (function() {
         red = !btnRaise;
       }
       if (V.action === 'raise' && cat === 'fold' && !iso) red = true;
+      // M4-P9 리뷰: 림퍼 뒤 아주 강한 패(vsLimpBB: TT+, AQ+)를 폴드하면 큰 실수. 림퍼가 넣은 칩까지 걸린 팟을 버리므로
+      // 아무도 안 들어온 팟에서 같은 손을 폴드한 것(위 줄, 큰 실수)보다 손해가 작지 않다.
+      if (V.action === 'raise' && cat === 'fold' && iso && _premiumIso(V.hand)) red = true;
       return _res(red ? 'red' : 'yellow', red ? -2.0 : -0.5, pattern, action,
         '레인지 차트 정답은 ' + V.label + ': ' + V.why);
     }

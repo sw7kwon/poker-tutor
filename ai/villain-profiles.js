@@ -152,6 +152,42 @@ var VillainProfiles = {
       fold: ['폴드.', '접겠습니다.', '이번엔 패스.'], check: ['체크.', '볼게요.'],
       allin: ['올인.', '다 가죠.', '올인합니다.'], '3bet': ['리레이즈.', '올립니다.']
     }
+  },
+  // Station(콜링 스테이션, M4-P2): 웬만하면 콜, 레이즈는 거의 없음. 설계서 3.3절 캐스트 6인(콜마스터)의 수치.
+  // 오픈은 대부분 림프(limp_unless 밖), 레이즈 직면엔 넓게 콜, 3벳은 QQ+와 AKs만. 포스트플랍은 fold_to_cbet 0.15라 잘 안 접는다.
+  // villain.js가 읽는 필수 키(rfi, threebet_range, call_vs_raise, fourbet, jam, call_vs_3bet, cbet, fold_to_cbet,
+  // bluff_freq, bet_sizing, phrases)를 전부 가진다(tests/j-cast-ai.test.js가 고정).
+  Station: {
+    name_default: 'Ben', vpip: 0.45, pfr: 0.05, // vpip/pfr: 표시용 기대치(로직 미사용)
+    rfi: {
+      UTG: '22+,A2s+,K6s+,Q8s+,J8s+,T8s+,98s,A8o+,KTo+,QJo',
+      HJ:  '22+,A2s+,K5s+,Q8s+,J8s+,T8s+,97s+,87s,A7o+,K9o+,QTo+,JTo',
+      CO:  '22+,A2s+,K3s+,Q6s+,J7s+,T7s+,96s+,86s+,75s+,65s,A5o+,K8o+,Q9o+,J9o+,T9o',
+      BTN: '22+,A2s+,K2s+,Q4s+,J6s+,T6s+,95s+,85s+,74s+,64s+,54s,A2o+,K6o+,Q8o+,J8o+,T8o+,98o',
+      SB:  '22+,A2s+,K4s+,Q6s+,J7s+,T7s+,96s+,85s+,75s+,64s+,A3o+,K7o+,Q8o+,J8o+,T8o+'
+    },
+    threebet_range: 'QQ+,AKs',
+    call_vs_raise: {
+      UTG: '22+,A2s+,K8s+,Q9s+,J9s+,T9s,A7o+,KTo+,QTo+,JTo',
+      HJ:  '22+,A2s+,K7s+,Q9s+,J8s+,T8s+,98s,A5o+,K9o+,QTo+,JTo',
+      CO:  '22+,A2s+,K6s+,Q8s+,J8s+,T8s+,97s+,87s,A4o+,K8o+,Q9o+,J9o+,T9o',
+      BTN: '22+,A2s+,K4s+,Q7s+,J7s+,T7s+,96s+,86s+,75s+,65s,A2o+,K7o+,Q8o+,J8o+,T8o+,98o',
+      SB:  '22+,A2s+,K6s+,Q8s+,J8s+,T8s+,97s+,87s,A5o+,K9o+,QTo+,JTo',
+      BB:  '22+,A2s+,K2s+,Q5s+,J7s+,T7s+,96s+,86s+,75s+,A2o+,K8o+,Q9o+,J9o+,T9o'
+    },
+    fourbet: 'KK+',
+    jam: 'KK+',
+    call_vs_3bet: '22+,A8s+,KTs+,QTs+,JTs,T9s,ATo+,KJo+,QJo',
+    cbet: { dry: 0.25, wet: 0.15 },
+    fold_to_cbet: 0.15, bluff_freq: 0.02,
+    limp_unless: 'TT+,AQs+,AKo', // 이 레인지 밖 오픈 핸드는 레이즈 대신 림프(콜)
+    bet_sizing: { value: 0.50, bluff: 0.33 },
+    phrases: {
+      raise: ['이번엔 올려 볼게.', '레이즈.'], call: ['콜. 일단 봐야지.', '받을게.', '콜.'],
+      fold: ['이건 못 따라가.', '폴드.'], check: ['체크.', '일단 체크.'],
+      allin: ['다 걸어 볼게.', '올인.'], '3bet': ['이번엔 올린다.', '리레이즈.'],
+      bet: ['조금만 걸게.', '벳.']
+    }
   }
 };
 

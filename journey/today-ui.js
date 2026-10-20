@@ -9,6 +9,18 @@
 //   새 배움 'drill': PuzzleUI.can(노드 드릴)이면 PuzzleUI.start, 아니면 DrillUI. 재미 'rush': PuzzleModes.rush.
 //   퍼즐 결과 r = {n, ok, xp, rated, ratingDelta}: XP는 PuzzleUI/PuzzleModes가 이미 줬으므로 블록에는 r.xp만 기록한다(재지급 없음).
 //   마무리 카드는 블록들의 ratingDelta 합이 있으면 레이팅 변화를 한 줄로 보인다.
+// M4-P8 재미 블록 연결(계약 T8, T9)
+//   'theater': TheaterUI.start({episodes, onDone, mini?}). 결과 r = {episodes, predicted, hit, hitW, cards[]}로 블록 결과 줄
+//     '극장 n편, 예측 n번 중 m번 적중'을 만든다. 편마다 Journey.recordTheater는 TheaterUI가 부르고(XP 10 + 적중 건당 2),
+//     블록 XP는 그 사이 늘어난 여정 XP(r.xp가 있으면 그것)다. TheaterUI가 한 편도 기록하지 않았으면(Journey 누적 편 수 그대로)
+//     여기서 대신 기록한다(중복 없음). onDone(null)(열지 못함)이면 자유 게임 3핸드로 넘긴다. onDone 없이 떠나면 그동안
+//     Journey에 쌓인 편 수로 판정한다. 극장은 #screen-game을 쓰므로 여정 화면이 다시 보이면 결과를 받는다(inJourney false).
+//   'highlight': Journey.highlightOfDay(now) 카드를 TheaterUI.showCard({card, onDone})로 연다. 카드나 showCard가 없으면 자유 게임.
+//     카드 보기는 여정 화면 위에서 돌 수 있으므로 inJourney true(여정 화면이 보여도 자동 복귀하지 않음).
+//   'weeklyIntro': 주간 챌린지 소개 화면(M5) 전에는 이어 붙인 원래 재미 블록(follow)을 연다.
+//   마지막 블록의 결과 줄은 마무리 카드 위에 보인다(다음 블록 카드가 없으므로).
+//   가정(P5와 맞출 것): 편마다 recordTheater를 onDone보다 먼저 부른다. start와 showCard는 onDone을 부른 뒤 화면을 직접 옮기지
+//     않는다(다음 화면은 TodayUI가 그린다). 한 편도 못 보고 나오면 onDone({episodes:0, ...}), 열지 못할 때만 onDone(null).
 var TodayUI = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : (typeof window !== 'undefined' ? window : this);
   var ICON = { review: '🔁', learn: '📖', fun: '🎲', wrap: '🎉' };
@@ -18,6 +30,7 @@ var TodayUI = (function() {
     showdown: '쇼다운', order: '말하는 순서', outs: '아웃츠', equity: '에쿼티', combos: '콤보', mdf: 'MDF', alpha: '알파', spr: 'SPR',
     range: '레인지', texture: '보드 날씨', read: '상대 읽기', variance: '분산', tilt: '틸트', review: '복기' };
   var CACHE_MS = 5 * 60 * 1000;
+  var FREE_HANDS = 3;       // 재미 블록 폴백 자유 게임 핸드 수(4.1절)
 
   var _active = false;      // 오늘의 5분 진행 중(셸 표시 또는 외부 블록 실행 중)
   var _pending = null;      // 외부 화면에서 실행 중인 블록 { idx, kind, startedAt, xpStart, ... }
@@ -199,7 +212,10 @@ var TodayUI = (function() {
     if (b.kind === 'curriculum' || b.kind === 'lesson') return 120;
     if (b.kind === 'drill') { var n = _node(b.node); return (_num(b.count, 0) || (n && n.drill ? _num(n.drill.count, 10) : 10)) * 25; }
     if (b.kind === 'rush') return 180;
+    if (b.id === 'fun' && b.fallback === 'free') return FREE_HANDS * 60;
     if (b.kind === 'theater') return 90 * _num(b.episodes, 1);
+    if (b.kind === 'highlight') return 90;
+    if (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') return _estSec(b.follow);
     if (b.kind === 'mission') return 5 * 60;
     return _num(b.hands, b.id === 'fun' ? 3 : 5) * 60;
   }
@@ -225,6 +241,7 @@ var TodayUI = (function() {
       return n ? '복습 ' + n : '복습 없음';
     }
     if (b.id === 'wrap') return '마무리';
+    if (b.id === 'fun' && b.fallback === 'free') return '자유 게임 ' + FREE_HANDS + '핸드';   // 극장, 명장면을 열 수 없어 바꿈
     var t = _nodeTitle(b.node);
     switch (b.kind) {
       case 'placement': return '실력 확인 3분';
@@ -233,9 +250,9 @@ var TodayUI = (function() {
       case 'mission': return '미션 ' + t;
       case 'gto': return 'GTO 미러 ' + _num(b.hands, 5) + '핸드';
       case 'theater': return '극장 ' + _num(b.episodes, 1) + '편';
-      case 'highlight': return '명장면';
+      case 'highlight': return '오늘의 명장면';
       case 'rush': return '퍼즐 러시';
-      case 'weeklyIntro': return '주간 챌린지';
+      case 'weeklyIntro': return (b.follow && typeof b.follow === 'object' && b.follow.kind) ? '주간 챌린지, ' + label({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands }) : '주간 챌린지';
       default: return '자유 게임 ' + _num(b.hands, 3) + '핸드';
     }
   }
@@ -570,9 +587,19 @@ var TodayUI = (function() {
     _finish(p, res);
   }
 
-  // 어댑터: 재미(M1 = 자유 게임 3핸드, 극장/명장면/러시는 해당 마일스톤 모듈이 생기면 그쪽)
+  // 어댑터: 재미(극장 > 오늘의 명장면 > 자유 게임 3핸드, 주말 러시. 모듈이 없거나 열지 못하면 자유 게임)
   function _fun(b, i) {
-    if (b.kind === 'rush' && _can('PuzzleModes', 'rush')) {
+    var fb = (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') ? b.follow : b;   // 주간 소개 화면(M5) 전
+    if (b.fallback) delete b.fallback;
+    if (fb.kind === 'theater') {
+      if (_theaterStart(b, fb, i)) return true;
+      return _freeGame(b, i, true);
+    }
+    if (fb.kind === 'highlight') {
+      if (_highlightShow(b, i)) return true;
+      return _freeGame(b, i, true);
+    }
+    if (fb.kind === 'rush' && _can('PuzzleModes', 'rush')) {
       var rp = _base(i, 'rush', { inJourney: true });
       _setPending(rp);
       var okR = _invoke('PuzzleModes', 'rush', { onDone: function(r) {
@@ -588,12 +615,118 @@ var TodayUI = (function() {
       if (okR && !rp.refused) return true;
       if (_pending !== rp) return true;
       _setPending(null);                       // 러시 실패: 자유 게임으로
+      return _freeGame(b, i, true);
     }
+    return _freeGame(b, i, false, _num(fb.hands, _num(b.hands, FREE_HANDS)));
+  }
+  // 자유 게임(6인, 세션 핸드 수로 끊음). fallback이면 계획 블록에 표시해 칩과 안내가 '자유 게임 3핸드'로 보이게 한다
+  function _freeGame(b, i, fallback, hands) {
     if (!_can('App', 'selectVillains')) return false;
+    if (fallback) b.fallback = 'free';
     _setPending(_base(i, 'game', {}));
-    _call('Journey', 'startSession', { kind: 'free', chunk: _num(b.hands, 3) });
+    _call('Journey', 'startSession', { kind: 'free', chunk: fallback ? FREE_HANDS : _num(hands, FREE_HANDS) });
     _call('App', 'selectVillains', 'sixmax');
     return true;
+  }
+
+  // ── 극장(계약 T8) ──
+  // Journey의 극장 누적(편 수, 예측, 적중, 카드 수) 사본: 블록 동안 TheaterUI가 recordTheater를 불렀는지 보는 기준
+  function _theaterSnap() {
+    var t = (_state().theater) || {};
+    return { episodes: _num(t.episodes, 0), predicted: _num(t.predicted, 0), hit: _num(t.hit, 0), hitW: _num(t.hitW, 0),
+      cards: Array.isArray(t.cards) ? t.cards.length : 0 };
+  }
+  function _theaterStart(b, fb, i) {
+    if (!_can('TheaterUI', 'start')) return false;
+    var n = Math.max(1, Math.floor(_num(fb.episodes, 1)));
+    var tp = _base(i, 'theater', { episodes: n, th0: _theaterSnap() });
+    var sync = true;
+    _setPending(tp);
+    var arg = { episodes: n, onDone: function(r) {
+      if (_pending !== tp) return;
+      if (!r) {
+        // 열지 못함(계약 T8 onDone(null)): 부르는 중이면 아래에서, 나중에 오면 여기서 자유 게임으로
+        if (sync) { tp.refused = true; return; }
+        _setPending(null);
+        _freeGame(b, i, true);
+        _toast('🎭 극장을 열 수 없어 자유 게임 ' + FREE_HANDS + '핸드로 바꿨어요', 2600);
+        return;
+      }
+      _onTheater(tp, r);
+    } };
+    if (fb.episode && typeof fb.episode === 'object') arg.mini = JSON.parse(JSON.stringify(fb.episode));   // 미니시즌 편(M6)
+    var ok = _invoke('TheaterUI', 'start', arg);
+    sync = false;
+    if (ok && !tp.refused) return true;
+    if (_pending !== tp) return true;          // 부르는 중에 결과까지 끝남
+    _setPending(null);                          // 실패(예외) 또는 onDone(null): 자유 게임으로
+    return false;
+  }
+  // r = {episodes, predicted, hit, hitW, cards[]}(없는 값은 블록 동안 Journey에 쌓인 차이로 채운다)
+  function _onTheater(p, r) {
+    _closeNav('theater');
+    var now = _now(), d = _theaterDiff(p.th0);
+    r = (r && typeof r === 'object') ? r : {};
+    var cards = Array.isArray(r.cards) ? r.cards.filter(function(c) { return c && typeof c === 'object'; }) : [];
+    var eps = Math.max(0, Math.floor(_num(r.episodes, d.episodes)));
+    var pred = Math.max(0, Math.floor(_num(r.predicted, d.predicted)));
+    var hit = Math.max(0, Math.min(pred, Math.floor(_num(r.hit, d.hit))));
+    var hitW = Math.max(0, _num(r.hitW, d.hitW));
+    // TheaterUI가 편마다 recordTheater를 부르는 것이 계약이다. 한 편도 쌓이지 않았으면 여기서 대신 기록한다(일부만 쌓였으면 건드리지 않음)
+    if (eps > 0 && d.episodes === 0 && _can('Journey', 'recordTheater')) {
+      for (var k = 0; k < eps; k++) {
+        _call('Journey', 'recordTheater', { seed: (cards[k] && cards[k].seed != null) ? cards[k].seed : null,
+          predicted: k === 0 ? pred : 0, hit: k === 0 ? hit : 0, hitW: k === 0 ? hitW : 0, card: cards[k] || null }, now);
+      }
+    }
+    _keepTouch();
+    _finish(p, _theaterRes(eps, pred, hit, cards.length, _xpOf(r, p.xpStart)));
+  }
+  function _theaterDiff(th0) {
+    var a = th0 || { episodes: 0, predicted: 0, hit: 0, hitW: 0, cards: 0 }, b = _theaterSnap();
+    return { episodes: Math.max(0, b.episodes - a.episodes), predicted: Math.max(0, b.predicted - a.predicted),
+      hit: Math.max(0, b.hit - a.hit), hitW: Math.max(0, Math.round((b.hitW - a.hitW) * 1000) / 1000), cards: Math.max(0, b.cards - a.cards) };
+  }
+  // 극장 블록 결과: 한 편 이상 끝까지 봤으면 완료. 줄 = '극장 n편, 예측 n번 중 m번 적중'. 예측이 0번이면 멈춤이 없었는지
+  // 멈춤을 건너뛰었는지 결과만으로는 모르므로 '예측 없이 끝까지 봤어요'라고만 말한다
+  function _theaterRes(eps, pred, hit, nCards, xp) {
+    var res = { done: eps > 0, xp: xp };
+    if (eps > 0) {
+      res.stats = { episodes: eps, pred: pred, hit: hit };
+      if (nCards) res.stats.cards = nCards;
+      res.line = theaterLine(eps, pred, hit, nCards);
+    } else res.line = '극장을 끝까지 보지 않았어요';
+    return res;
+  }
+  function theaterLine(eps, pred, hit, nCards) {
+    return '극장 ' + eps + '편, ' + (pred > 0 ? '예측 ' + pred + '번 중 ' + hit + '번 적중' : '예측 없이 끝까지 봤어요') +
+      (nCards ? ', 명장면 카드 ' + nCards + '장' : '');
+  }
+  // recordTheater 안의 touchDay가 낸 스트릭 변화(프리즈 사용/지급)를 마무리 카드에 남긴다(markBlock의 같은 날 touchDay는 변화 없음)
+  function _keepTouch() {
+    var lt = _call('Journey', 'lastTouch');
+    if (lt && lt.changed) _streak = lt;
+  }
+
+  // ── 오늘의 명장면(계약 T8 showCard, T9 highlightOfDay) ──
+  function _highlightShow(b, i) {
+    if (!_can('TheaterUI', 'showCard') || !_can('Journey', 'highlightOfDay')) return false;
+    var card = _call('Journey', 'highlightOfDay', _now());
+    if (!card || typeof card !== 'object') return false;
+    var hp = _base(i, 'highlight', { inJourney: true, card: card.id || null, title: card.title || '' });
+    _setPending(hp);
+    var ok = _invoke('TheaterUI', 'showCard', { card: card, onDone: function() {
+      if (_pending !== hp) return;
+      _finish(hp, _highlightRes(hp));
+    } });
+    if (ok) return true;
+    if (_pending !== hp) return true;
+    _setPending(null);
+    return false;
+  }
+  function _highlightRes(p) {
+    var t = _clean(p.title || '');
+    return { done: true, stats: { highlight: 1 }, line: '오늘의 명장면을 다시 봤어요' + (t ? ': ' + t : '') };
   }
 
   // ── 복귀 ──────────────────────────────────────────────
@@ -628,6 +761,17 @@ var TodayUI = (function() {
     } else if (p.kind === 'rush') {
       r.done = false;
       r.line = '퍼즐 러시를 끝내지 않았어요';
+    } else if (p.kind === 'theater') {
+      // 극장을 onDone 없이 떠남: 그동안 TheaterUI가 Journey에 기록한 편(recordTheater)만큼을 블록 결과로
+      _closeNav('theater');
+      var td = _theaterDiff(p.th0);
+      _keepTouch();
+      _finish(p, _theaterRes(td.episodes, td.predicted, Math.min(td.predicted, td.hit), td.cards, null));
+      return;
+    } else if (p.kind === 'highlight') {
+      // 카드 보기를 onDone 없이 닫음: 카드는 이미 봤으니 완료
+      _finish(p, _highlightRes(p));
+      return;
     } else if (p.kind === 'curriculum') {
       if (p.node) {
         _call('Journey', 'completeLesson', p.node, 0, true, now);   // 첫 완료 레슨 XP는 Journey가 준다(중복 지급 금지)
@@ -763,6 +907,7 @@ var TodayUI = (function() {
       var what = (due ? '때가 된 문제와 틀렸던 문제' : '') + (due && fill ? ', ' : '') + (fill ? '약한 개념 문제' : '') + (due && !fill ? '를 다시 풀어요' : '를 풀어요');
       return what + '(' + order.map(function(t) { return _typeName(t) + ' ' + cnt[t]; }).join(', ') + ')' + (d5 ? '. 이어서 ' + d5 : '');
     }
+    if (b.id === 'fun' && b.fallback === 'free') return '6인 테이블에서 가볍게 ' + FREE_HANDS + '핸드. 끝나면 요약에서 돌아와요';
     switch (b.kind) {
       case 'placement': return '10문제로 시작 단계를 정해요. 결과는 한 번만 반영돼요';
       case 'lesson': case 'curriculum': {
@@ -780,8 +925,20 @@ var TodayUI = (function() {
       case 'mission': return '6인 테이블 5핸드. 결정 기록이 미션 진행에 쌓여요';
       case 'gto': return '같은 카드를 3번 치며 정답과 비교해요(5핸드)';
       case 'rush': return '3분 동안 퍼즐을 연달아 풀어요. 연속으로 맞히면 시간이 늘고 틀리면 10초 줄어요(레이팅에는 반영 안 돼요)';
-      default: return '6인 테이블에서 가볍게 ' + _num(b.hands, 3) + '핸드. 끝나면 요약에서 돌아와요';
+      case 'theater': return '캐릭터 6명이 카드를 모두 펼친 채 치는 핸드를 봐요(' + Math.max(1, _num(b.episodes, 1)) + '편). 결정적인 순간에만 멈추니 다음 행동과 계획을 맞혀 봐요';
+      case 'highlight': return '극장에서 모은 명장면 카드 중 오늘의 한 장을 다시 봐요';
+      case 'weeklyIntro':
+        if (b.follow && typeof b.follow === 'object' && b.follow.kind) return _desc({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands });
+        break;
     }
+    return '6인 테이블에서 가볍게 ' + _num(b.hands, FREE_HANDS) + '핸드. 끝나면 요약에서 돌아와요';
+  }
+  // 직전 블록 결과 줄(다음 블록 카드 위, 마지막 블록이면 마무리 카드 위)
+  function _resHTML(p) {
+    if (!_last || !_last.line) return '';
+    var bx = p.blocks[_last.idx];
+    return '<div class="j-done-line' + (_last.ok ? ' is-ok' : '') + '">' + (_last.ok ? '✅ ' : 'ℹ ') + _esc(_last.line) +
+      (_last.ok && bx && bx.xp ? ', XP +' + bx.xp : '') + '</div>';
   }
   function show() {
     var p = plan();
@@ -790,8 +947,7 @@ var TodayUI = (function() {
     if (i < 0 || p.blocks[i].id === 'wrap') { _wrap(); return; }
     _active = true;
     var b = p.blocks[i];
-    var res = _last && _last.line ? '<div class="j-done-line' + (_last.ok ? ' is-ok' : '') + '">' + (_last.ok ? '✅ ' : 'ℹ ') + _esc(_last.line) +
-      (_last.ok && p.blocks[_last.idx] && p.blocks[_last.idx].xp ? ', XP +' + p.blocks[_last.idx].xp : '') + '</div>' : '';
+    var res = _resHTML(p);
     var retry = !!(_last && _last.retry);
     var html = '<div class="j-today">' +
       '<div class="j-sub-top"><button type="button" class="j-back" aria-label="여기까지 하고 여정 홈으로" onclick="TodayUI.stopHere()">↩</button>' +
@@ -849,17 +1005,18 @@ var TodayUI = (function() {
     }
     if (a7 && _num(a7.n, 0) > 0) return '이번 주 ' + name + ' 판단 ' + a7.n + '번 중 초록 ' + _num(a7.g, 0) + '번';
     // 집계가 아직 없으면 오늘 계획의 블록 결과로(게임 중 차트 판정 기록과 섞지 않음)
-    var q = { n: 0, ok: 0 }, hands = 0, lessons = 0;
+    var q = { n: 0, ok: 0 }, hands = 0, lessons = 0, eps = 0;
     p.blocks.forEach(function(b) {
       var r = b.status === 'done' && b.res;
       if (!r) return;
       if (r.n || r.d5n) { q.n += _num(r.n, 0) + _num(r.d5n, 0); q.ok += _num(r.ok, 0) + _num(r.d5ok, 0); }
-      hands += _num(r.hands, 0); lessons += _num(r.lesson, 0);
+      hands += _num(r.hands, 0); lessons += _num(r.lesson, 0); eps += _num(r.episodes, 0);
     });
     var parts = [];
     if (q.n) parts.push('문제 ' + q.n + '개 중 ' + q.ok + '개 정답');
     if (lessons) parts.push('레슨 ' + lessons + '개');
     if (hands) parts.push('실전 ' + hands + '핸드');
+    if (eps) parts.push('극장 ' + eps + '편');
     if (parts.length) return '오늘 ' + parts.join(', ');
     var k = p.blocks.filter(function(b) { return b.id !== 'wrap' && b.status === 'done'; }).length;
     return '오늘 블록 ' + k + '개를 마쳤어요';
@@ -904,9 +1061,11 @@ var TodayUI = (function() {
     _active = true;
     var all = _allDone(p);
     var sl = _streakLine(), nl = _nextLine(), rl = ratingLine(p);
+    // 마지막 블록(보통 재미 블록: '극장 1편, 예측 n번 중 m번 적중')의 결과 줄은 다음 블록 카드가 없으니 여기서 보인다
+    var last = (_last && _last.ok) ? _resHTML(p) : '';
     var html = '<div class="j-today j-wrap">' +
       '<div class="j-sub-top"><button type="button" class="j-back" aria-label="여정 홈으로" onclick="TodayUI.finish()">↩</button>' +
-        '<h2 class="j-sub-t">마무리</h2>' + _dots(p, -1) + '</div>' +
+        '<h2 class="j-sub-t">마무리</h2>' + _dots(p, -1) + '</div>' + last +
       '<div class="j-wrap-card">' +
         '<div class="j-wrap-t">' + (all ? '🎉 오늘의 ' + _goal(_state()) + '분 완주!' : '✅ 오늘은 여기까지 완료') + '</div>' +
         '<div class="j-wrap-line">📈 ' + _esc(_infoLine(p)) + '</div>' +
@@ -933,6 +1092,8 @@ var TodayUI = (function() {
     preview: preview, plan: plan, build: build, ctx: ctx, label: label, desc: _desc,
     // M2-P7 연결(순수 판정: 테스트, 하네스용)
     puzzleTypes: puzzleTypes, reviewPlan: _reviewPlan, ratingLine: ratingLine, blockReady: _blockReady,
+    // M4-P8 재미 블록(극장, 명장면) 결과 줄
+    theaterLine: theaterLine,
     _review: _review, _learn: _learn, _fun: _fun, _wrap: _wrap
   };
   if (typeof module !== 'undefined') module.exports = api;

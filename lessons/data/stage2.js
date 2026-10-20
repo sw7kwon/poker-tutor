@@ -4,7 +4,9 @@
 // 수치 원칙: 캡션, text, why의 퍼센트와 bb는 {{ }} 템플릿과 같은 장면의 calc(또는 grid의 pct)로만 쓴다.
 //   레인지 %는 rangePct calc(Coach.rangePct, 이 앱 입문용 차트 Gto.GTO_RANGES), 경계 손은 grid claim과 chart calc,
 //   오픈과 아이솔 사이즈는 opensize calc(engine/ev.js:28-32, 오픈 2.5bb, SB 3bb, 림퍼 1명당 +1bb).
-// s2-01~s2-05는 M3-P6, s2-06~s2-10은 M4-P7이 이 아래에 이어 쓴다.
+//   (M4-P7) 팟 오즈는 ring과 potodds calc, 아웃츠는 outs calc와 cards 줄 outs/outCards(LessonCore.check가 열거로 검산),
+//   승률 막대는 PRECALC(lessons/data/precalc.js 머리 주석) 또는 eqExact 열거, 밴드는 band calc(HeroStats.bandsFromChart).
+// s2-01~s2-05는 M3-P6, s2-06~s2-10은 M4-P7이 썼다(s2-05 아이솔 문구는 M4-P7이 결정 사항 13번에 맞춰 고침).
 
 // ── s2-01 뒷자리가 좋은 이유(커리큘럼 세션 2) ──
 LESSONS.push({
@@ -146,7 +148,9 @@ LESSONS.push({
 
 // ── s2-05 림프 금지와 아이솔레이션(커리큘럼 세션 7, 아이솔 장면 추가) ──
 // 사이즈는 이 앱 표준(engine/ev.js:28-32, puzzles/gen-basic.js opensize): 오픈 2.5bb, SB 3bb, 림퍼 1명당 +1bb.
-// 아이솔 레인지 = 그 자리 RFI 표(설계서 7.3절 9번 gto.js vs-limp 분기).
+// 아이솔 레인지(로드맵 결정 사항 13번, M4-P9 엔진 규칙과 같은 문장, M4-P7이 문구를 고침):
+//   림퍼 1명이면 내 자리 RFI 표, 2명 이상이면 한 칸 좁은 표(CO는 HJ 표, BTN과 SB는 CO 표). 사이즈는 오픈 + 림퍼당 1bb.
+//   (UTG 앞에는 림퍼가 없고 HJ 앞 림퍼는 UTG 1명뿐이라 2명 이상은 CO, BTN, SB만 해당. BB는 결정 사항 11번 vsLimpBB 규칙)
 LESSONS.push({
   id: 's2-05', node: 's2-05', title: '림프 금지와 아이솔레이션', est: 3,
   source: '이 앱 표준 사이즈(engine/ev.js)와 이 앱 차트(Gto.GTO_RANGES)',
@@ -187,14 +191,208 @@ LESSONS.push({
         { pos: 'SB', bet: 0.5 }, { pos: 'BB', bet: 1 }
       ],
       calc: { type: 'opensize', pos: 'BTN', limpers: 1 },
-      caption: '아이솔은 림퍼에게 크게 레이즈해 그 한 명과 맞붙으려는 거예요. 이 앱 기준 내 자리 RFI 표의 손이면 {{size}}bb로 올려요.' },
-    { t: 'say', label: '참고', text: '림프한 사람은 레이즈할 만큼 강하지 않을 때가 많아요. 그래서 따라 림프하기보다 크게 올려 혼자 상대하는 편이 좋아요.' },
+      caption: '아이솔은 림퍼에게 크게 올려 그 한 명과 맞붙는 거예요. 림퍼 1명이면 내 자리 RFI 표의 손으로 {{size}}bb.' },
+    // 림퍼 2명 이상: 한 칸 좁은 표. CO는 HJ 표라 CO 표에 있던 KTo가 빠진다(HJ 표 KJo까지)
+    { t: 'grid', pos: 'HJ', facing: false, highlight: ['KJo', 'KTo'], claim: { hand: 'KTo', action: 'fold' },
+      caption: '림퍼가 2명 이상이면 한 칸 좁은 표로. CO는 HJ 표, BTN과 SB는 CO 표예요. 그림은 HJ 표, KTo는 빠져요.' },
     { t: 'ask', id: 'q1', q: '앞사람 모두 폴드, CO에서 65s. 이 앱 차트로는?', choices: ['오픈 레이즈', '림프(콜)', '폴드'], answer: 2,
       pick: ['raise', 'call', 'fold'], calc: { type: 'chart', pos: 'CO', facing: false, hand: '65s' },
       why: '65s는 CO 표에 없어요. 레이즈할 손이 아니면 림프 말고 폴드.' },
     { t: 'ask', id: 'q2', q: 'UTG, HJ가 림프. CO에서 아이솔하면 몇 bb로 올릴까?', choices: ['2.5bb', '3.5bb', '4.5bb', '5bb'], answer: 2,
       calc: { type: 'opensize', pos: 'CO', limpers: 2 },
-      why: '기본 2.5에 림퍼 한 명마다 1씩 더해 {{size}}bb예요.' },
-    { t: 'sum', text: '먼저 들어갈 땐 레이즈 아니면 폴드, 림퍼가 있으면 따라 림프하지 말고 RFI 표의 손으로 아이솔한다.' }
+      why: '손은 한 칸 좁은 HJ 표로 고르고, 크기는 기본 2.5에 림퍼마다 1씩 더해 {{size}}bb예요.' },
+    { t: 'sum', text: '먼저 들어갈 땐 레이즈 아니면 폴드, 림퍼 뒤엔 따라 림프 말고 아이솔, 림퍼가 둘 이상이면 한 칸 좁은 표로.' }
+  ]
+});
+
+// ── s2-06 팟 오즈는 가격표(커리큘럼 세션 4, 설계서 8.4절 표기 규약) ──
+// 팟은 상대 벳까지 넣어 센다(potTotal). 필요 승률 = 콜 ÷ (팟 + 콜)(ring 렌더와 potodds calc가 같은 식).
+// 링 3개: 벳 전 팟 12bb에 팟의 1/3(4bb), 반(6bb), 팟만큼(12bb) 벳 → 팟(상대 벳 포함) 16, 18, 24bb, 콜 4, 6, 12bb.
+LESSONS.push({
+  id: 's2-06', node: 's2-06', title: '팟 오즈는 가격표', est: 3,
+  source: '엔진 계산(필요 승률 = 콜 ÷ (팟 + 콜), 설계서 8.4절 표기)',
+  scenes: [
+    { t: 'say', text: '콜은 물건을 사는 일이에요. 사기 전에 가격표, 곧 필요 승률부터 봐요.' },
+    { t: 'table', heroPos: 'BTN', hero: ['Qh', 'Jh'], board: ['Th', '7c', '2h'], potTotal: 18, toCall: 6, focus: 'pot',
+      seats: [
+        { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
+        { pos: 'BTN', active: true }, { pos: 'SB', folded: true }, { pos: 'BB', action: '벳', bet: 6 }
+      ],
+      caption: '팟 {{potTotal}}bb(상대 벳 {{toCall}}bb 포함), 콜 {{toCall}}bb. 팟은 상대가 방금 낸 벳까지 넣어 세요.' },
+    { t: 'ring', potTotal: 16, toCall: 4, caption: '상대가 팟의 1/3을 벳하면 필요 승률은 {{pct}}%예요.' },
+    { t: 'ring', potTotal: 18, toCall: 6, caption: '팟의 반을 벳하면 {{pct}}%.' },
+    { t: 'ring', potTotal: 24, toCall: 12, caption: '팟만큼 벳하면 {{pct}}%. 벳이 클수록 가격(필요 승률)이 올라가요.' },
+    { t: 'ask', id: 'q1', q: '팟 20bb(상대 벳 10bb 포함), 콜 10bb. 필요 승률은?', choices: ['25%', '33%', '50%'], answer: 1,
+      calc: { type: 'potodds', potTotal: 20, toCall: 10 },
+      why: '{{toCall}} ÷ ({{potTotal}}+{{toCall}}) = {{pct}}%. 콜 금액도 팟에 더해서 나눠요.' },
+    { t: 'ask', id: 'q2', q: '팟 9bb(상대 벳 3bb 포함), 콜 3bb. 필요 승률은?', choices: ['25%', '20%', '33%'], answer: 0,
+      calc: { type: 'potodds', potTotal: 9, toCall: 3 },
+      why: '{{toCall}} ÷ ({{potTotal}}+{{toCall}}) = {{pct}}%. 팟의 반을 벳한 경우예요.' },
+    { t: 'ask', id: 'q3', q: '상대 벳이 팟의 1/3에서 팟만큼으로 커지면 내 필요 승률은?', choices: ['올라가요', '내려가요', '그대로예요'], answer: 0,
+      why: '콜 금액이 커질수록 같은 팟을 사는 값이 비싸져요.' },
+    { t: 'sum', text: '콜 전에 가격표부터 본다. 필요 승률 = 콜 ÷ (팟 + 콜), 팟은 상대 벳까지 넣어 센다.' }
+  ]
+});
+
+// ── s2-07 아웃츠와 x2/x4 조건(커리큘럼 세션 5, 설계서 2.4절 세션 5, 3.2절 출제 제외 5번) ──
+// 아웃츠 = 남은 덱(플랍 47장) 중 다음 1장으로 스트레이트 이상이 되는 카드 수(outs calc, HandEval 열거).
+// 2열 정확값(플랍 기준): 2장 = 턴과 리버 중 아웃이 1장 이상 올 확률, 1장 = 다음 카드가 아웃일 확률. 표 줄은 cards rows의 outs로
+// LessonCore.check와 j-lessons가 열거(5장 = 내 손 2 + 플랍 3)와 조합 확률로 검산한다. x4는 올인(턴과 리버를 다 봄)일 때만.
+LESSONS.push({
+  id: 's2-07', node: 's2-07', title: '아웃츠와 x2/x4 조건', est: 3,
+  source: '엔진 계산(HandEval 열거로 아웃츠, 조합으로 정확 확률)',
+  scenes: [
+    { t: 'say', text: '아웃츠는 다음 카드 1장으로 내 손을 스트레이트 이상으로 만들어 주는 카드예요(이 앱 기준).' },
+    // 플러시 드로우 9장 그림: 아웃 카드 줄은 calc outs의 열거 결과와 같아야 한다(outCards)
+    { t: 'cards', rows: [
+        { label: '내 손', cards: ['Kh', 'Qh'] },
+        { label: '보드', cards: ['9h', '4h', '2c'] },
+        { label: '아웃츠', cards: ['Ah', 'Jh', 'Th', '8h', '7h', '6h', '5h', '3h', '2h'], hl: true, outCards: true }
+      ],
+      calc: { type: 'outs', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'] },
+      caption: '하트가 넷 보여요. 남은 하트 {{outs}}장 중 하나만 와도 플러시, 이게 플러시 드로우예요.' },
+    { t: 'ask', id: 'q1', q: '내 손 8♠7♠, 보드 6♦5♣K♥. 다음 1장으로 스트레이트가 되는 카드는 몇 장?',
+      choices: ['4장', '8장', '9장', '15장'], answer: 1,
+      calc: { type: 'outs', hero: ['8s', '7s'], board: ['6d', '5c', 'Kh'], of: 'outs' },
+      why: '9가 4장, 4가 4장이라 {{outs}}장이에요. 양쪽이 열린 스트레이트 드로우(양방향)예요.' },
+    // 2열 정확값 표(설계서 2.4절 세션 5 값): 줄마다 내 손 2장 + 플랍 3장, note = 2장, 1장 정확값
+    { t: 'cards', rows: [
+        { label: '거트샷 4장', cards: ['9s', '8s', 'Jh', '7d', '2c'], note: '2장 16.5%, 1장 8.5%', outs: 4 },
+        { label: '양방향 8장', cards: ['Td', '9d', '8c', '7h', '2s'], note: '2장 31.5%, 1장 17.0%', outs: 8 },
+        { label: '플러시 9장', cards: ['Kh', 'Qh', '9h', '4h', '2c'], note: '2장 35.0%, 1장 19.1%', outs: 9, hl: true },
+        { label: '플러시+거트샷 12장', cards: ['Jh', 'Th', '8h', '7c', '2h'], note: '2장 45.0%, 1장 25.5%', outs: 12 },
+        { label: '플러시+양방향 15장', cards: ['9h', '8h', '7h', '6c', '2h'], note: '2장 54.1%, 1장 31.9%', outs: 15 }
+      ],
+      calc: { type: 'outs', n: 9 },
+      caption: '앞 2장은 내 손, 뒤 3장은 플랍. 2장 = 턴과 리버를 다 볼 때, 1장 = 다음 카드만 볼 때의 정확값.' },
+    // 올인과 비올인 짝: 같은 플러시 드로우, 상대 액션만 다르다
+    { t: 'table', heroPos: 'BTN', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'],
+      seats: [
+        { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
+        { pos: 'BTN', active: true }, { pos: 'SB', folded: true }, { pos: 'BB', action: '올인' }
+      ],
+      calc: { type: 'outs', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'] },
+      caption: '상대가 올인이면 콜 한 번으로 턴과 리버를 다 봐요. 어림 x4는 {{x4}}%, 정확값 {{pct2}}%.' },
+    { t: 'table', heroPos: 'BTN', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'],
+      seats: [
+        { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
+        { pos: 'BTN', active: true }, { pos: 'SB', folded: true }, { pos: 'BB', action: '반 팟 벳' }
+      ],
+      calc: { type: 'outs', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'] },
+      caption: '올인이 아니면 턴에 또 벳이 올 수 있어요. 이번 콜로 보장되는 건 다음 1장, 어림 x2는 {{x2}}%, 정확값 {{pct1}}%.' },
+    { t: 'ask', id: 'q2', q: '플랍에서 상대가 팟의 반을 벳했어요(올인 아님). 이번 콜의 가격과 비교할 어림은?',
+      choices: ['아웃츠 x2(다음 1장)', '아웃츠 x4(턴과 리버 2장)'], answer: 0,
+      why: '올인이 아니면 턴에 또 벳이 올 수 있어 이번 콜로 보장되는 건 다음 1장뿐이에요.' },
+    { t: 'say', calc: { type: 'outs', n: 15 },
+      text: '아웃츠가 9장을 넘으면 x4는 부풀려져요. {{outs}}장이면 x4는 {{x4}}%인데 정확값은 {{pct2}}%예요.' },
+    { t: 'sum', text: '아웃츠를 세고, 올인이면 x4(턴과 리버), 올인이 아니면 x2(다음 1장)로 어림한다.' }
+  ]
+});
+
+// ── s2-08 에쿼티 감 잡기(신규 노드, 설계서 부록 A 15번, 부록 B 비교 장면) ──
+// 승률 막대 6개는 PRECALC(lessons/data/precalc.js 머리 주석의 만든 방법과 고른 기준). 비교 장면 2개는 올인 스팟이라
+// 끝까지 본 승률(eqExact 열거)과 이번 콜의 필요 승률을 같은 축에 둔다(s2-07: 끝까지 본 승률을 가격과 바로 견주는 건 올인일 때만).
+LESSONS.push({
+  id: 's2-08', node: 's2-08', title: '에쿼티 감 잡기', est: 3,
+  source: '엔진 계산(Equity._mc와 균등 콤보 MC 선계산, HandEval 열거), 이 앱 차트(Gto.GTO_RANGES)',
+  scenes: [
+    { t: 'say', text: '에쿼티(승률)는 지금 손으로 끝까지 갔을 때 이기는 몫이에요. 비기면 반으로 쳐요.' },
+    { t: 'bar', kind: 'equity', rows: [
+        { label: 'AA', precalc: 'eq:AhAd::random' },
+        { label: 'AKo', precalc: 'eq:AhKd::random' },
+        { label: 'KJo', precalc: 'eq:KhJd::random', hl: true },
+        { label: '72o', precalc: 'eq:7c2d::random' }
+      ],
+      caption: '상대가 아무 손이면 AA도 약 {{eq}}%. 프리플랍 승률은 생각보다 서로 붙어 있어요.' },
+    { t: 'ask', id: 'q1', q: '상대가 BTN에서 오픈했다면 내 KJo의 승률은 아무 손을 만날 때보다?',
+      choices: ['올라가요', '내려가요', '그대로예요'], answer: 1,
+      why: '오픈한 손은 아무 손보다 강해서 같은 KJo라도 승률이 내려가요.' },
+    { t: 'bar', kind: 'equity', rows: [
+        { label: 'AA 대 BTN 오픈', precalc: 'eq:AhAd::range=rfi|BTN' },
+        { label: 'KJo 대 BTN 오픈', precalc: 'eq:KhJd::range=rfi|BTN', hl: true }
+      ],
+      caption: '상대가 이 앱 차트의 BTN 오픈 레인지면 AA는 약 {{eq}}%로 거의 그대로, KJo는 크게 내려가요.' },
+    { t: 'ask', id: 'q2', q: '10♠9♠는 아무 손 상대로 프리플랍 승률이 약 몇 %?', choices: ['약 34%', '약 54%', '약 74%'], answer: 1,
+      calc: { type: 'eq', precalc: 'eq:Ts9s::random' },
+      why: '수딧 커넥터도 아무 손 상대로는 약 {{eq}}%, 절반을 조금 넘어요.' },
+    // 같은 축 비교 1(콜): 플러시와 양방향 스트레이트 드로우 대 탑페어, 상대 올인(팟만큼)
+    { t: 'bar', kind: 'compare', exact: { hero: ['9h', '8h'], vs: ['As', 'Ts'], board: ['Th', '7c', '2h'] }, need: { potTotal: 40, toCall: 20 },
+      caption: '탑페어의 올인에 콜하면 끝까지 봐요. 내 드로우 {{eq}}%가 필요 {{need}}%보다 커서 콜이 이득.' },
+    // 같은 축 비교 2(폴드): 같은 가격, 거트샷만
+    { t: 'bar', kind: 'compare', exact: { hero: ['9s', '8s'], vs: ['Qd', 'Jd'], board: ['Jh', '7d', '2c'] }, need: { potTotal: 40, toCall: 20 },
+      caption: '같은 가격에 거트샷뿐이면 {{eq}}%. 필요 {{need}}%에 못 미쳐 폴드가 나아요.' },
+    { t: 'ask', id: 'q3', q: '플랍에서 상대가 팟의 반을 벳(올인 아님). 끝까지 본 내 승률을 이번 콜 가격과 바로 견줘도 될까?',
+      choices: ['아니요, 턴에 또 벳이 올 수 있어요', '네, 언제나 같아요'], answer: 0,
+      why: '끝까지 본 승률을 이번 가격과 바로 견주는 건 올인처럼 남은 카드를 다 볼 때뿐이에요.' },
+    { t: 'sum', text: '상대 레인지가 강할수록 내 승률은 내려가고, 올인이면 내 승률이 필요 승률보다 높을 때 콜한다.' }
+  ]
+});
+
+// ── s2-09 BB 방어의 이유(커리큘럼 세션 9, 설계서 2.4절 세션 9) ──
+// BTN 2.5bb 오픈(engine/ev.js 표준), SB 폴드: 팟(상대 벳 포함) 2.5 + 0.5 + 1 = 4bb, BB 콜 1.5bb → 1.5 ÷ 5.5 = 27.3%.
+// 이 앱 AI는 BTN만 2.5bb, 나머지 자리는 3bb로 오픈해서(villain.js, tests/j-nodes 17) 가격은 BTN 오픈에만 적는다.
+// 방어 격자: BTN 오픈 = vsRfiBB_LP(뒷자리 오프너 표), UTG 오픈 = vsRfi.BB(GtoChart.buildChartModel 선택 규칙).
+LESSONS.push({
+  id: 's2-09', node: 's2-09', title: 'BB 방어의 이유', est: 3,
+  source: '엔진 계산(팟 오즈), 이 앱 차트(Gto.GTO_RANGES vsRfi.BB, vsRfiBB_LP)와 Coach.rangePct',
+  scenes: [
+    { t: 'say', text: 'BB는 카드를 보기도 전에 빅블라인드를 내고 앉아요. 그 칩은 이미 팟에 들어 있어요.' },
+    { t: 'table', heroPos: 'BB', hero: ['Kd', '7c'], board: [], potTotal: 4, toCall: 1.5, focus: 'toCall',
+      seats: [
+        { pos: 'UTG', folded: true, action: '폴드' }, { pos: 'HJ', folded: true, action: '폴드' },
+        { pos: 'CO', folded: true, action: '폴드' }, { pos: 'BTN', action: '레이즈', bet: 2.5 },
+        { pos: 'SB', folded: true, action: '폴드' }, { pos: 'BB', bet: 1, active: true }
+      ],
+      calc: { type: 'opensize', pos: 'BTN', limpers: 0 },
+      caption: 'BTN이 {{size}}bb로 오픈, SB 폴드. 팟 {{potTotal}}bb에 내 빅블라인드가 들어 있어 콜은 {{toCall}}bb.' },
+    { t: 'ring', potTotal: 4, toCall: 1.5, calc: { type: 'potodds', potTotal: 4, toCall: 1.5 },
+      caption: '링의 {{pct}}%는 반올림, 정확히는 {{pctd}}%예요. 이미 낸 빅블라인드 덕분에 콜 가격이 싸요.' },
+    { t: 'grid', pos: 'BB', facing: true, opener: 'BTN', highlight: ['K7o'], claim: { hand: 'K7o', action: 'call' },
+      caption: 'BTN 오픈에는 넓게 지켜요(참여 약 {{pct}}%). BTN 레인지가 넓어서 K7o도 콜이에요.' },
+    { t: 'grid', pos: 'BB', facing: true, opener: 'UTG', highlight: ['K7o'], claim: { hand: 'K7o', action: 'fold' },
+      caption: 'UTG 오픈에는 약 {{pct}}%만. 상대 레인지가 강하면 내 승률이 낮아져 K7o는 폴드예요.' },
+    { t: 'say', label: '참고', text: 'BB는 플랍부터 먼저 말해서 승률을 다 살리기 어려워요. 그래서 싸다고 아무 손이나 지키지 않아요.' },
+    { t: 'ask', id: 'q1', q: 'BTN 2.5bb 오픈, SB 폴드. BB인 나는 팟(상대 벳 포함) 4bb, 콜 1.5bb. 필요 승률은?',
+      choices: ['약 27%', '약 38%', '약 50%'], answer: 0,
+      calc: { type: 'potodds', potTotal: 4, toCall: 1.5 },
+      why: '{{toCall}} ÷ ({{potTotal}}+{{toCall}}) = 약 {{pct}}%. 콜 금액을 팟에 더해서 나눠요.' },
+    { t: 'ask', id: 'q2', q: 'UTG가 오픈했어요. BB에서 A8o는?', choices: ['3벳', '콜', '폴드'], answer: 2,
+      pick: ['raise', 'call', 'fold'], calc: { type: 'chart', pos: 'BB', facing: true, opener: 'UTG', hand: 'A8o' },
+      why: 'UTG 오픈에는 에이스 오프수트를 ATo부터 지켜요. A8o는 폴드예요.' },
+    { t: 'sum', text: '이미 낸 빅블라인드 덕에 BB는 싸게 넓게 지키지만, 상대 레인지가 강할수록 좁힌다.' }
+  ]
+});
+
+// ── s2-10 20핸드 실전 밴드(신규 노드, 설계서 1.3절 7번: 밴드 = HeroStats.bandsFromChart ±4, 이 앱 차트 기준) ──
+// 미션(journey-data s2-10): VPIP, PFR이 밴드 안(기회 30번부터, journey/boss.js band), 림프 0. 밴드 수치는 band calc.
+LESSONS.push({
+  id: 's2-10', node: 's2-10', title: '20핸드 실전 밴드', est: 3,
+  source: '이 앱 차트(Gto.GTO_RANGES)로 계산한 HeroStats.bandsFromChart',
+  scenes: [
+    { t: 'say', text: 'VPIP는 스스로 칩을 넣은 핸드 비율(블라인드만 낸 건 빼요), PFR은 프리플랍에 레이즈한 비율이에요.' },
+    { t: 'table', heroPos: 'CO', hero: ['Ah', 'Td'], board: [], potTotal: 4, blinds: true,
+      seats: [
+        { pos: 'UTG', folded: true, action: '폴드' }, { pos: 'HJ', folded: true, action: '폴드' },
+        { pos: 'CO', action: '레이즈', bet: 2.5, active: true }, { pos: 'BTN' }, { pos: 'SB' }, { pos: 'BB' }
+      ],
+      caption: '앞이 모두 폴드, CO에서 ATo로 오픈 레이즈. 이 핸드는 VPIP와 PFR이 둘 다 올라가요.' },
+    { t: 'table', heroPos: 'BB', hero: ['Qs', '9s'], board: [], potTotal: 5.5,
+      seats: [
+        { pos: 'UTG', folded: true, action: '폴드' }, { pos: 'HJ', folded: true, action: '폴드' },
+        { pos: 'CO', folded: true, action: '폴드' }, { pos: 'BTN', action: '레이즈', bet: 2.5 },
+        { pos: 'SB', folded: true, action: '폴드' }, { pos: 'BB', action: '콜', bet: 2.5, active: true }
+      ],
+      caption: 'BTN 오픈에 BB에서 Q9s로 콜. 칩을 스스로 넣어 VPIP는 오르지만 레이즈가 아니라 PFR은 그대로예요.' },
+    { t: 'say', calc: { type: 'band', metric: 'vpip' },
+      text: '이 앱 차트대로만 치면 VPIP가 약 {{pct}}%예요. 통과 밴드는 {{lo}}~{{hi}}%(차트 값 ±4).' },
+    { t: 'say', calc: { type: 'band', metric: 'pfr' },
+      text: '같은 차트로 PFR은 약 {{pct}}%, 밴드 {{lo}}~{{hi}}%. 사람들 평균이 아니라 이 앱 차트에서 나온 값이에요.' },
+    { t: 'ask', id: 'q1', q: '이 앱 차트대로만 치면 VPIP는 약 몇 %?', choices: ['약 9%', '약 21%', '약 42%'], answer: 1,
+      calc: { type: 'band', metric: 'vpip', of: 'pct' },
+      why: '자리마다 오픈과 방어를 차트대로 하면 약 {{pct}}%, 밴드는 {{lo}}~{{hi}}%예요.' },
+    { t: 'ask', id: 'q2', q: '앞사람이 모두 폴드했는데 림프(콜)로 들어가면 오르는 것은?', choices: ['VPIP만', 'PFR만', '둘 다'], answer: 0,
+      why: '림프도 스스로 칩을 넣은 거라 VPIP만 올라요. 이 미션은 림프 0번이에요.' },
+    { t: 'say', text: '판정은 기회 30번부터예요. 20핸드로 모자라면 몇 핸드 더 치면 되고, 그전엔 통과도 실패도 없어요.' },
+    { t: 'sum', text: '차트대로 치면 VPIP와 PFR이 이 앱 차트 밴드 안에 들고, 림프는 하지 않는다.' }
   ]
 });

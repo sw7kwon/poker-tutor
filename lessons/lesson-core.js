@@ -1,4 +1,4 @@
-// lessons/lesson-core.js (채우는 패키지: M3-P1b)
+// lessons/lesson-core.js (채우는 패키지: M3-P1b, M4-P7이 calc outs, band와 potodds pctd, 아웃츠 표 검산을 더함)
 //
 // 그룹 간 계약 정본 L1~L8 (M3 사전 등록). 각 패키지는 이 계약에 맞춰 구현한다. 설계서와 다르면 이 주석이 우선한다.
 //
@@ -9,7 +9,10 @@
 // L2 장면(t). 공통 선택 필드: caption(80자 이내, 템플릿 {{이름}}), label:'참고'(approx 내용이면 필수), calc(L3).
 //   say {text}.
 //   sum {text}(노드 시트에 남는 한 문장, 숫자+%나 숫자+bb 쓰지 않음).
-//   cards {cards[] | rows:[{label, cards[], note?, hl?}], compare?}(기존).
+//   cards {cards[] | rows:[{label, cards[], note?, hl?, outs?, outCards?}], compare?}(기존).
+//     (M4-P7) rows[].outs = 아웃츠 표 줄: cards는 내 손 2장 + 플랍 3장, 열거한 아웃츠 수가 outs와 같고, label의 첫 숫자(있으면)도 outs,
+//     note의 숫자+% 두 개는 차례로 2장(턴과 리버), 1장(다음 카드) 정확값(L3 outs의 pct2, pct1)이어야 한다(check가 검산).
+//     rows[].outCards = 아웃 카드 그림 줄: 같은 장면의 calc outs(hero, board)가 세는 아웃 카드와 같은 카드 묶음이어야 한다.
 //   grid {pos, facing(false|true|'vs3bet'|'vs4bet'|'cold3bet'), opener?, highlight[], layers?[자리...], claim?{hand, action}}
 //     (기존, 변수 pct = 참여 레인지 %).
 //   ring {potTotal(상대 벳 포함), toCall, eq?}(기존).
@@ -28,7 +31,16 @@
 //     LessonPlayer가 say, ask, widget과 모든 장면의 caption 줄과 label 칩.
 //
 // L3 calc 유형과 템플릿 변수. 표기: 퍼센트는 정수 반올림(Math.round), bb는 소수 둘째 자리까지 끝 0 제거(15, 7.5, 2.25).
-//   potodds {potTotal, toCall} → pct = toCall/(potTotal+toCall), potTotal, toCall.
+//   예외(M4-P7): 설계 표가 소수 첫째 자리인 값(potodds pctd, outs pct1과 pct2, band lo와 mid와 hi)은 소수 첫째 자리.
+//   potodds {potTotal, toCall} → pct = toCall/(potTotal+toCall), potTotal, toCall,
+//     pctd = 같은 값의 소수 첫째 자리 문자열(27.3, 25.0, M4-P7, s2-09의 27.3% 링).
+//   outs {hero[2], board[3|4]} | {n, unseen?(47 플랍 | 46 턴, 기본 47)} → outs(장 수), unseen, pct1(다음 1장 정확값),
+//     pct2(플랍에서 턴과 리버 2장 안에 아웃이 1장 이상 올 정확값, 플랍만), x2 = 2 x outs, x4 = 4 x outs(플랍만), 퍼센트는 소수
+//     첫째 자리 문자열(설계서 2.4절 세션 5: 4장 16.5/8.5, 8장 31.5/17.0, 9장 35.0/19.1, 12장 45.0/25.5, 15장 54.1/31.9).
+//     아웃츠 정의(설계서 3.2절 출제 제외 5번): 남은 덱(플랍 47장, 턴 46장) 중 다음 1장으로 스트레이트 이상이 되는 카드 수,
+//     HandEval 열거. 턴 보드에서 보드만으로 같은 족보가 되는 카드(보드 플레이)는 빼고, 이미 스트레이트 이상이면 오류(M4-P7).
+//   band {metric:'vpip'|'pfr'|'tb'|'f3'} → lo, mid, hi(HeroStats.bandsFromChart()[metric] 그대로, 소수 첫째 자리, 밴드 = 차트 ±4),
+//     pct = Math.round(mid)('약 n%' 문장용). 이 앱 차트 기준 값이라 문장에 '이 앱 차트'를 적는다(설계서 1.3절 7번, M4-P7).
 //   tocall {currentBet, heroBet} → amt = currentBet - heroBet.
 //   minraise {currentBet, lastRaise} → to = currentBet + lastRaise, inc = lastRaise(game-state.js:110 규칙, 첫 벳이면 lastRaise = 그 벳).
 //   opensize {pos, limpers} → size = (SB면 3, 아니면 2.5) + limpers(ev.js:28-32, gen-basic opensize와 같은 표).
@@ -48,6 +60,9 @@
 //   있으면 pick[answer] === 결과값이고 다른 보기의 pick은 달라야 한다.
 //   pick이 없으면 각 보기 문자열의 첫 숫자를 L3 표기의 결과값과 비교해 정확히 하나만 같고 그것이 answer.
 //   calc 없는 ask는 개념 문항(숫자+%와 숫자+bb 금지). j-lessons(P5)가 독립 경로로 검산한다.
+//   (M4-P7) outs와 band처럼 M4에 더한 유형의 ask는 calc.of를 늘 적는다(outs 'outs', band 'pct'). 레슨 복습 어댑터
+//   puzzles/gen-lesson.js calcResult는 자기가 직접 계산하지 않는 유형을 LessonCore.calc로 넘기므로(M4-P7 리뷰 수정)
+//   이 유형의 오답도 Leitner 복습으로 다시 나온다(j-lessons gen-lesson 6이 실제 레슨의 모든 ask 복원을 고정).
 //
 // L5 린트(numericTemplate는 M3-P5가 기본으로 켠다): caption, text, why의 숫자+%와 숫자+bb는 {{ }}로만 쓴다.
 //   ask의 q와 choices는 같은 장면에 calc가 있을 때만 숫자 리터럴 허용. pot 필드 금지(potTotal만).
@@ -65,6 +80,11 @@
 //   hero 'AhKd', board '' 또는 'Th7c2h', vs 'random' 또는 'range=<스팟>'(예 range=rfi|BTN, Gto.GTO_RANGES 배열).
 //   특정 손 대 특정 손은 PRECALC 대신 eqExact(보드 3장 이상).
 //   j-lessons가 Equity._mc(시드 Drills.rng(1)과 Drills.rng(2) 각 5000회) 평균과 ±4%p로 대조.
+//   값 만들기(M4-P7): vs random은 Equity._mc(시드 1, 2 각 5000회) 평균. vs range는 같은 시드와 횟수의 균등 콤보 MC
+//   (tools/seed-bank.js mcUniform) 평균. Equity._mc의 레인지 샘플러는 콤보를 고르게 뽑지 않아(실측 AKo 대 UTG 오픈 레인지
+//   -3.1%p, KJo 대 UTG +4.2%p) 레인지 상대 값이 틀린다. 그래서 레슨에는 편향이 작은 레인지 키만 쓰고(±4%p 대조를 넘지 않게),
+//   j-lessons가 모든 키를 독립 균등 콤보 MC(다른 시드)와 ±2%p로 한 번 더 대조한다. 화면의 반올림 정수가 고정밀 기준값
+//   (균등 콤보 20만 회)의 반올림과 같은 키만 골랐다(precalc.js 머리 주석).
 //
 // L8 API.
 //   LessonCore(순수, P1b): find(id) → lesson|null,
@@ -96,19 +116,25 @@
 //      (P1a 병합 전) 여기서 같은 규칙(첫 줄 precalc 또는 exact, need 객체)으로 채운다.
 //   M4 ask 정답 비교에 쓰는 결과값(j-lessons의 wantOf와 같은 규칙) = calc.of(결과 변수 이름)가 있으면 그 변수, 없으면 유형의 첫 변수
 //      (potodds pct, tocall amt, minraise to, opensize size, showdown winner, order first, rangePct pct, chart action, eq eq,
-//      eqExact eq). answerIndex(ask)가 이 규칙으로 정답 칸을 구한다. order 질문이 '마지막', '맨 끝', '가장 늦게' 자리를 묻는데
+//      eqExact eq, outs outs, band pct). answerIndex(ask)가 이 규칙으로 정답 칸을 구한다. order 질문이 '마지막', '맨 끝', '가장 늦게' 자리를 묻는데
 //      calc.of가 없으면 check가 "calc.of = 'last'를 적어요"로 알린다(j-lessons ask.of와 같은 규칙, 추측해서 바꾸지 않는다).
 //      calc potodds의 pct(와 SceneRender.vars가 없을 때의 need 대체 계산)는 Math.round(toCall x 100 / (potTotal + toCall))
 //      (j-lessons와 같은 식, 14.5처럼 딱 반인 값이 toCall / (potTotal + toCall) x 100의 부동소수 오차로 14가 되지 않게).
 //      opensize는 BB면 림퍼 1명 이상(아무도 안 들어오면 BB는 오픈할 일이 없다), potodds는 toCall이 0보다 커야 한다.
 //   M5 check(lesson)은 L1, L2 필드, L4, L5(숫자 템플릿, 금지 문자, pot 필드, 80자), 정의 안 된 변수, sum의 템플릿 금지,
 //      grid claim, PRECALC 키 존재를 본다. 반환 [{scene, msg}], scene -1은 레슨 전체. JOURNEY_NODES가 있으면 노드 연결도 본다.
+//      (M4-P7) cards 장면의 아웃츠 표 줄(rows[].outs)과 아웃 카드 줄(rows[].outCards)도 열거로 검산한다(L2 cards).
+//   M6(M4-P7) outsOf(hero, board) → {outs:[카드 문자열], unseen, cur(지금 족보 type)} | {error}. calc outs와 check가 같이 쓴다.
+//      HandEval.evaluate(카드 객체) 경로. j-lessons는 evaluateIdx(정수 카드)와 2장 쌍 열거로 따로 센다.
+//      band는 HeroStats.bandsFromChart()를 그대로 부른다(Gto, Coach 전역). j-lessons는 GtoChart 모델 셀로 따로 계산한다.
 //   로드 시 DOM, window, localStorage에 손대지 않는다. HandEval, SceneRender, PRECALC, LESSONS, JOURNEY_NODES는 호출 때 typeof 가드.
 var LessonCore = (function() {
   var G = (typeof globalThis !== 'undefined') ? globalThis : this;
   var TYPES = ['say', 'table', 'cards', 'grid', 'ring', 'bar', 'ask', 'compare', 'widget', 'sum'];
   var CALC_MAIN = { potodds: 'pct', tocall: 'amt', minraise: 'to', opensize: 'size', showdown: 'winner', order: 'first',
-    rangePct: 'pct', chart: 'action', eq: 'eq', eqExact: 'eq' };
+    rangePct: 'pct', chart: 'action', eq: 'eq', eqExact: 'eq', outs: 'outs', band: 'pct' };
+  var STRAIGHT = 6;   // HandEval type: 1 로열 플러시 ... 6 스트레이트 ... 10 하이카드(작을수록 강함)
+  var BAND_METRICS = ['vpip', 'pfr', 'tb', 'f3'];
   var PRE = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
   var POST = ['SB', 'BB', 'UTG', 'HJ', 'CO', 'BTN'];
   var FACINGS = [false, true, 'vs3bet', 'vs4bet', 'cold3bet'];
@@ -189,6 +215,43 @@ var LessonCore = (function() {
     return tot ? (win + tie / 2) / tot : null;
   }
 
+  // 아웃츠 열거(L3 outs, 설계서 3.2절 출제 제외 5번): 남은 덱 중 다음 1장으로 스트레이트 이상이 되는 카드.
+  // 턴 보드(4장)에 리버 1장을 더한 5장만으로 같은 족보가 되면(보드 플레이) 아웃이 아니다. 지금 이미 스트레이트 이상이면 오류.
+  function outsOf(hero, board) {
+    var H = _he();
+    if (!H) return { error: 'HandEval이 없어요' };
+    var p = _cards([{ name: '내 손', list: hero, n: [2, 2] }, { name: '보드', list: board, n: [3, 4] }]);
+    if (p.error) return { error: p.error };
+    var h = p.groups[0], b = p.groups[1], known = h.concat(b);
+    var cur = H.evaluate(known);
+    if (cur && cur.type <= STRAIGHT) {
+      return { error: '지금 이미 ' + (typeof H.describe === 'function' ? H.describe(cur) + ', ' : '') + '스트레이트 이상이라 아웃츠를 세지 않아요' };
+    }
+    var outs = [], unseen = 0;
+    for (var ri = 0; ri < 13; ri++) for (var si = 0; si < 4; si++) {
+      var k = RANKS.charAt(ri) + SUITS.charAt(si);
+      if (p.used[k]) continue;
+      unseen++;
+      var c = { rank: RANKS.charAt(ri), suit: SUITS.charAt(si) };
+      var ev = H.evaluate(known.concat([c]));
+      if (!ev || ev.type > STRAIGHT) continue;
+      if (b.length + 1 >= 5) {
+        var bv = H.evaluate(b.concat([c]));
+        if (bv && H.compareHands(ev, bv) === 0) continue;
+      }
+      outs.push(k);
+    }
+    return { outs: outs, unseen: unseen, cur: cur ? cur.type : null };
+  }
+  // 퍼센트 소수 첫째 자리 문자열(19.1, 35.0)
+  function _p1(x) { return (Math.round(x * 1000) / 10).toFixed(1); }
+  // 아웃츠 n장, 남은 카드 u장 → 정확값과 어림(플랍이면 2장 확률과 x4도)
+  function _outsVars(n, u) {
+    var v = { outs: n, unseen: u, pct1: _p1(n / u), x2: 2 * n };
+    if (u === 47) { v.pct2 = _p1(1 - (u - n) * (u - n - 1) / (u * (u - 1))); v.x4 = 4 * n; }
+    return v;
+  }
+
   // ── calc(L3) ─────────────────────────────────────────
   function _spot(c) {
     var s = { pos: c.pos, facing: _has(c, 'facing') && c.facing != null ? c.facing : false };
@@ -201,7 +264,7 @@ var LessonCore = (function() {
       if (!_fin(c.potTotal) || !_fin(c.toCall)) return { error: 'potodds에는 potTotal과 toCall 숫자가 필요해요' };
       var p = Number(c.potTotal), t = Number(c.toCall);
       if (p < 0 || t <= 0) return { error: 'potodds 금액이 맞지 않아요(potTotal 0 이상, toCall 0보다 큼)' };
-      return { pct: Math.round(t * 100 / (p + t)), potTotal: _bb(p), toCall: _bb(t) };
+      return { pct: Math.round(t * 100 / (p + t)), pctd: (Math.round(t * 1000 / (p + t)) / 10).toFixed(1), potTotal: _bb(p), toCall: _bb(t) };
     },
     tocall: function(c) {
       if (!_fin(c.currentBet) || !_fin(c.heroBet)) return { error: 'tocall에는 currentBet과 heroBet 숫자가 필요해요' };
@@ -274,6 +337,28 @@ var LessonCore = (function() {
       if (p.error) return { error: p.error };
       var e = eqExact(c.hero, c.vs, c.board);
       return e == null ? { error: 'eqExact 계산 실패' } : { eq: Math.round(e * 100) };
+    },
+    outs: function(c) {
+      if (c.n != null) {
+        if (c.hero != null || c.board != null) return { error: 'outs는 hero와 board, 또는 n 하나만 써요' };
+        var u = c.unseen == null ? 47 : Number(c.unseen);
+        if (u !== 47 && u !== 46) return { error: 'outs unseen은 47(플랍) 또는 46(턴)이에요' };
+        var n = Number(c.n);
+        if (!(n >= 1 && n < u) || Math.floor(n) !== n) return { error: 'outs n은 1 이상의 정수예요' };
+        return _outsVars(n, u);
+      }
+      var o = outsOf(c.hero, c.board);
+      if (o.error) return { error: o.error };
+      if (!o.outs.length) return { error: '아웃츠가 0장이에요(드로우가 없는 스팟)' };
+      return _outsVars(o.outs.length, o.unseen);
+    },
+    band: function(c) {
+      if (BAND_METRICS.indexOf(c.metric) < 0) return { error: "band metric은 'vpip', 'pfr', 'tb', 'f3'이에요: " + c.metric };
+      var HS = _mod('HeroStats');
+      var all = (HS && typeof HS.bandsFromChart === 'function') ? HS.bandsFromChart() : null;
+      var b = all ? all[c.metric] : null;
+      if (!b || !_fin(b.lo) || !_fin(b.mid) || !_fin(b.hi)) return { error: '차트 밴드를 계산하지 못했어요(HeroStats.bandsFromChart)' };
+      return { lo: Number(b.lo), mid: Number(b.mid), hi: Number(b.hi), pct: Math.round(Number(b.mid)) };
     }
   };
   function calc(c) {
@@ -506,6 +591,37 @@ var LessonCore = (function() {
   }
   function _numOutsideTpl(s) { return NUM_UNIT.test(String(s).replace(new RegExp(TPL.source, 'g'), '')); }
 
+  // (M4-P7) cards 장면의 아웃츠 표 줄(outs)과 아웃 카드 줄(outCards) 검산(L2 cards)
+  function _checkOutsRows(sc, i, e) {
+    sc.rows.forEach(function(r, k) {
+      if (!_isObj(r)) return;
+      var where = 'cards ' + (k + 1) + '번 줄';
+      if (_has(r, 'outs')) {
+        var list = Array.isArray(r.cards) ? r.cards : [];
+        if (list.length !== 5) { e(i, where + ': 아웃츠 표 줄은 내 손 2장 + 플랍 3장(5장)이에요'); return; }
+        var o = outsOf(list.slice(0, 2), list.slice(2));
+        if (o.error) { e(i, where + ': ' + o.error); return; }
+        if (o.outs.length !== Number(r.outs)) { e(i, where + ': 열거한 아웃츠 ' + o.outs.length + '장인데 outs는 ' + r.outs); return; }
+        var ln = _firstNum(r.label);
+        if (ln != null && ln !== o.outs.length) e(i, where + ': label 숫자 ' + ln + '가 아웃츠 ' + o.outs.length + '장과 달라요');
+        var v = _outsVars(o.outs.length, o.unseen), got = [], m, re = /(\d+(?:\.\d+)?)\s*%/g;
+        while ((m = re.exec(String(r.note == null ? '' : r.note))) !== null) got.push(Number(m[1]));
+        if (got.length !== 2 || got[0] !== Number(v.pct2) || got[1] !== Number(v.pct1)) {
+          e(i, where + ': note의 확률은 2장 ' + v.pct2 + '%, 1장 ' + v.pct1 + '% 차례여야 해요(지금 ' + got.join(', ') + ')');
+        }
+      }
+      if (r.outCards) {
+        var c = sc.calc;
+        if (!_isObj(c) || c.type !== 'outs' || c.hero == null) { e(i, where + ': outCards 줄은 같은 장면에 calc outs(hero, board)가 필요해요'); return; }
+        var oc = outsOf(c.hero, c.board);
+        if (oc.error) return;   // calc 오류로 이미 보고
+        var shown = (Array.isArray(r.cards) ? r.cards : []).map(function(x) { var cd = _card(x); return cd ? cd.rank + cd.suit : '?'; });
+        var want = oc.outs.slice().sort().join(' '), have = shown.slice().sort().join(' ');
+        if (want !== have) e(i, where + ': 아웃 카드 그림이 열거 결과(' + want + ')와 달라요');
+      }
+    });
+  }
+
   function check(lesson) {
     var errs = [];
     function e(scene, msg) { errs.push({ scene: scene, msg: msg }); }
@@ -642,6 +758,7 @@ var LessonCore = (function() {
         }
         case 'cards':
           if (!Array.isArray(sc.cards) && !Array.isArray(sc.rows)) e(i, 'cards에 cards 또는 rows가 없어요');
+          else if (Array.isArray(sc.rows)) _checkOutsRows(sc, i, e);
           break;
         case 'compare':
           if (!Array.isArray(sc.cols) || sc.cols.length !== 3) e(i, 'compare cols는 3개예요');
@@ -657,7 +774,8 @@ var LessonCore = (function() {
   var api = {
     TYPES: TYPES.slice(), CALC_MAIN: CALC_MAIN, WRONG_MS: WRONG_MS, CAP_MAX: CAP_MAX,
     find: find, create: create, vars: vars, fill: fill, check: check,
-    calc: calc, eqExact: eqExact, wantKey: wantKey, answerValue: answerValue, answerIndex: answerIndex, tplNames: _tplNames
+    calc: calc, eqExact: eqExact, wantKey: wantKey, answerValue: answerValue, answerIndex: answerIndex, tplNames: _tplNames,
+    outsOf: outsOf
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

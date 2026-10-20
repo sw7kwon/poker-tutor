@@ -5,13 +5,16 @@
 // M3-P4a: 학습 노드 미션은 핸드 수 AND Boss.evaluate 조건(롤링, minOpp 미달은 판정 보류)으로 통과한다. 보스 노드의 실전 핸드는
 //   롤링 집계가 아니라 Boss가 세는 보스 카운터(이 시험의 실전 핸드)다. 세션 시작/끝/교체는 Boss.onSessionStart/onSessionEnd로
 //   알린다(코칭 고정과 보스 판정). 지도 힌트의 "핸드 n개 더"는 기회 미달 조건의 어림도 반영한다.
+// M4-P8(계약 T9): recordTheater(극장 1편 기록, 명장면 카드 도감 최대 100장, XP 10 + 비자명 적중 건당 2, JStats theater, touchDay)와
+//   highlightOfDay(오늘의 명장면, 날짜 시드 결정론). 오늘의 5분 재미 블록의 명장면 가용(avail.highlights)은 카드가 있고
+//   TheaterUI.showCard가 있을 때다(카드를 다시 보여 줄 화면이 있어야 블록이 열린다).
 // 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다(전부 함수 안에서 typeof 가드).
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
 // "가용(available)" = 선행이 모두 통과이고 상태가 open 또는 done(마이그레이션으로 잠긴 채 done이 된 노드는 선행 통과 뒤 가용).
 // XP는 addXp 한 곳으로만 쌓인다. 이 모듈이 직접 주는 XP: 레슨 첫 완료(lesson), 미션 노드 통과(mission), 보스 통과(boss),
 // 게임 결정(decision, 힌트 사용 시 절반 내림), 오늘의 5분 완주(markBlock('wrap') 하루 1회, todayDone).
-// 퍼즐, 복습 드릴, 데일리 5, 극장 등 바깥 출처는 호출하는 쪽이 addXp(src, amount)를 부른다.
+// 퍼즐, 복습 드릴, 데일리 5 등 바깥 출처는 호출하는 쪽이 addXp(src, amount)를 부른다. 극장은 recordTheater가 준다(theater, theaterHit).
 var Journey = (function() {
   var KEY = 'poker_journey';
   var SETTINGS_KEY = 'poker_journey_settings';
@@ -27,6 +30,7 @@ var Journey = (function() {
   var REPEAT_SRC = { review: 1, reviewRepeat: 1, decision: 1 };
   var COACH_CONCEPTS = ['rfi', 'vs_rfi', 'blind_defense', 'vs_3bet', 'pot_odds', 'draws', 'cbet', 'value_bluff', 'board_texture', 'turn_river', 'actions'];
   var STATUS_RANK = { locked: 0, open: 1, done: 2, passed: 3 };
+  var CARD_CAP = 100;                                     // 명장면 카드 도감 상한(storage.js CARD_CAP과 같은 값)
 
   // journey-data.js가 비어 있을 때(병렬 구현 중)만 쓰는 폴백. 값은 설계서 2.1절, 4.3절, 9절 M1-P1a와 같다.
   var DEFAULT_XP = { lesson: 15, ask: 2, puzzle: 5, puzzleTier: [0, 2, 4, 6, 8], puzzleWrong: 1, review: 2, reviewRepeat: 1,
@@ -737,6 +741,103 @@ var Journey = (function() {
   }
   function endToday() { _todayRunning = false; }
 
+  // ── 속마음 극장 기록과 오늘의 명장면(계약 T9, M4-P8) ─────
+  function _theater(st) {
+    var t = st.theater;
+    if (!_isObj(t)) t = st.theater = { episodes: 0, predicted: 0, hit: 0, hitW: 0, cards: [], mini: null };
+    ['episodes', 'predicted', 'hit'].forEach(function(k) { t[k] = Math.max(0, Math.floor(_num(t[k], 0))); });
+    t.hitW = Math.max(0, _num(t.hitW, 0));
+    if (!Array.isArray(t.cards)) t.cards = [];
+    if (t.mini === undefined) t.mini = null;
+    return t;
+  }
+  // 도감의 카드(id가 있는 객체만)
+  function _cards(st) {
+    var t = st && st.theater;
+    return (_isObj(t) && Array.isArray(t.cards)) ? t.cards.filter(function(c) { return _isObj(c) && c.id != null && String(c.id) !== ''; }) : [];
+  }
+  function _copyJSON(o) { try { return JSON.parse(JSON.stringify(o)); } catch (e) { return null; } }
+  // 카드 id = card.id, 없으면 'th-<seed>'(계약 T7 형식). 둘 다 없으면 null(카드를 담지 않음)
+  function _cardId(card, seed) {
+    if (!_isObj(card)) return null;
+    if (card.id != null && String(card.id) !== '') return String(card.id);
+    var sd = (card.seed != null) ? card.seed : seed;
+    return (sd != null && String(sd) !== '') ? 'th-' + sd : null;
+  }
+  // res = { seed, predicted, hit, hitW, card|null }. 호출 1회 = 극장 1편(TheaterUI가 편이 끝날 때마다 부른다, 계약 T8).
+  // 누적(episodes, predicted, hit, hitW). 카드는 at(지금)을 붙여 도감에 담고, id가 같으면 무시, 100장을 넘으면 오래된 것(at)부터 지운다.
+  // XP는 addXp('theater')(10)와 addXp('theaterHit', 2 x hit). 예측은 비자명 결정에서만 묻으므로 적중은 전부 비자명 적중이다(4.3절).
+  // 그리고 JStats.record('theater', {ep:1, pred, hit})와 touchDay(극장 1편도 활동일).
+  // 반환 { xp(이번에 받은 XP 합), card(새로 담은 카드 사본|null), duplicate, level, leveledUp, unlocked, episodes(누적) }
+  function recordTheater(res, now) {
+    now = _now(now);
+    res = _isObj(res) ? res : {};
+    var st = _st(), t = _theater(st);
+    var pred = Math.max(0, Math.floor(_num(res.predicted, 0)));
+    var hit = Math.max(0, Math.floor(_num(res.hit, 0)));
+    if (hit > pred) pred = hit;
+    var hitW = Math.max(0, Math.min(hit, _num(res.hitW, 0)));
+    t.episodes += 1;
+    t.predicted += pred;
+    t.hit += hit;
+    t.hitW = Math.round((t.hitW + hitW) * 1000) / 1000;
+    var stored = null, dup = false;
+    var cid = _cardId(res.card, res.seed);
+    if (cid) {
+      if (t.cards.some(function(c) { return _isObj(c) && String(c.id) === cid; })) dup = true;
+      else {
+        var c = _copyJSON(res.card) || {};
+        c.id = cid;
+        if (c.seed == null && res.seed != null) c.seed = res.seed;
+        c.at = _iso(now);
+        t.cards.push(c);
+        if (t.cards.length > CARD_CAP) {
+          t.cards = t.cards.map(function(x, i) { return { x: x, i: i }; }).sort(function(a, b) {
+            var ta = _ms(_isObj(a.x) ? a.x.at : null), tb = _ms(_isObj(b.x) ? b.x.at : null);
+            ta = isFinite(ta) ? ta : 0; tb = isFinite(tb) ? tb : 0;
+            return (ta - tb) || (a.i - b.i);
+          }).map(function(o) { return o.x; }).slice(-CARD_CAP);
+        }
+        if (t.cards.indexOf(c) >= 0) stored = _copyJSON(c);
+      }
+    }
+    save();
+    var r1 = addXp('theater', undefined, now);
+    var hx = hit * _num(_xpc('theaterHit'), 2);
+    var r2 = hx > 0 ? addXp('theaterHit', hx, now) : null;
+    if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) { try { JStats.record('theater', { ep: 1, pred: pred, hit: hit }, now); } catch (e) { _warn(e); } }
+    touchDay(now);
+    var last = r2 || r1;
+    return { xp: _num(r1.granted, 0) + (r2 ? _num(r2.granted, 0) : 0), card: stored, duplicate: dup,
+      level: last.level, leveledUp: !!(r1.leveledUp || (r2 && r2.leveledUp)), unlocked: r1.unlocked.concat(r2 ? r2.unlocked : []),
+      episodes: t.episodes };
+  }
+  // 32비트 FNV-1a(문자열 결정론 해시)
+  function _hash(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h >>> 0;
+  }
+  // 오늘의 명장면: 도감 카드 중 날짜 시드로 1장. 카드마다 hash('YYYY-MM-DD|id')를 매겨 가장 큰 카드를 고른다(같은 날 같은 도감이면
+  // 같은 카드, 카드 순서와 무관, 카드가 늘거나 지워져도 그 카드가 1등이 아니면 그대로). 어제까지 모은 카드(at이 오늘 0시 전이거나 없음)가
+  // 있으면 그중에서만 골라, 오늘 막 담은 카드가 그날의 명장면으로 바뀌어 끼어들지 않게 한다. 카드가 없으면 null. 반환은 사본.
+  function highlightOfDay(now) {
+    now = _now(now);
+    var cards = _cards(_st());
+    if (!cards.length) return null;
+    var dk = dayKey(now);
+    var d0 = new Date(now); d0.setHours(0, 0, 0, 0);
+    var start = d0.getTime();
+    var old = cards.filter(function(c) { var t = _ms(c.at); return !isFinite(t) || t < start; });
+    var pool = old.length ? old : cards;
+    var best = null, bh = -1;
+    pool.forEach(function(c) {
+      var id = String(c.id), h = _hash(dk + '|' + id);
+      if (h > bh || (h === bh && best && id < String(best.id))) { best = c; bh = h; }
+    });
+    return _copyJSON(best);
+  }
+
   // ── 세션(미션 5핸드, 자유 3핸드, 보스 5핸드 단위) ─────
   // 세션이 끝나거나(end) 새 세션으로 바뀌거나(replaced) 다른 게임이 시작되면(other) Boss에 알린다(코칭 고정 해제, 보스 판정)
   function _sessionEnded(s, reason) {
@@ -942,7 +1043,8 @@ var Journey = (function() {
     var theater = typeof Theater !== 'undefined' && _fn(Theater, 'newEpisode') && typeof TheaterUI !== 'undefined' && _fn(TheaterUI, 'start');
     var daily5 = puzzles && _fn(Puzzles, 'daily5') && typeof PuzzleModes !== 'undefined' && _fn(PuzzleModes, 'daily5');
     var rush = typeof PuzzleModes !== 'undefined' && _fn(PuzzleModes, 'rush');
-    var highlights = typeof Highlight !== 'undefined' && _fn(Highlight, 'pick') && !!(st.theater && st.theater.cards && st.theater.cards.length);
+    // 오늘의 명장면은 도감에 쌓인 카드를 다시 보여 주는 블록이라 Highlight.pick이 아니라 카드와 TheaterUI.showCard가 있어야 한다(M4-P8)
+    var highlights = _cards(st).length > 0 && typeof TheaterUI !== 'undefined' && _fn(TheaterUI, 'showCard');
     var weekly = typeof Seasons !== 'undefined' && _fn(Seasons, 'weekly');
     return { puzzles: !!puzzles, lessons: !!lessons, theater: !!theater, daily5: !!daily5, highlights: !!highlights, rush: !!rush, weekly: !!weekly };
   }
@@ -1060,6 +1162,7 @@ var Journey = (function() {
     evaluateNode: evaluateNode, passNode: passNode, promote: promote,
     addXp: addXp, levelFor: levelFor, xpToNext: xpToNext,
     touchDay: touchDay, markBlock: markBlock, dayKey: dayKey, dayRecord: dayRecord, setPlan: setPlan, endToday: endToday,
+    recordTheater: recordTheater, highlightOfDay: highlightOfDay,
     todayCtx: todayCtx, active: active, shouldEndSession: shouldEndSession,
     startSession: startSession, session: session, endSession: endSession,
     playersSpec: playersSpec, onNewHand: onNewHand, afterDecision: afterDecision, onHandEnd: onHandEnd,

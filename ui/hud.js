@@ -81,7 +81,9 @@ var HUD = (function() {
     if (bxBody) bxBody.innerHTML = '';
   }
 
-  // 연습 모드 추이 표시 (T5에서 실제 attempts 데이터 연결) — attempts: [{n, delta}]
+  // 연습 모드 추이 표시 (T5에서 실제 attempts 데이터 연결) — attempts: [{n, delta, text?, light?}]
+  // M4-P9: text(손 총평과 같은 표기, 고정 벌점은 '큰 실수 1')와 light가 있으면 그걸 쓴다. 없으면 예전 Δ bb 표기.
+  var TREND_ICON = { green: '🟢', yellow: '🟡', red: '🔴' };
   function updatePracticeTrend(attempts) {
     var el = document.getElementById('practice-trend');
     if (!el) return;
@@ -90,8 +92,9 @@ var HUD = (function() {
       return;
     }
     var parts = attempts.map(function(a) {
-      var light = a.delta >= -0.3 ? '🟢' : a.delta >= -1.5 ? '🟡' : '🔴';
-      return a.n + '회 ' + (a.delta >= 0 ? '+' : '') + a.delta.toFixed(2) + 'bb ' + light;
+      var light = TREND_ICON[a.light] || (a.delta >= -0.3 ? '🟢' : a.delta >= -1.5 ? '🟡' : '🔴');
+      var txt = typeof a.text === 'string' && a.text ? a.text : (a.delta >= 0 ? '+' : '') + a.delta.toFixed(2) + 'bb';
+      return a.n + '회 ' + txt + ' ' + light;
     });
     el.textContent = '🔁 연습 추이: ' + parts.join(' → ');
     el.style.display = 'block';

@@ -88,7 +88,7 @@ var JOURNEY_NODES = [
     lesson: 's2-04', drill: { type: 'preflop', count: 20, pass: 16, spots: ['rfi|CO', 'rfi|BTN', 'rfi|SB'] },
     mission: { config: 'sixmax-cast', emphasis: null, hands: 10, coach: null, conditions: [] },
     concept: 'rfi', absorbs: [7], est: 3 },
-  { id: 's2-05', stage: 2, kind: 'learn', title: '림프 금지와 아이솔레이션', goal: '먼저 들어갈 땐 레이즈 아니면 폴드, 림퍼가 있으면 아이솔(RFI 표 + 림퍼당 1bb)', prereq: ['s2-03'],
+  { id: 's2-05', stage: 2, kind: 'learn', title: '림프 금지와 아이솔레이션', goal: '먼저 들어갈 땐 레이즈 아니면 폴드, 림퍼가 있으면 아이솔(1명이면 내 자리 RFI 표, 2명 이상이면 한 칸 좁은 표, 림퍼당 +1bb)', prereq: ['s2-03'],
     lesson: 's2-05', drill: { type: 'minraise', count: 10, pass: 0, variant: 'opensize' },
     mission: { config: 'sixmax-cast', emphasis: null, hands: 15, coach: null,
                conditions: [ { kind: 'pattern', pattern: 'limp', max: 0, window: 15 },

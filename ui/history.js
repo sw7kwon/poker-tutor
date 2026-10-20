@@ -93,10 +93,14 @@ var HistoryUI = (function() {
     var practiceBtn = (m.seed != null && idx != null)
       ? '<button class="hm-practice-btn" onclick="HistoryUI.practiceMistake(' + idx + ')">🔁 연습</button>'
       : '';
+    // 고정 벌점(m.estimated, M4-P9)은 bb 숫자 대신 '큰 실수/작은 실수', 옛 기록과 EV 손실은 예전처럼 '-1.20bb'
+    var deltaText = (m.estimated && typeof m.delta === 'number')
+      ? '(' + _estWord({ actualEV: m.delta, bestEV: 0, light: m.light, estimated: true }) + ')'
+      : (m.delta != null ? m.delta.toFixed(2) : '?') + 'bb';
     return '<div class="hm-row" title="' + _fmtDate(m.date) + '">' +
       '<span class="hm-street">' + (STREET_ICON[m.street] || '') + ' ' + streetLabel + '</span>' +
       '<span class="hm-action">' + icon + cardsPart + actLabel + ' → 추천: ' + bestLabel + '</span>' +
-      '<span class="hm-delta">' + (m.delta != null ? m.delta.toFixed(2) : '?') + 'bb</span>' +
+      '<span class="hm-delta">' + deltaText + '</span>' +
       practiceBtn +
     '</div>' + whyHtml;
   }
@@ -212,7 +216,9 @@ var HistoryUI = (function() {
         ? seg.decisions.map(function(d) {
             var light = lightFor(d);
             var actLabel = ACTION_KOR[d.action] || d.action;
-            var deltaLabel = (light.icon === '⚪') ? light.label : (light.label + 'bb');
+            // 콜 금액 0에서 누른 폴드는 앱이 체크로 처리한다(app.js _normalizeHeroAction). 판정은 폴드 기준이라 그 뜻을 함께 적는다
+            if (d.intended === 'fold' && d.action === 'check') actLabel = '폴드(체크로 처리)';
+            var deltaLabel = decisionDeltaLabel(d);
             return '<div class="history-decision-row">' + light.icon + ' ' + actLabel +
               ' <span class="hist-dim">(' + deltaLabel + ')</span></div>' +
               (d.why ? '<div class="hm-why">' + _esc(d.why) + '</div>' : '');
@@ -261,12 +267,12 @@ var HistoryUI = (function() {
 
   // ── 총 편차 신호등 (스트리트 개별 lightFor와 별개, 결정 0건은 '평가 없음', 완전 0 델타는 초록) ──
 
+  // M4-P9: 고정 벌점(estimated)은 bb 합에 넣지 않고 '큰 실수 N, 작은 실수 M'으로 센다. 고정 벌점이 없으면 예전 표기와 같다.
   function _totalLight(decisions) {
     decisions = decisions || [];
     if (decisions.length === 0) return { icon: '⚪', label: '평가 없음' };
-    var total = decisions.reduce(function(s, d) { return s + ((d.actualEV || 0) - (d.bestEV || 0)); }, 0);
-    var icon = total >= -0.3 ? '🟢' : total >= -1.5 ? '🟡' : '🔴';
-    return { icon: icon, label: 'Δ' + (total >= 0 ? '+' : '') + total.toFixed(2) + 'bb' };
+    var t = _tally(decisions);
+    return { icon: LIGHT_ICON[_tallyLight(t)], label: _tallyText(t, 'Δ') };
   }
 
   // ── 순수 함수 (node 테스트 대상, DOM/localStorage 접근 금지) ──
@@ -293,17 +299,61 @@ var HistoryUI = (function() {
     return segs;
   }
 
+  // ── 손해 표기(M4-P9, 설계서 8.2절 6번): 고정 벌점(dec.estimated, 차트와 가이드 판정)은 bb 숫자 대신 '큰 실수/작은 실수' ──
+  // 규칙은 CoachUI.decLoss/lossTally/lossTallyText/lossTallyLight 한 곳. CoachUI가 없거나 estimated가 없는 옛 기록은 예전 Δ 표기.
+  function _cuFn(name) {
+    return (typeof CoachUI !== 'undefined' && CoachUI && typeof CoachUI[name] === 'function') ? CoachUI[name] : null;
+  }
+  // 고정 벌점 1개의 말: 손해면 '큰 실수'(빨강) 또는 '작은 실수', 손해가 없으면 '정답'(괄호 없이, 줄 쪽이 괄호를 씌운다)
+  function _estWord(dec) {
+    var f = _cuFn('decLoss');
+    var label = f ? f(dec).label : '';
+    if (!f) {
+      var d0 = ((dec && dec.actualEV) || 0) - ((dec && dec.bestEV) || 0);
+      label = d0 < 0 ? (dec.light === 'red' ? '(큰 실수)' : '(작은 실수)') : '';
+    }
+    return label ? label.replace(/^\(|\)$/g, '') : '정답';
+  }
+  function _tally(decisions) {
+    var f = _cuFn('lossTally');
+    if (f) return f(decisions);
+    var ev = (decisions || []).reduce(function(s, d) { return s + ((d.actualEV || 0) - (d.bestEV || 0)); }, 0);
+    return { ev: ev, big: 0, small: 0, n: (decisions || []).length };
+  }
+  function _tallyText(t, prefix) {
+    var f = _cuFn('lossTallyText');
+    if (f) return f(t, 2, prefix);
+    return (prefix || '') + (t.ev >= 0 ? '+' : '') + t.ev.toFixed(2) + 'bb';
+  }
+  function _tallyLight(t) {
+    var f = _cuFn('lossTallyLight');
+    if (f) return f(t);
+    return t.ev >= -0.3 ? 'green' : t.ev >= -1.5 ? 'yellow' : 'red';
+  }
+
+  // 결정 1개의 신호등과 손해 문구. 고정 벌점이면 est:true이고 label은 '큰 실수/작은 실수/정답'(bb를 붙이지 않는다).
   function lightFor(dec) {
     var actualEV = dec.actualEV, bestEV = dec.bestEV;
+    var d0 = (actualEV || 0) - (bestEV || 0);
+    var hasLight = !!(dec.light && LIGHT_ICON[dec.light]);
+    if (dec.estimated) {
+      var ic = hasLight ? LIGHT_ICON[dec.light] : (d0 >= -0.3 ? '🟢' : d0 >= -1.5 ? '🟡' : '🔴');
+      return { icon: ic, label: _estWord(dec), est: true };
+    }
     // 코치 판정(dec.light)이 있으면 그 신호등이 우선
-    if (dec.light && LIGHT_ICON[dec.light]) {
-      var d0 = (actualEV || 0) - (bestEV || 0);
+    if (hasLight) {
       return { icon: LIGHT_ICON[dec.light], label: 'Δ' + (d0 >= 0 ? '+' : '') + d0.toFixed(2) };
     }
     if (actualEV === 0 && bestEV === 0) return { icon: '⚪', label: '평가 없음' };
     var delta = actualEV - bestEV;
     var icon = delta >= -0.3 ? '🟢' : delta >= -1.5 ? '🟡' : '🔴';
     return { icon: icon, label: 'Δ' + (delta >= 0 ? '+' : '') + delta.toFixed(2) };
+  }
+
+  // 핸드 리뷰 결정 줄의 괄호 안 문구(순수): '⚪ 평가 없음'과 고정 벌점은 그대로, EV 값은 bb를 붙인다
+  function decisionDeltaLabel(dec) {
+    var light = lightFor(dec);
+    return (light.icon === '⚪' || light.est) ? light.label : (light.label + 'bb');
   }
 
   function summaryComment(record) {
@@ -313,10 +363,11 @@ var HistoryUI = (function() {
     if (decisions.length === 0) {
       return folded ? '폴드한 핸드입니다. 결정 없이 종료됐어요.' : won ? '결정 없이 팟을 가져간 핸드입니다.' : '결정 없이 종료된 핸드입니다.';
     }
-    var totalDelta = decisions.reduce(function(s, d) { return s + ((d.actualEV || 0) - (d.bestEV || 0)); }, 0);
-    var perf = totalDelta >= -0.3 ? 'GTO에 가까운 훌륭한 플레이였습니다.' :
-               totalDelta >= -1.5 ? '작은 마진의 EV 손실이 있었던 플레이입니다.' :
-               '큰 EV 손실이 있었던 플레이입니다. 복기가 필요해요.';
+    // 고정 벌점이 없으면 예전과 같은 EV 문구, 고정 벌점 때문에 신호등이 내려가면 '실수' 문구(M4-P9)
+    var t = _tally(decisions), L = _tallyLight(t);
+    var perf = L === 'green' ? 'GTO에 가까운 훌륭한 플레이였습니다.' :
+               L === 'yellow' ? (t.ev < -0.3 ? '작은 마진의 EV 손실이 있었던 플레이입니다.' : '작은 실수가 있었던 플레이입니다.') :
+               (t.ev < -1.5 ? '큰 EV 손실이 있었던 플레이입니다. 복기가 필요해요.' : '큰 실수가 있었던 플레이입니다. 복기가 필요해요.');
     return (folded ? '폴드한 핸드입니다. ' : won ? '팟을 가져간 핸드입니다. ' : '팟을 내준 핸드입니다. ') + perf;
   }
 
@@ -330,6 +381,8 @@ var HistoryUI = (function() {
     practiceMistake: practiceMistake,
     buildStreetSegments: buildStreetSegments,
     lightFor: lightFor,
+    decisionDeltaLabel: decisionDeltaLabel,
+    totalLight: _totalLight,
     summaryComment: summaryComment,
     mistakeRowHTML: _mistakeRowHTML
   };
@@ -338,6 +391,8 @@ var HistoryUI = (function() {
     module.exports = {
       buildStreetSegments: buildStreetSegments,
       lightFor: lightFor,
+      decisionDeltaLabel: decisionDeltaLabel,
+      totalLight: _totalLight,
       summaryComment: summaryComment,
       mistakeRowHTML: _mistakeRowHTML
     };

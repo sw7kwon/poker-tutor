@@ -211,9 +211,7 @@ var App = (function() {
           if (_state.street === 'preflop') {
             var hint = Gto.preflopHint(_state, _heroPos);
             if (hint) {
-              var facingLabel = hint.facing === 'vs4bet' ? ' (vs 4벳)' : hint.facing === 'vs3bet' ? ' (vs 3벳)'
-                : hint.facing === 'cold3bet' ? ' (vs 콜드 3벳)' : hint.facing ? ' (vs ' + (hint.opener ? hint.opener + ' ' : '') + '오픈)' : ' (오픈)';
-              gtoEl.textContent = '👁 GTO 프리플랍: ' + hint.label + facingLabel;
+              gtoEl.textContent = _gtoPreflopHintText(hint);
               gtoEl.style.display = 'block';
             }
           } else {
@@ -256,6 +254,18 @@ var App = (function() {
       if (typeof ThinkingUI !== 'undefined') ThinkingUI.onHeroTurn(_state, _heroPos, eq, ev); // WP8
       if (typeof MobileUI !== 'undefined' && MobileUI.onHeroTurn) MobileUI.onHeroTurn(view, { gtoMode: _gtoMode, gtoRound: _gtoRound });
     });
+  }
+
+  // GTO 2회차 프리플랍 힌트 한 줄(순수 함수). 림퍼 뒤는 '(오픈)' 대신 림퍼 수와 아이솔 기준 표(isoPos)를 적는다(M4-P9).
+  function _gtoPreflopHintText(hint) {
+    if (!hint) return '';
+    var n = hint.limpers || 0, sz = n > 0 ? String(Math.round((hint.size || 0) * 100) / 100) + 'bb' : '';
+    var facingLabel = hint.facing === 'vs4bet' ? ' (vs 4벳)' : hint.facing === 'vs3bet' ? ' (vs 3벳)'
+      : hint.facing === 'cold3bet' ? ' (vs 콜드 3벳)' : hint.facing ? ' (vs ' + (hint.opener ? hint.opener + ' ' : '') + '오픈)'
+      : n > 0 ? ' (림퍼 ' + n + '명' + (hint.isoPos ? ', ' + hint.isoPos + ' 오픈 표 기준' + (hint.action === 'raise' ? ' 아이솔 ' + sz : '')
+        : hint.action === 'raise' ? ', 아이솔 ' + sz : hint.alt === 'raise' ? ', 아이솔 ' + sz + ' 레이즈도 괜찮음' : '') + ')'
+      : ' (오픈)';
+    return '👁 GTO 프리플랍: ' + hint.label + facingLabel;
   }
 
   function heroAction(action) {
@@ -302,6 +312,8 @@ var App = (function() {
         dec.why = g.why;
         dec.spot = V.concept;
         dec.source = V.source;
+        // 고정 벌점(차트, 가이드 등) 여부(M4-P9): 결과 패널과 핸드 리뷰가 bb 숫자 대신 '큰 실수/작은 실수'로 보인다
+        dec.estimated = !!g.estimated;
       } else {
         // 폴백(Coach 미로드): 기존 EV 키 방식
         var evKey;
@@ -328,6 +340,7 @@ var App = (function() {
           Storage.addMistake({
             type: 'game', street: pre.street, action: n.intended, bestAction: V.evKey, verdict: V.action,
             delta: Math.round(g.delta * 100) / 100, light: g.light, pattern: g.pattern, why: g.why, spot: V.concept,
+            estimated: !!g.estimated,
             toCall: toCall, potOdds: Math.round((V.potOdds || 0) * 1000) / 1000, eq: Math.round((_lastEQ || 0) * 1000) / 1000,
             heroCards: cardStr(pre.heroCards), board: cardStr(pre.board),
             pot: pre.pot, date: new Date().toISOString(),
@@ -649,8 +662,7 @@ var App = (function() {
       if (typeof MobileUI !== 'undefined' && MobileUI.onHandEnd) MobileUI.onHandEnd(); // 총평 탭 자동 펼침
       if (_practice) {
         // 연습 핸드는 localStorage·세션 기록 어디에도 남기지 않고 추이만 갱신
-        var delta = _calcHandDelta(decisionsSnap);
-        _practice.attempts.push({ n: _practice.attempts.length + 1, delta: delta });
+        _practice.attempts.push(_practiceAttempt(_practice.attempts.length + 1, decisionsSnap));
         HUD.updatePracticeTrend(_practice.attempts);
       } else {
         Storage.saveHandHistory(_state, result, { sessionId: _sessionId, mode: _villainConfig, heroPos: _heroPos,
@@ -675,6 +687,95 @@ var App = (function() {
     return (decisions || []).reduce(function(s, d) {
       return s + ((d.actualEV || 0) - (d.bestEV || 0));
     }, 0);
+  }
+
+  // ── 손해 표기(M4-P9, 설계서 8.2절 6번): 고정 벌점(d.estimated)은 '(큰 실수)/(작은 실수)', bb 숫자는 EV 계산값에만 ──
+  // 규칙은 CoachUI.decLoss/lossTally/lossTallyText/lossTallyLight 한 곳. CoachUI가 없으면 전부 EV 값으로 보는 예전 표기.
+  function _cuFn(name) {
+    return (typeof CoachUI !== 'undefined' && CoachUI && typeof CoachUI[name] === 'function') ? CoachUI[name] : null;
+  }
+  function _decLossOf(d) {
+    var f = _cuFn('decLoss');
+    return f ? f(d) : { delta: ((d && d.actualEV) || 0) - ((d && d.bestEV) || 0), est: false, label: '' };
+  }
+  function _tallyOf(decisions) {
+    var f = _cuFn('lossTally');
+    return f ? f(decisions) : { ev: _calcHandDelta(decisions), big: 0, small: 0, n: (decisions || []).length };
+  }
+  function _tallyText(t, digits, prefix) {
+    var f = _cuFn('lossTallyText');
+    if (f) return f(t, digits, prefix);
+    var ev = (t && t.ev) || 0;
+    return (prefix || '') + (ev >= 0 ? '+' : '') + ev.toFixed(digits) + 'bb';
+  }
+  function _tallyLight(t) {
+    var f = _cuFn('lossTallyLight');
+    if (f) return f(t);
+    var ev = (t && t.ev) || 0;
+    return ev >= -0.3 ? 'green' : ev >= -1.5 ? 'yellow' : 'red';
+  }
+
+  // 손 총평의 합계 줄과 결정별 줄(순수 함수, M4-P9). estimated가 없는 옛 기록은 예전 표기('Δ-2.0bb') 그대로.
+  // 돌려줌: { total: { value, color, light } | null(결정 0개), rows: [줄 문자열], counts: { 패턴: 수 } }
+  //   value 예: '+0.00bb', '-1.20bb', '큰 실수 1', '-1.20bb, 큰 실수 1, 작은 실수 2'
+  //   줄 예: '🔴 [프리플랍] 레이즈 2.5bb (큰 실수) 레인지 차트 정답은 폴드: ...', '🟡 [리버] 콜 (Δ-1.2bb) 필요 승률 ...'
+  function _handSummaryLines(decisions) {
+    decisions = decisions || [];
+    var SK = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
+    var AK = { fold: '폴드', check: '체크', call: '콜', raise: '레이즈', allin: '올인', bet: '벳' };
+    var LI = { green: '🟢', yellow: '🟡', red: '🔴' };
+    var COLOR = { green: '#52b75e', yellow: '#e3b341', red: '#f85149' };
+    var out = { total: null, rows: [], counts: {} };
+    if (!decisions.length) return out;
+    var t = _tallyOf(decisions), light = _tallyLight(t);
+    out.total = { value: _tallyText(t, 2, ''), color: COLOR[light] || COLOR.green, light: light };
+    decisions.forEach(function(d) {
+      var L = _decLossOf(d), delta = L.delta;
+      var icon;
+      if (d.light && LI[d.light]) icon = LI[d.light];
+      else if (!d.actualEV && !d.bestEV) icon = '⚪';
+      else icon = delta >= -0.3 ? '🟢' : delta >= -1.5 ? '🟡' : '🔴';
+      if (d.pattern) out.counts[d.pattern] = (out.counts[d.pattern] || 0) + 1;
+      var amt = (d.amount > 0) ? ' ' + d.amount + 'bb' : '';
+      var dl = L.est ? (L.label ? ' ' + L.label : '') : (delta < 0 ? ' (Δ' + delta.toFixed(1) + 'bb)' : '');
+      var why = d.why ? String(d.why) : '';
+      if (why.length > 50) why = why.slice(0, 49) + '…';
+      // 콜 금액 0에서 누른 폴드는 체크로 처리되지만 판정은 폴드 기준이라 그 뜻을 함께 적는다(체크했는데 '체크하세요'로 읽히지 않게)
+      var act = (d.intended === 'fold' && d.action === 'check') ? '폴드(체크로 처리)' : (AK[d.action] || '액션');
+      out.rows.push(icon + ' [' + (SK[d.street] || '') + '] ' + act + amt + dl + (why ? ' ' + why : ''));
+    });
+    return out;
+  }
+
+  // 손 총평의 다음 핸드 목표(순수 함수, M4-P9 리뷰): coachGoal(CoachUI.currentGoal) → Coach.goalFor(이 손의 패턴) → 예전 조언.
+  // 패턴이 없는 실수(림퍼 뒤 아이솔 손 폴드 등)만 있는 손에 '🟢 이번 핸드는 정답!'이 붙어 '큰 실수 1'과 어긋나지 않게,
+  // 합계 신호등(lines.total.light)이 초록이 아니면 정답 문구 대신 고쳐 보기 안내를 쓴다.
+  var MISS_GOAL = '추천과 다른 결정의 이유를 다시 읽고 🔁 같은 핸드 다시로 고쳐 보기';
+  function _handGoalText(lines, coachGoal, totalDelta) {
+    var missed = !!(lines && lines.total && lines.total.light && lines.total.light !== 'green');
+    var goal = coachGoal || '';
+    if (!goal && typeof Coach !== 'undefined' && Coach.goalFor) goal = Coach.goalFor((lines && lines.counts) || {}, {}) || '';
+    if (missed && goal.indexOf('🟢') === 0) goal = '';
+    if (!goal) {
+      var td = totalDelta || 0;
+      goal = missed ? MISS_GOAL
+        : td < -3 ? '에쿼티, 팟 오즈 반복 훈련' : td < -1 ? '아슬아슬한 스팟 집중 연습' : '지금처럼 결정 전에 필요 승률 vs 내 승률 떠올리기';
+    }
+    return goal;
+  }
+
+  // 연습 추이 1회 기록(순수 함수, M4-P9 리뷰): delta는 예전처럼 전체 Δ 합, text와 light는 손 총평과 같은 표기
+  //   (고정 벌점은 '큰 실수 1', EV 손해만 bb). HUD.updatePracticeTrend가 text가 있으면 그걸 쓴다.
+  function _practiceAttempt(n, decisions) {
+    var t = _tallyOf(decisions);
+    return { n: n, delta: _calcHandDelta(decisions), text: _tallyText(t, 2, ''), light: _tallyLight(t) };
+  }
+
+  // 세션 요약 핸드 카드의 손해 표기(순수 함수, M4-P9): 고정 벌점이 없으면 예전 'EV -2.0bb', 있으면 'EV -1.2bb, 큰 실수 1' 또는 '큰 실수 1'
+  function _handLossText(hand) {
+    var t = _tallyOf(hand && hand.decisions);
+    if (!(t.big || t.small)) return 'EV ' + _signed(_handDeltaOf(hand || {})) + 'bb';
+    return _tallyText(t, 1, 'EV ');
   }
 
   // ── 같은 핸드 반복 연습 모드 ──
@@ -748,13 +849,12 @@ var App = (function() {
     var labels = ['1회(일반)', '2회(가이드)', '3회(측정)'];
     var html = ['<div class="gto-loop-report" style="margin-top:8px;border-top:1px solid #30363d;padding-top:6px">',
       '<div><b>🔁 같은 카드 3회 반복 리포트</b></div>'];
+    var ICON = { green: '🟢', yellow: '🟡', red: '🔴' };
     rounds.forEach(function(h, i) {
-      var delta = (h.decisions || []).reduce(function(s, d) {
-        return s + ((d.actualEV || 0) - (d.bestEV || 0));
-      }, 0);
-      var light = delta >= -0.3 ? '🟢' : delta >= -1.5 ? '🟡' : '🔴';
-      html.push('<div>' + light + ' ' + (labels[i] || ('' + (i + 1) + '회')) + ': EV 편차 '
-        + (delta >= 0 ? '+' : '') + delta.toFixed(2) + 'bb</div>');
+      // 고정 벌점은 '큰 실수/작은 실수'로 세고 EV 편차 bb는 EV 계산값만(M4-P9). 고정 벌점이 없으면 예전 표기와 같다.
+      var t = _tallyOf(h.decisions);
+      html.push('<div>' + ICON[_tallyLight(t)] + ' ' + (labels[i] || ('' + (i + 1) + '회')) + ': EV 편차 '
+        + _tallyText(t, 2, '') + '</div>');
     });
     html.push('</div>');
     panel.innerHTML += html.join('');
@@ -789,41 +889,22 @@ var App = (function() {
         descParts.join(' vs ') + '</div>';
     }
 
-    // 결정별 신호등 행 (영문 키 노출 금지 — 전부 한국어로)
-    var SK = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
-    var AK = { fold: '폴드', check: '체크', call: '콜', raise: '레이즈', allin: '올인', bet: '벳' };
-    var LI = { green: '🟢', yellow: '🟡', red: '🔴' };
-    var handCounts = {};
+    // 결정별 신호등 행 (영문 키 노출 금지, 전부 한국어로). 줄 문구는 순수 함수 _handSummaryLines(M4-P9)
+    var lines = _handSummaryLines(decisions);
+    var handCounts = lines.counts;
     var rows = '';
-    if (decisions.length === 0) {
+    if (!lines.total) {
       rows = '<div class="review-line" style="font-size:.8rem;line-height:1.5">상대가 모두 폴드해 내가 결정할 필요가 없던 핸드</div>';
     } else {
-      var gtoSign = totalDelta >= 0 ? '+' : '';
-      var gtoColor = totalDelta >= -0.3 ? '#52b75e' : totalDelta >= -1.5 ? '#e3b341' : '#f85149';
-      rows += '<div class="review-line review-gto-line">정답 대비 <span style="color:' + gtoColor + '">' + gtoSign +
-        totalDelta.toFixed(2) + 'bb</span> (' + decisions.length + '회 결정)</div>';
-      decisions.forEach(function(d) {
-        var delta = (d.actualEV || 0) - (d.bestEV || 0);
-        var icon;
-        if (d.light && LI[d.light]) icon = LI[d.light];
-        else if (!d.actualEV && !d.bestEV) icon = '⚪';
-        else icon = delta >= -0.3 ? '🟢' : delta >= -1.5 ? '🟡' : '🔴';
-        if (d.pattern) handCounts[d.pattern] = (handCounts[d.pattern] || 0) + 1;
-        var amt = (d.amount > 0) ? ' ' + d.amount + 'bb' : '';
-        var dl = delta < 0 ? ' (Δ' + delta.toFixed(1) + 'bb)' : '';
-        var why = d.why ? String(d.why) : '';
-        if (why.length > 50) why = why.slice(0, 49) + '…';
-        rows += '<div class="review-line" style="font-size:.8rem;line-height:1.5">' + icon + ' [' + (SK[d.street] || '') + '] ' +
-          (AK[d.action] || '액션') + amt + dl + (why ? ' ' + why : '') + '</div>';
+      rows += '<div class="review-line review-gto-line">정답 대비 <span style="color:' + lines.total.color + '">' +
+        lines.total.value + '</span> (' + decisions.length + '회 결정)</div>';
+      lines.rows.forEach(function(r) {
+        rows += '<div class="review-line" style="font-size:.8rem;line-height:1.5">' + r + '</div>';
       });
     }
 
-    // 다음 핸드 목표: CoachUI(WP3) → Coach.goalFor → 기존 조언
-    var goal = (typeof CoachUI !== 'undefined' && CoachUI.currentGoal && CoachUI.currentGoal()) || '';
-    if (!goal && typeof Coach !== 'undefined') goal = Coach.goalFor(handCounts, {});
-    if (!goal) {
-      goal = totalDelta < -3 ? '에쿼티, 팟 오즈 반복 훈련' : totalDelta < -1 ? '아슬아슬한 스팟 집중 연습' : '지금처럼 결정 전에 필요 승률 vs 내 승률 떠올리기';
-    }
+    // 다음 핸드 목표: CoachUI(WP3) → Coach.goalFor → 기존 조언(순수 함수 _handGoalText)
+    var goal = _handGoalText(lines, (typeof CoachUI !== 'undefined' && CoachUI.currentGoal && CoachUI.currentGoal()) || '', totalDelta);
 
     panel.style.display = 'flex';
     panel.innerHTML =
@@ -887,8 +968,10 @@ var App = (function() {
   }
 
   // 세션 집계(순수 함수): 승/폴드/패 + 결정 신호등 분포 + EV 편차 + 칩 손익
+  // M4-P9: evDelta는 EV로 계산한 결정만 더하고, 고정 벌점(d.estimated)은 big/small(큰 실수, 작은 실수 수)로 센다.
   function _sessionStats(hands) {
-    var st = { hands: 0, showdownWins: 0, folds: 0, losses: 0, green: 0, yellow: 0, red: 0, decisions: 0, evDelta: 0, net: 0 };
+    var st = { hands: 0, showdownWins: 0, folds: 0, losses: 0, green: 0, yellow: 0, red: 0, decisions: 0, evDelta: 0, net: 0,
+      big: 0, small: 0 };
     (hands || []).forEach(function(h) {
       st.hands++;
       if (h.heroWon) st.showdownWins++;
@@ -897,8 +980,11 @@ var App = (function() {
       (h.decisions || []).forEach(function(d) {
         st.decisions++;
         st[_decLight(d)]++;
-        st.evDelta += ((d.actualEV || 0) - (d.bestEV || 0));
       });
+      var t = _tallyOf(h.decisions);
+      st.evDelta += t.ev;
+      st.big += t.big;
+      st.small += t.small;
       st.net += (h.net || 0);
     });
     st.evDelta = Math.round(st.evDelta * 100) / 100;
@@ -909,6 +995,17 @@ var App = (function() {
   function _signed(v) { return (v > 0 ? '+' : v < 0 ? '-' : '±') + Math.abs(v).toFixed(1); }
 
   function _handDeltaOf(h) { return h.delta != null ? h.delta : _calcHandDelta(h.decisions); }
+
+  // 세션 요약 통계 줄의 손해 부분(순수 함수, M4-P9): EV 편차(bb, EV 계산값만)와 고정 벌점 개수.
+  // 고정 벌점이 없으면 예전 'EV 편차 -1.2bb', 있고 EV 편차가 0이면 bb 숫자를 뺀다(lossTallyText와 같은 규칙).
+  function _sessionLossText(st) {
+    st = st || {};
+    var ev = st.evDelta || 0, parts = [];
+    if (!(st.big || st.small) || Math.abs(ev) >= 0.05) parts.push('EV 편차 ' + _signed(ev) + 'bb');
+    if (st.big) parts.push('큰 실수 ' + st.big);
+    if (st.small) parts.push('작은 실수 ' + st.small);
+    return parts.join(', ');
+  }
 
   function _renderSessionSummary() {
     var statsEl = document.getElementById('summary-stats');
@@ -921,8 +1018,11 @@ var App = (function() {
         (goal ? '<div style="color:#e3b341;font-size:0.9rem;margin-bottom:0.5rem">🎯 다음 목표: ' + goal + '</div>' : '') +
         '<div>' + st.hands + '핸드 | 승 ' + st.showdownWins + ', 폴드 ' + st.folds + ', 패 ' + st.losses +
         ' | 결정 🟢' + st.green + ' 🟡' + st.yellow + ' 🔴' + st.red +
-        ' | EV 편차 ' + _signed(st.evDelta) + 'bb | 칩 손익 ' + _signed(st.net) + 'bb</div>' +
-        '<div style="font-size:0.75rem;margin-top:0.3rem">EV 편차는 추천 결정 대비 잃은 기대값의 합이에요(0에 가까울수록 좋아요). 칩 손익에는 운이 섞여 있어요.</div>';
+        ' | ' + _sessionLossText(st) +
+        ' | 칩 손익 ' + _signed(st.net) + 'bb</div>' +
+        '<div style="font-size:0.75rem;margin-top:0.3rem">EV 편차는 추천 결정 대비 잃은 기대값의 합이에요(0에 가까울수록 좋아요). ' +
+        (st.big || st.small ? '차트나 가이드로 판정한 실수는 bb 대신 큰 실수, 작은 실수로 셌어요. ' : '') +
+        '칩 손익에는 운이 섞여 있어요.</div>';
     }
     if (!st.decisions) {
       handsEl.innerHTML = '<div style="text-align:center;color:#8b949e;padding:1rem">평가할 결정이 없었어요</div>';
@@ -950,7 +1050,7 @@ var App = (function() {
           '<div style="display:flex;justify-content:space-between;margin-bottom:0.4rem">' +
             '<span style="color:#8b949e;font-size:0.8rem">핸드 #' + hand.num + ' ' + lights + '</span>' +
             '<span style="color:' + wc + ';font-weight:bold;font-size:0.85rem">' + wt + '</span>' +
-            '<span style="color:#f85149;font-size:0.8rem">EV ' + _signed(_handDeltaOf(hand)) + 'bb</span>' +
+            '<span style="color:#f85149;font-size:0.8rem">' + _handLossText(hand) + '</span>' +
           '</div>' +
           '<div style="margin-bottom:0.3rem;font-size:0.9rem">히어로: ' + _renderCards(hand.heroCards) +
             (hand.board.length ? '  <span style="color:#8b949e">|</span>  보드: ' + _renderCards(hand.board) : '') +
@@ -1011,6 +1111,12 @@ var App = (function() {
     _normalizeHeroAction: _normalizeHeroAction,
     practiceSame: practiceSame,
     _calcHandDelta: _calcHandDelta,
+    _handSummaryLines: _handSummaryLines,
+    _gtoPreflopHintText: _gtoPreflopHintText,
+    _handLossText: _handLossText,
+    _sessionLossText: _sessionLossText,
+    _practiceAttempt: _practiceAttempt,
+    _handGoalText: _handGoalText,
     _curriculumSpotKey: _curriculumSpotKey
   };
 })();

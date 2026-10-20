@@ -2,6 +2,7 @@
 // 결정 전: 정답 가림 + 자기점검(L1) / 예측 카드(L2) / 실전(L3)
 // 결정 직후: #last-verdict 판정 스트립 + 신호등 토스트, 반복 실수 경고, 레벨 자동 페이드
 // M3-P4b: snapshot()/restore(s)(보스 코칭 고정 뒤 복원), 고정 벌점은 bb 대신 '(큰 실수)/(작은 실수)', 림퍼 뒤 체크리스트
+// M4-P9: 림퍼 2명 이상 체크리스트(한 칸 좁은 표), 결정 기록 손해 표기 decLoss/lossTally/lossTallyText/lossTallyLight(결과 패널과 리뷰 공용)
 // 로드 시 DOM 접근 금지 — 초기화는 window load 이벤트에서만
 var CoachUI = (function() {
   var KEY = 'poker_coach';
@@ -129,9 +130,16 @@ var CoachUI = (function() {
             '③ 폴드할 이유는 없어요 (콜할 돈이 0)'
           ];
         }
+        // 아이솔 기준 표(M4-P9): 림퍼 1명 = 내 자리 RFI 표, 2명 이상 = 한 칸 좁은 자리 표(Gto.isoPos)
+        var isoAt = pos;
+        if (typeof Gto !== 'undefined' && Gto.isoPos) {
+          try { isoAt = Gto.isoPos(pos, limpers) || pos; } catch (e) { isoAt = pos; }
+        }
         return [
           '① 앞에 림퍼 ' + limpers + '명: 레이즈(아이솔) 아니면 폴드',
-          '② 이 패가 내 자리(' + pos + ') 오픈 레인지 안인가?',
+          isoAt !== pos
+            ? '② 림퍼가 2명 이상이면 여럿이 따라오기 쉬워 한 칸 좁게: 이 패가 ' + isoAt + ' 오픈 레인지 안인가?'
+            : '② 이 패가 내 자리(' + pos + ') 오픈 레인지 안인가?',
           '③ 아이솔 사이즈 = 오픈 사이즈 + 림퍼당 1bb, 콜로 따라 들어가지 않기'
         ];
       }
@@ -196,6 +204,49 @@ var CoachUI = (function() {
     if (!(delta < 0)) return '';
     if (G.estimated) return G.light === 'red' ? '(큰 실수)' : '(작은 실수)';
     return '(' + delta.toFixed(1) + 'bb)';
+  }
+
+  // ── 결정 기록의 손해 표기(M4-P9, 순수): 게임 결과 패널(app.js 손 총평, 세션 요약)과 핸드 리뷰(history.js)가 함께 쓴다 ──
+  // 결정 기록 d = { actualEV, bestEV, light, estimated }(app.js heroAction이 남긴다). Δ = actualEV - bestEV.
+  // 고정 벌점(d.estimated)은 lossLabel과 같은 '(큰 실수)/(작은 실수)', bb 숫자는 EV 계산값에만. estimated가 없는 옛 기록은 EV 값으로 본다.
+  function _decDelta(d) { return ((d && d.actualEV) || 0) - ((d && d.bestEV) || 0); }
+  // { delta, est(고정 벌점 여부), label('(큰 실수)'|'(작은 실수)'|'', 고정 벌점이 아니면 늘 '') }
+  function decLoss(d) {
+    var delta = _decDelta(d), est = !!(d && d.estimated);
+    return { delta: delta, est: est, label: est ? lossLabel({ light: d.light, delta: delta, estimated: true }) : '' };
+  }
+  // 결정 묶음 집계: ev = 고정 벌점이 아닌 결정의 Δ 합(bb), big/small = 손해가 난 고정 벌점 결정 수(빨강 = 큰 실수), n = 결정 수
+  function lossTally(decisions) {
+    var t = { ev: 0, big: 0, small: 0, n: 0 };
+    (decisions || []).forEach(function(d) {
+      var L = decLoss(d);
+      t.n++;
+      if (!L.est) t.ev += L.delta;
+      else if (L.label === '(큰 실수)') t.big++;
+      else if (L.label) t.small++;
+    });
+    return t;
+  }
+  // 합계 문구: EV 합은 bb 숫자(digits 자리, prefix는 'Δ' 등 앞 글자), 고정 벌점은 '큰 실수 N, 작은 실수 M'.
+  // 고정 벌점이 있고 EV 합이 0이면 bb 숫자를 뺀다. 고정 벌점이 없으면 예전 표기('+0.00bb', '-1.20bb')와 같다.
+  function lossTallyText(t, digits, prefix) {
+    t = t || { ev: 0, big: 0, small: 0 };
+    digits = digits == null ? 2 : digits;
+    var ev = t.ev || 0, parts = [];
+    if (!(t.big || t.small) || Math.abs(ev) >= 0.5 * Math.pow(10, -digits)) {
+      parts.push((prefix || '') + (ev >= 0 ? '+' : '') + ev.toFixed(digits) + 'bb');
+    }
+    if (t.big) parts.push('큰 실수 ' + t.big);
+    if (t.small) parts.push('작은 실수 ' + t.small);
+    return parts.join(', ');
+  }
+  // 합계 신호등: 큰 실수가 있거나 EV 합 < -1.5 → red, 작은 실수가 있거나 EV 합 < -0.3 → yellow, 그 외 green(예전 임계 그대로)
+  function lossTallyLight(t) {
+    t = t || {};
+    var ev = t.ev || 0;
+    if (t.big || ev < -1.5) return 'red';
+    if (t.small || ev < -0.3) return 'yellow';
+    return 'green';
   }
 
   function verdictText(G, V, action) {
@@ -569,6 +620,7 @@ var CoachUI = (function() {
   var api = {
     viewFor: viewFor, nextLevel: nextLevel, potOddsChoices: potOddsChoices, eqBucket: eqBucket,
     checklist: checklist, explainLines: explainLines, verdictText: verdictText, lossLabel: lossLabel,
+    decLoss: decLoss, lossTally: lossTally, lossTallyText: lossTallyText, lossTallyLight: lossTallyLight,
     onNewHand: onNewHand, beforeDecision: beforeDecision, afterDecision: afterDecision,
     onHandEnd: onHandEnd, currentGoal: currentGoal, showHint: showHint, setLevel: setLevel,
     snapshot: snapshot, restore: restore,

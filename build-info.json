@@ -1,8 +1,8 @@
 {
-  "version": "fe3c5f7-202610201929",
-  "sha": "fe3c5f7",
+  "version": "f4c77f1-202610202243",
+  "sha": "f4c77f1",
   "branch": "feat/journey",
-  "builtAt": "2026-10-20T10:29:18.227Z",
+  "builtAt": "2026-10-20T13:43:33.237Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",

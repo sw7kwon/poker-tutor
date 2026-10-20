@@ -2,6 +2,8 @@
 // 여정 홈(칭호, 스트릭, 데일리 목표 링, 오늘의 5분 버튼, 첫 카드, 지도, 빠른 줄, 카드)과 노드 시트, 서브뷰 라우팅.
 // M2-P7: 노드 드릴은 PuzzleUI.can(드릴 명세)이면 PuzzleUI.start(C5), 아니면 기존 DrillUI. 홈 상단 ⚙ 설정과 퍼즐 레이팅 칩(C7),
 //        카드 영역의 데일리 5 카드(C6). 퍼즐 결과의 XP는 PuzzleUI가 준다(여기서는 recordDrillSet과 통과 판정만).
+// M4-P8: 카드 영역의 오늘의 명장면(Journey.highlightOfDay 카드가 있고 TheaterUI.cardHTML이 있을 때만, "자세히 보기"는
+//        TheaterUI.showCard). 빠른 줄 🎭는 TheaterUI.open(계약 T8)이 생기면 "곧"이 풀리고 바로 연다.
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 패키지 모듈은 전부 typeof 가드로 부르고,
 //       없거나 실패하면 화면이 깨지지 않게 대체 표시로 내려간다(병렬 구현 중 스텁일 수 있음).
 // 화면 구조: #journey-root > .j-view(홈 또는 서브뷰, TodayUI 셸) + .j-layer(노드 시트). 토스트는 body의 #journey-toast.
@@ -35,7 +37,8 @@ var JourneyUI = (function() {
     puzzle: '약점 퍼즐', daily5: '데일리 5', rush: '퍼즐 러시', survival: '서바이벌' };
   // 진행 상태를 저장하지 않는 퍼즐 화면(해시 #j/puzzle, #j/rush, #j/daily5, #j/survival): 뒤로/새로고침으로 다시 오면 홈으로.
   // 러시와 서바이벌은 빠른 줄에서 다시 시작하면 된다.
-  var TRANSIENT_VIEWS = { puzzle: true, rush: true, daily5: true, survival: true, lesson: true, boss: true };
+  // 극장(#j/theater, M4-P8)도 진행 상태를 저장하지 않는다. 극장이 떠 있을 때(TheaterUI.active())는 view가 아무것도 하지 않는다.
+  var TRANSIENT_VIEWS = { puzzle: true, rush: true, daily5: true, survival: true, lesson: true, boss: true, theater: true };
   var RATING_TIP = '퍼즐 레이팅, 나의 추세용';
   var LIGHT_LABEL = { green: '초록', yellow: '노랑', red: '빨강', marginal: '애매한 스팟' };
   // 통과 기준 문구용(조건 DSL, journey-data.js 머리 주석의 필드 의미 그대로)
@@ -503,18 +506,24 @@ var JourneyUI = (function() {
     if (name === 'theater') {
       var TU = _m('TheaterUI');
       if (TU && typeof TU.open === 'function') { _call('TheaterUI', 'open'); return; }
-      if (TU && typeof TU.start === 'function') { _call('TheaterUI', 'start'); return; }
-      view('theater'); return;
+      // open 없이 start만 있으면 1편을 보고 여정 홈으로(계약 T8 start 형식). 열지 못하면(onDone(null)) 준비 중 카드
+      if (TU && typeof TU.start === 'function') {
+        _call('TheaterUI', 'start', { episodes: 1, onDone: function(r) { if (r) open(); else _soonView('theater'); } });
+        return;
+      }
+      _soonView('theater'); return;
     }
   }
 
-  // (5) 카드 영역: 첫 완주 뒤 설정 카드, 데일리 5, 실력 확인(건너뛴 경우), 월초 백업 안내
+  // (5) 카드 영역: 첫 완주 뒤 설정 카드, 데일리 5, 오늘의 명장면, 실력 확인(건너뛴 경우), 월초 백업 안내
   function _cardsHTML(s, sm) {
     var out = [];
     var sc = settingsCard();
     if (sc) out.push(sc);
     var d5 = daily5Card();
     if (d5) out.push(d5);
+    var hl = highlightCard();
+    if (hl) out.push(hl);
     var pl = s.placement || {};
     if (!pl.done && pl.declinedAt && sm.nodesPassed === 0) {
       out.push('<div class="j-card"><div class="j-card-t">📝 실력 확인 3분</div>' +
@@ -550,6 +559,34 @@ var JourneyUI = (function() {
   function _daily5() {
     if (!_can('PuzzleModes', 'daily5')) { toast('데일리 5를 준비하고 있어요'); return; }
     _call('PuzzleModes', 'daily5');
+  }
+
+  // 오늘의 명장면 카드(M4-P8, 5.1절): Journey.highlightOfDay(날짜 시드) 카드가 있고 TheaterUI.cardHTML이 있을 때만.
+  // 카드 그림은 TheaterUI.cardHTML(순수 문자열, 계약 T8). "자세히 보기"는 TheaterUI.showCard가 있을 때만(그때 홈 카드는 요약).
+  function highlightCard() {
+    if (!_can('TheaterUI', 'cardHTML') || !_can('Journey', 'highlightOfDay')) return '';
+    var card = _call('Journey', 'highlightOfDay', _now());
+    if (!card || typeof card !== 'object') return '';
+    var inner = _call('TheaterUI', 'cardHTML', card);
+    if (typeof inner !== 'string' || !inner) return '';
+    var n = _highlightCount(), big = _can('TheaterUI', 'showCard');
+    return '<div class="j-card j-hl" role="group" aria-label="오늘의 명장면">' +
+      '<div class="j-card-t">🎬 오늘의 명장면</div>' +
+      '<div class="j-card-d">' + (n > 1 ? '극장에서 모은 카드 ' + n + '장 중 오늘의 한 장이에요. 날마다 새로 골라요.'
+        : '극장에서 처음 모은 카드예요. 카드가 늘면 날마다 한 장씩 골라 보여 줘요.') + '</div>' +
+      // 홈에서는 제목, 보드, 팟만 보이는 요약(에쿼티, 계획, 출연은 '자세히 보기' 창에서). 창을 열 수 없으면 전부 보인다
+      '<div class="j-hl-card' + (big ? ' is-compact' : '') + '">' + inner + '</div>' +
+      (big ? '<div class="j-card-acts"><button type="button" class="j-btn" onclick="JourneyUI._highlight()">🔍 자세히 보기(에쿼티, 계획)</button></div>' : '') +
+      '</div>';
+  }
+  function _highlightCount() {
+    var t = state().theater;
+    return (t && Array.isArray(t.cards)) ? t.cards.length : 0;
+  }
+  function _highlight() {
+    var card = _call('Journey', 'highlightOfDay', _now());
+    if (!card || !_can('TheaterUI', 'showCard')) { toast('명장면을 준비하고 있어요'); return; }
+    _call('TheaterUI', 'showCard', { card: card, onDone: function() { open(); } });
   }
 
   function settingsCard() {
@@ -1139,6 +1176,7 @@ var JourneyUI = (function() {
     return 'view';
   }
   function view(name, params) {
+    if (name === 'theater' && _call('TheaterUI', 'active') === true) return;   // 극장 화면은 TheaterUI가 관리(계약 T8)
     var route = viewRoute(name);
     if (route === 'home') { open(); return; }   // 퍼즐 세트, 러시, 데일리 5 해시는 진행 상태가 없으니 홈(진행 중 블록이면 그 블록)으로
     if (route === 'node') { if (!_screenActive()) _showScreen(); if (_cur !== 'home') render(); openNode(params, { fromNav: true }); return; }
@@ -1233,10 +1271,12 @@ var JourneyUI = (function() {
     // M2-P7 연결(순수 문자열과 판정: 테스트, 하네스, 다른 패키지용)
     homeHTML: homeHTML, ratingChip: ratingChip, gearButton: gearButton, daily5Card: daily5Card,
     puzzleSpec: puzzleSpec, viewRoute: viewRoute,
+    // M4-P8 연결(오늘의 명장면 카드 문자열)
+    highlightCard: highlightCard,
     // 인라인 onclick 핸들러
     _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _act: _act,
     _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings,
-    _ratingTap: _ratingTap, _daily5: _daily5
+    _ratingTap: _ratingTap, _daily5: _daily5, _highlight: _highlight
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

@@ -3,11 +3,14 @@ var GameState = (function() {
   var POSITIONS = ['UTG','HJ','CO','BTN','SB','BB'];
   var BB = 1;
 
-  function buildInitialState(playersSpec, heroPos, seed, prevStacks) {
+  // opts(M4, 계약 T1): { spectator:true } → Hero를 만들지 않는다(관전, 극장). heroPos는 무시하고
+  // heroCards와 heroStack은 undefined, state.spectator=true. opts를 생략하면 기존 동작 그대로.
+  function buildInitialState(playersSpec, heroPos, seed, prevStacks, opts) {
+    var spectator = !!(opts && opts.spectator === true);
     heroPos = heroPos || 'BTN';
     seed = seed != null ? seed : (Math.random() * 1e9 | 0);
     var players = {};
-    players['Hero'] = { name: 'Hero', type: 'Hero', pos: heroPos, isHero: true };
+    if (!spectator) players['Hero'] = { name: 'Hero', type: 'Hero', pos: heroPos, isHero: true };
     playersSpec.forEach(function(spec) {
       players[spec.name] = { name: spec.name, type: spec.type, pos: spec.pos, isHero: false };
     });
@@ -35,7 +38,7 @@ var GameState = (function() {
     if (sbPlayer) { stacks[sbPlayer] -= 0.5; playerBets[sbPlayer] = 0.5; totalContrib[sbPlayer] = 0.5; }
     if (bbPlayer) { stacks[bbPlayer] -= 1;   playerBets[bbPlayer] = 1;   totalContrib[bbPlayer] = 1; }
     var pot = (sbPlayer ? 0.5 : 0) + (bbPlayer ? 1 : 0);
-    return {
+    var st = {
       players: players, names: names, stacks: stacks,
       holeCards: holeCards, heroCards: holeCards['Hero'],
       board: [], pot: pot, playerBets: playerBets, totalContrib: totalContrib,
@@ -49,6 +52,8 @@ var GameState = (function() {
       villainRange: null, heroStack: stacks['Hero'],
       bigBlind: BB, lastRaiser: null, streetBetCount: 0
     };
+    if (spectator) st.spectator = true; // 기본 경로의 상태 키는 그대로 둔다
+    return st;
   }
 
   // 프리플랍: UTG→HJ→CO→BTN→SB→BB
@@ -146,15 +151,50 @@ var GameState = (function() {
     return s;
   }
 
-  function applyVillainActions(state) {
+  // 주입 결정(opts.decide) 정규화: 엔진이 처리하지 못하는 모양만 고친다. 금액 규칙과 강등은 아래 공통 경로가 맡는다.
+  //   'allin' → 스택 전부(raise-to = 기존 투입 + 스택), 벳 직면 'check' → 'call', 공짜 'fold'/'call' → 'check',
+  //   숫자가 아닌 금액 → 0(레이즈면 콜 강등), 모르는 액션이나 빈 결과 → null(Villain.getAction 폴백).
+  //   기록 금액은 실제 이동 칩과 맞춘다: 콜은 min(콜 금액, 스택)(raise-to나 빈 금액을 넘겨도), 폴드와 체크는 0.
+  var _DECIDE_ACTIONS = { fold: 1, check: 1, call: 1, bet: 1, raise: 1, '3bet': 1, allin: 1 };
+  function _fromDecide(r, s, name) {
+    if (!r || typeof r !== 'object' || !_DECIDE_ACTIONS[r.action]) return null;
+    var have = s.playerBets[name] || 0, stack = s.stacks[name] || 0;
+    var toCall = Math.max(0, s.currentBet - have);
+    var amt = parseFloat(r.amount);
+    if (!isFinite(amt)) amt = 0;
+    var out = { action: r.action, amount: amt, phrase: r.phrase };
+    if (r.label) out.label = r.label;
+    if (r.action === 'allin') {
+      out.action = s.currentBet > 0 ? 'raise' : 'bet';
+      out.amount = have + stack;
+      if (!out.label) out.label = '올인';
+    } else if (r.action === 'check' && toCall > 0) {
+      out.action = 'call'; out.amount = Math.min(toCall, stack);
+    } else if ((r.action === 'fold' || r.action === 'call') && toCall <= 0) {
+      out.action = 'check'; out.amount = 0;
+    } else if (r.action === 'call') {
+      out.amount = Math.min(toCall, stack);
+    } else if (r.action === 'fold' || r.action === 'check') {
+      out.amount = 0;
+    }
+    return out;
+  }
+
+  // opts(M4, 계약 T1, 생략하면 기존 동작 그대로):
+  //   stepOne: 실제 액션 1개를 처리하고 바로 반환(폴드나 올인 좌석 건너뛰기는 소비만, 처리할 액션이 없으면 villainActions [])
+  //   decide(villain, state) → {action, amount, phrase?, label?}: Villain.getAction 대신 쓴다(villain.holeCards는 호출 전에 채움)
+  function applyVillainActions(state, opts) {
+    var stepOne = !!(opts && opts.stepOne);
+    var decide = (opts && typeof opts.decide === 'function') ? opts.decide : null;
     var s = _clone(state);
     var villainActions = [];
 
     while (s.pendingQueue.length > 0) {
       var name = s.pendingQueue[0];
 
-      // 폴드됐거나 올인(스택 0 + 베팅 완료)이면 스킵
-      if (s.folded[name] || (s.stacks[name] === 0 && (s.playerBets[name] || 0) >= s.currentBet)) {
+      // 폴드됐거나 올인(스택 0)이면 스킵. 짧은 올인 뒤 누가 더 올려도 올인 좌석은 더 할 액션이 없다
+      // (예전에는 다시 물어서 폴드로 메인 팟 몫을 잃을 수 있었다. 스택이 다른 이월 스택, 미니시즌에서 생긴다)
+      if (s.folded[name] || s.stacks[name] === 0) {
         s.pendingQueue.shift(); continue;
       }
 
@@ -170,7 +210,8 @@ var GameState = (function() {
       villain.holeCards = s.holeCards[name];
       // 액션 직전 스냅샷(속마음/극장이 이 값으로 콜 금액과 팟을 계산)
       var potBefore = s.pot, currentBetBefore = s.currentBet, haveBefore = s.playerBets[name] || 0;
-      var result = Villain.getAction(villain, s);
+      var result = decide ? _fromDecide(decide(villain, s), s, name) : null;
+      if (!result) result = Villain.getAction(villain, s);
       var action = result.action, amt = result.amount;
 
       if (action === 'fold') {
@@ -227,6 +268,7 @@ var GameState = (function() {
         s.handOver = true;
         return { newState: s, villainActions: villainActions };
       }
+      if (stepOne) return { newState: s, villainActions: villainActions };
     }
 
     // 큐 소진 → 스트리트 종료 또는 핸드 종료
@@ -344,7 +386,8 @@ var GameState = (function() {
     var handDescriptions = {};
     active.forEach(function(n){ handDescriptions[n] = HandEval.describe(scores[n]); });
     // 승리 = 상대 칩이 섞인 팟을 (일부라도) 땀. 내 초과 베팅만 돌려받은 경우는 패배
-    return { newState: s, heroWon: _round2(payouts['Hero'] - (refund['Hero'] || 0)) > 0, winner: winner, showCards: true,
+    // 관전(spectator) 상태에는 Hero가 없으므로 0으로 본다(heroWon false, NaN 방지)
+    return { newState: s, heroWon: _round2((payouts['Hero'] || 0) - (refund['Hero'] || 0)) > 0, winner: winner, showCards: true,
              scores: scores, handDescriptions: handDescriptions, payouts: payouts };
   }
 

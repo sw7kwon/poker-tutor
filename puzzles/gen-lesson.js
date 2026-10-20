@@ -16,6 +16,7 @@
 //   verify(q) → 원본을 다시 찾아 보기와 정답이 같은지 보고, calc가 있으면 엔진(HandEval, GtoChart, PRECALC 등)으로
 //     결과값을 다시 구해 정답 규칙 L4(pick 또는 보기 첫 숫자가 정확히 하나만 같음)를 확인한다.
 //     결과값 = calc.of(있으면) 아니면 유형의 첫 변수(LessonCore.answerValue와 같은 규칙, 순서 문제의 '마지막'은 of 'last').
+//     (M4-P7) 이 파일이 직접 계산하지 않는 유형(outs, band 등 M4 이후 L3 유형)은 LessonCore.calc로 계산한다.
 //   등록 meta: confidence 'exact', rated false, srs 'srs', stage 6, group 'other', concept 'lesson', label '레슨 복습'.
 //     base는 레이팅 창에서 한참 먼 값이라 Puzzles.pickType(rated:false 포함)의 가중치가 0이 된다
 //     (문항 difficulty는 노드 단계 기준값으로 따로 채운다). 레이팅, 데일리 5, pickType, 약점 채움 제외(L6).
@@ -29,7 +30,7 @@ var GenLesson = (function() {
   var BTN_CW = ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'];   // 장면용 자리 나열(말하는 순서와 무관)
   var FACINGS = [false, true, 'vs3bet', 'vs4bet', 'cold3bet'];
   var MAIN = { potodds: 'pct', tocall: 'amt', minraise: 'to', opensize: 'size', showdown: 'winner', order: 'first',
-    rangePct: 'pct', chart: 'action', eq: 'eq', eqExact: 'eq' };
+    rangePct: 'pct', chart: 'action', eq: 'eq', eqExact: 'eq', outs: 'outs', band: 'pct' };
   var OUT_OF_WINDOW = 1e9;   // pickType 가중치 0(레이팅 창 [Ru-300, Ru-200]에서 한참 먼 base)
   var TEMPLATE_RE = /\{\{\s*([A-Za-z_]\w*)\s*\}\}/g;
 
@@ -196,7 +197,16 @@ var GenLesson = (function() {
         v.eq = Math.round(e * 100);
         break;
       }
-      default: return null;
+      default: {
+        // (M4-P7) M4에 더한 유형(outs, band)과 앞으로 더할 유형은 LessonCore.calc(계약 L3)로 계산한다.
+        // 레슨 데이터 자체는 j-lessons가 독립 경로로 검산하므로 여기서는 같은 계산을 다시 부르기만 한다.
+        var LC = (typeof LessonCore !== 'undefined' && LessonCore) ? LessonCore : null;
+        if (!LC || typeof LC.calc !== 'function') return null;
+        var lr = null;
+        try { lr = LC.calc(c); } catch (x) { lr = null; }
+        if (!lr || typeof lr !== 'object' || lr.error) return null;
+        return { vars: lr, main: MAIN[c.type] || (LC.CALC_MAIN && LC.CALC_MAIN[c.type]) || null };
+      }
     }
     return { vars: v, main: MAIN[c.type] };
   }
@@ -335,6 +345,10 @@ var GenLesson = (function() {
         case 'eqExact':
           sc = { hero: c.hero.slice(), board: c.board.slice(), range: { label: '상대', combos: [c.vs.join('')] } };
           ex = _copy(sc);
+          break;
+        case 'outs':
+          // (M4-P7) 내 손과 보드가 질문에 이미 있으니 그림으로도 보인다(아웃 카드는 보이지 않는다). n 형식은 그림 없음
+          if (Array.isArray(c.hero) && Array.isArray(c.board)) { sc = { hero: c.hero.slice(), board: c.board.slice() }; ex = _copy(sc); }
           break;
         case 'eq': {
           var kc = _eqKeyCards(c.precalc);

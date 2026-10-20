@@ -1,1 +1,194 @@
 /* css/theater.css (채우는 패키지: M4-P5) */
+/* 속마음 극장(theater/theater-ui.js). #screen-game에 th-on이 붙은 동안만 적용된다(일반 게임 화면은 그대로).
+   탭 요소 44px 이상(설계서 5.9절 6번), 결정과 다음 버튼은 하단 엄지 영역(7번), 표시는 색 + 글자 + 아이콘(10번). */
+
+/* ── 게임 전용 요소 숨김(인라인 display는 건드리지 않음, 극장을 닫으면 그대로 돌아온다) ── */
+#screen-game.th-on #action-bar,
+#screen-game.th-on #result-actions-bar,
+#screen-game.th-on #gto-commentary,
+#screen-game.th-on #thinking-panel,
+#screen-game.th-on #equity-toggle,
+#screen-game.th-on #equity-overlay,
+#screen-game.th-on #gto-chart,
+#screen-game.th-on #result-banner,
+#screen-game.th-on #pot-odds-ring,
+#screen-game.th-on .m-dock-top,
+#screen-game.th-on .m-dock-tabs button[data-tab]:not([data-tab="think"]),
+#screen-game.th-on .seat-action,
+#screen-game.th-on .seat-hud,
+#screen-game.th-on .thinking-bubble { display: none !important; }
+#screen-game.th-on #thinking-feed { display: block !important; }
+#screen-game.th-on .poker-table { margin-right: 0; }   /* 에쿼티 패널 자리(데스크톱)가 없으니 가운데로 */
+#screen-game.th-on .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+
+/* ── 극장 영역(데스크톱: 왼쪽 자막과 바, 오른쪽 패널) ── */
+.th-root {
+  flex: 0 0 auto; width: 100%; max-width: 980px; margin: 0 auto; box-sizing: border-box;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  grid-template-areas: "strip panel" "bar panel"; align-items: start; gap: 8px 14px;
+  padding: 8px 16px 10px; background: #0d1117; border-top: 1px solid var(--hud-border);
+  color: var(--text);
+}
+.th-strip { grid-area: strip; min-height: 50px; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; }
+.th-line {
+  font-size: .88rem; line-height: 1.38; overflow: hidden; word-break: keep-all; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.th-line.th-k-say { -webkit-line-clamp: 1; }
+.th-line.th-k-think { color: #f0c674; }
+.th-line.th-k-fore, .th-line.th-k-intro { color: #d2a8ff; }
+.th-line.th-k-street { color: var(--gold); }
+.th-line.th-k-end { color: #7ee787; }
+.th-line.th-k-sys, .th-line.th-hintline { color: var(--text-dim); }
+.th-panel { grid-area: panel; min-width: 0; font-size: .88rem; }
+.th-bar { grid-area: bar; display: flex; gap: 8px; align-items: stretch; }
+.th-btn {
+  min-height: 44px; min-width: 44px; padding: 0 12px; border-radius: 8px; box-sizing: border-box;
+  border: 1px solid var(--hud-border); background: #21262d; color: var(--text);
+  font-size: .95rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.th-next { flex: 1 1 auto; }
+.th-next.is-call { background: #1f6f3a; border-color: #2ea043; color: #fff; }
+.th-next:disabled { opacity: .55; cursor: default; background: #161b22; border-color: var(--hud-border); color: var(--text-dim); }
+.th-pause, .th-speed, .th-exit { flex: 0 0 52px; padding: 0; }
+.th-btn:focus-visible, .th-chip:focus-visible, .th-skip:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.th-sub { color: var(--text-dim); font-size: .8rem; }
+.th-hint { padding: 6px 0; }
+
+/* ── 시작 자막(계획 예고) ── */
+.th-intro { display: flex; flex-direction: column; gap: 4px; }
+.th-intro-t { font-weight: 700; color: var(--gold); font-size: .9rem; }
+.th-intro-list { display: flex; flex-direction: column; gap: 3px; max-height: 132px; overflow-y: auto; line-height: 1.38; }
+.th-intro-l { color: #d2a8ff; }
+.th-intro-l b { color: var(--text); }
+.th-note { color: #c297ff; font-size: .78rem; }
+
+/* ── 멈춤: 예측 칩 2줄 + 건너뛰기 ── */
+/* 멈춤 중 #screen-game에도 th-stop이 붙으므로(어둡게) 예측 묶음은 패널 안으로 한정한다 */
+.th-panel .th-stop { display: flex; flex-direction: column; gap: 6px; }
+.th-chip-sub { display: block; font-size: .7rem; line-height: 1.15; color: var(--text-dim); font-weight: 400; }
+.th-chip.on .th-chip-sub { color: #dbe9ff; }
+.th-q { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.th-q-t { flex: 1 1 auto; min-width: 0; line-height: 1.35; }
+.th-ctx { color: var(--text-dim); font-size: .8rem; white-space: nowrap; }
+.th-skip {
+  flex: 0 0 auto; min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px dashed var(--hud-border);
+  background: transparent; color: var(--text-dim); font-size: .85rem; cursor: pointer;
+}
+.th-row { display: flex; align-items: center; gap: 8px; }
+.th-row-t { flex: 0 0 2.6em; font-size: .78rem; color: var(--text-dim); }
+.th-chips { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.th-chip {
+  min-height: 44px; padding: 4px 6px; border-radius: 10px; box-sizing: border-box;
+  border: 1px solid var(--hud-border); background: #161b22; color: var(--text);
+  font-size: .85rem; line-height: 1.2; cursor: pointer; word-break: keep-all;
+}
+.th-chip.on { background: #1f6feb; border-color: #58a6ff; color: #fff; }
+.th-chip.on::before { content: '\2713  '; }
+.th-chip-idk { color: var(--text-dim); }
+
+/* ── 공개 뒤 결과, 끝 요약 ── */
+.th-verdict, .th-end { display: flex; flex-direction: column; gap: 4px; }
+.th-v.is-hit { color: #3fb950; }
+.th-v.is-miss { color: #ff7b72; }
+.th-end-t { font-weight: 700; color: var(--gold); }
+.th-mark { font-size: .78rem; margin-left: 4px; white-space: nowrap; }
+.th-mark.is-hit { color: #3fb950; }
+.th-mark.is-miss { color: #ff7b72; }
+/* 오독 배지(캐릭터 읽기 = 보라, 설계서 8.2절 5번). event.misread일 때만 붙는다 */
+.th-misread {
+  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; vertical-align: 1px;
+  background: #6e40c9; color: #fff; font-size: .74rem; font-weight: 700; line-height: 1.5; white-space: nowrap;
+}
+
+/* ── 좌석 강조와 화면 어둡게(멈춤) ── */
+#screen-game.th-stop .table-felt,
+#screen-game.th-stop .poker-table .seat:not(.th-focus) { filter: brightness(.5); transition: filter .2s; }
+#screen-game.th-on .poker-table .seat.th-focus {
+  border-color: var(--gold); z-index: 8;
+  box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(212,175,55,.55);
+}
+#screen-game.th-on .poker-table .seat.th-act { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff, 0 0 10px rgba(88,166,255,.35); z-index: 7; }
+
+/* ── 활성 좌석 말풍선(1곳만) ── */
+.th-bubble {
+  position: absolute; z-index: 35; width: max-content; max-width: 180px; box-sizing: border-box;
+  padding: 5px 8px; border-radius: 10px; background: rgba(255,255,255,.96); color: #1f2328;
+  font-size: .74rem; line-height: 1.3; box-shadow: 0 2px 10px rgba(0,0,0,.45); pointer-events: none;
+}
+.th-bubble b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-bubble span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #57606a; }
+.th-bubble.is-thinking { background: #fff4c2; }
+.th-bubble.is-cover span { -webkit-line-clamp: 1; }   /* 세로 폰: 좌석 이름 줄만 덮고 카드는 보이게(속마음 전문은 자막 스트립) */
+
+/* ── 피드(#thinking-feed, 이번 핸드 전체) ── */
+#screen-game.th-on #thinking-feed { max-height: 180px; }
+.th-fl-intro, .th-fl-fore { color: #d2a8ff; }
+.th-fl-say { color: var(--text); }
+.th-fl-think { color: #f0c674; }
+.th-fl-street { color: var(--gold); }
+.th-fl-read { color: #c9d1d9; }
+.th-fl-sys, .th-fl-note, .th-fl-sd { color: var(--text-dim); }
+.th-fl-end { color: #7ee787; }
+
+/* ── 명장면 카드 창 ── */
+.th-card-ov {
+  position: fixed; inset: 0; z-index: 950; background: rgba(1,4,9,.72);
+  display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;
+}
+.th-card-box {
+  width: min(380px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto;
+  background: #161b22; border: 1px solid var(--gold); border-radius: 14px; padding: 14px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 32px rgba(0,0,0,.6); color: var(--text);
+}
+.th-card { display: flex; flex-direction: column; gap: 8px; }
+.th-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.th-card-badge { color: var(--gold); font-weight: 700; }
+.th-card-score { font-size: .8rem; color: var(--text-dim); }
+.th-card-title { font-size: 1.05rem; line-height: 1.45; color: #f0c674; word-break: keep-all; overflow-wrap: anywhere; }
+.th-card-board { display: flex; flex-wrap: wrap; gap: 4px; min-height: 42px; align-items: center; }
+.card.th-mini { width: 30px; height: 42px; font-size: .8rem; border-radius: 4px; }
+.card.th-mini:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+.th-card-pot { color: var(--gold); font-weight: 600; }
+.th-card-eq { display: flex; flex-direction: column; gap: 4px; }
+.th-card-eq-t { font-size: .85rem; }
+.th-eq-row { display: grid; grid-template-columns: minmax(0, 5.5em) 1fr 3.6em; gap: 6px; align-items: center; font-size: .82rem; }
+.th-eq-n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-eq-bar { height: 10px; background: #30363d; border-radius: 5px; overflow: hidden; }
+.th-eq-fill { display: block; height: 100%; background: #2ea043; }
+.th-eq-v { text-align: right; }
+.th-card-plans { display: flex; flex-wrap: wrap; gap: 4px; }
+.th-card-plan { font-size: .78rem; padding: 2px 8px; border-radius: 10px; background: rgba(110,64,201,.25); border: 1px solid #6e40c9; }
+.th-card-note { color: #c297ff; }
+.th-card-acts { display: flex; gap: 8px; }
+.th-card-acts .th-btn { flex: 1 1 0; }
+
+/* ── 세로 폰: 테이블 → 도크(💭 띵킹 피드) → 극장 영역(하단 고정) 순서로 세로로 쌓고 겹치지 않게 ── */
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  /* 극장 영역이 들어갈 높이만큼 타원을 줄인다(412x915는 그대로 300px) */
+  /* 단, 일반 게임의 320px 타원(208px)보다 작게 줄이면 좌석 6개가 서로 겹친다(320x658에서 145px까지 줄던 것, M4 통합 검증).
+     그런 짧은 화면은 화면이 세로로 스크롤되고 극장 영역은 아래에 붙는다 */
+  #screen-game.th-on { --oval-w: min(calc(100vw - 112px), max(208px, calc((100dvh - 470px) / 1.3)), 300px); }
+  #screen-game.th-on .m-dock { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+  #screen-game.th-on .m-dock-body { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; }
+  /* 관전에는 히어로가 없으므로 아래 가운데 좌석(BTN)도 다른 좌석과 같은 크기 */
+  #screen-game.th-on .poker-table .seat[data-slot="0"] { width: var(--seat-w); }
+  #screen-game.th-on .poker-table .seat[data-slot="0"] .card { width: var(--card-w); height: var(--card-h); font-size: var(--card-font); }
+  .th-root {
+    grid-template-columns: minmax(0, 1fr); grid-template-areas: "strip" "panel" "bar"; gap: 6px;
+    max-width: none; margin-top: auto; position: sticky; bottom: 0; z-index: 40;
+    padding: 6px 10px calc(8px + var(--safe-b, 0px));
+  }
+  .th-strip { min-height: 0; }
+  .th-line { font-size: .8rem; line-height: 1.35; }
+  .th-panel { max-height: 40dvh; overflow-y: auto; }
+  .th-panel.is-quiet { display: none; }
+  .th-intro-list { max-height: 24dvh; }
+  .th-bubble { max-width: 150px; font-size: .7rem; padding: 4px 7px; }
+}
+
+/* ── 모션 줄이기 ── */
+@media (prefers-reduced-motion: reduce) {
+  #screen-game.th-stop .table-felt, #screen-game.th-stop .poker-table .seat { transition: none; }
+}
+html.reduce-motion #screen-game.th-stop .table-felt, html.reduce-motion #screen-game.th-stop .poker-table .seat { transition: none; }

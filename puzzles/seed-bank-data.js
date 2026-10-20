@@ -1,12 +1,12 @@
 // puzzles/seed-bank-data.js (채우는 패키지: M2-P6, 생성: node tools/seed-bank.js --puzzles, 손으로 고치지 않는다)
 // MC 유형(eqbucket)의 검증된 정답 은행(설계서 3.2절, 8.1절 5번, 10절 22번, 계약 C9). 즉석 MC 대신 여기서 뽑는다.
-// 엔진 해시: fnv1a2x32:a205e6d62e3eae7d (engine/hand-eval.js, engine/range.js, engine/gto.js, 줄바꿈 LF 기준)
+// 엔진 해시: fnv1a2x32:810a524a70e140af (engine/hand-eval.js, engine/range.js, engine/gto.js, 줄바꿈 LF 기준)
 //   엔진 파일이 바뀌면 tests/j-seed-bank.test.js가 실패한다. 그때는 --puzzles로 다시 만들고 --verify 200으로 확인한다.
 // 생성일: 2026-10-20, 에쿼티 = 균등 콤보 MC(tools/seed-bank.js mcUniform) 5000회를 Drills.rng(1)과 Drills.rng(2)로 돌린 평균(소수 4자리).
 //   상대 콤보를 같은 확률로 뽑는다. Equity._mc의 레인지 샘플러는 콤보를 균등하게 뽑지 않아 쓰지 않는다.
 // 상대는 랜덤 손 1개 또는 이 앱 차트의 오픈 레인지(Gto.GTO_RANGES.rfi). 구간 경계 0.30, 0.50, 0.70에서 0.03 이상 떨어진 항목만, 구간마다 75개.
 var PUZZLE_SEEDS = {
-  meta: {"version":2,"engineHash":"fnv1a2x32:a205e6d62e3eae7d","hashFiles":["engine/hand-eval.js","engine/range.js","engine/gto.js"],"created":"2026-10-20","generator":"tools/seed-bank.js --puzzles","sampler":"uniform-combo","mc":{"iterations":5000,"seeds":[1,2]},"margin":0.03,"seed":7,"target":300},
+  meta: {"version":2,"engineHash":"fnv1a2x32:810a524a70e140af","hashFiles":["engine/hand-eval.js","engine/range.js","engine/gto.js"],"created":"2026-10-20","generator":"tools/seed-bank.js --puzzles","sampler":"uniform-combo","mc":{"iterations":5000,"seeds":[1,2]},"margin":0.03,"seed":7,"target":300},
   eqbucket: {
     buckets: [0, 0.3, 0.5, 0.7, 1],
     items: [

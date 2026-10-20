@@ -34,35 +34,26 @@ var Table = (function() {
       boardEl.appendChild(el);
     });
     _boardDrawn = Math.max(_boardDrawn, (state.board||[]).length);
-    var slots = seatSlots(state.players);
+    var seated = _seatPlayers(state);
+    var slots = seatSlots(seated);
     POSITIONS.forEach(function(pos) {
       var seatEl = document.getElementById('seat-' + pos);
       if (!seatEl) return;
-      var player = Object.values(state.players||{}).find(function(p){ return p.pos===pos; });
+      var player = Object.values(seated).find(function(p){ return p.pos===pos; });
       if (!player) { seatEl.innerHTML=''; seatEl.className='seat seat-'+pos.toLowerCase(); seatEl.setAttribute('data-slot', slots[pos]); return; }
       var name = player.name;
       var isFolded = !!(state.folded&&state.folded[name]);
       var isHero = player.isHero;
       seatEl.className = 'seat seat-'+pos.toLowerCase() + (isHero?' hero':'') + (isFolded?' folded':'');
       seatEl.setAttribute('data-slot', slots[pos]);
-      var cardsHtml = '';
-      var hole = state.holeCards && state.holeCards[name];
-      if (hole && hole.length===2) {
-        if (isHero) {
-          cardsHtml = hole.map(function(c){
-            return '<div class="card hero-card '+(RED[c.suit]?'red':'black')+'" data-suit="'+c.suit+'">'+(c.rank==='T'?'10':c.rank)+SUIT_SYM[c.suit]+'</div>';
-          }).join('');
-        } else if (!isFolded) {
-          cardsHtml = '<div class="card back"></div><div class="card back"></div>';
-        }
-      }
+      var cardsHtml = seatCardsHTML(state, name);
       var bet = state.playerBets&&state.playerBets[name]||0;
       var stack = (state.stacks&&state.stacks[name])||0;
       var stackPct = Math.min(100, Math.max(0, stack)).toFixed(0);
       var barColor = stack > 60 ? '#3d9e4a' : stack > 30 ? '#e3b341' : '#f85149';
       seatEl.innerHTML =
-        '<div class="seat-name">'+name+(isHero?'':' <small style="color:#8b949e">('+player.type+')</small>')+'</div>'+
-        (isHero ? '' : _hudHTML(name))+
+        '<div class="seat-name">'+name+((isHero || state.hideTypes)?'':' <small style="color:#8b949e">('+player.type+')</small>')+'</div>'+
+        (isHero ? '' : _hudHTML(name, !!state.hideTypes))+
         '<div class="seat-pos">'+pos+'</div>'+
         '<div class="seat-stack">'+stack.toFixed(1)+'bb</div>'+
         (bet>0?'<div class="seat-bet">'+bet.toFixed(1)+'bb</div>':'')+
@@ -70,6 +61,35 @@ var Table = (function() {
         '<div class="seat-stack-bar"><div class="seat-stack-fill" style="height:'+stackPct+'%;background:'+barColor+'"></div></div>';
       if (keptBubbles[pos]) seatEl.appendChild(keptBubbles[pos]);
     });
+  }
+
+  // 앉아 있는 사람(관전 state.spectator면 히어로 제외, M4 계약 T2). 순수
+  function _seatPlayers(state) {
+    var all = (state && state.players) || {};
+    if (!state || !state.spectator) return all;
+    var out = {};
+    Object.keys(all).forEach(function(k) { if (all[k] && !all[k].isHero) out[k] = all[k]; });
+    return out;
+  }
+
+  function _cardFace(c, extra) {
+    return '<div class="card ' + (extra ? extra + ' ' : '') + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
+      (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
+  }
+
+  // 좌석 카드 칸 HTML(순수 함수, node 테스트용, M4 계약 T2).
+  // 히어로는 앞면(hero-card), state.revealAll(극장 전 카드 공개)이면 빌런도 앞면(폴드한 손도 보임),
+  // 그 밖에는 살아 있는 빌런만 뒷면 2장. 관전(state.spectator)이면 히어로 좌석이 없으므로 빈 문자열.
+  function seatCardsHTML(state, name) {
+    if (!state || name == null) return '';
+    var p = state.players && state.players[name];
+    if (!p || (state.spectator && p.isHero)) return '';
+    var hole = state.holeCards && state.holeCards[name];
+    if (!hole || hole.length !== 2 || !hole[0] || !hole[1]) return '';
+    if (p.isHero) return hole.map(function(c) { return _cardFace(c, 'hero-card'); }).join('');
+    if (state.revealAll) return hole.map(function(c) { return _cardFace(c, 'face-up'); }).join('');
+    if (state.folded && state.folded[name]) return '';
+    return '<div class="card back"></div><div class="card back"></div>';
   }
 
   // 세로 폰 배치용 좌석 슬롯(표시 계층만, 데스크톱 CSS는 참조 안 함): 히어로=0(하단 중앙), 이후 시계방향 1~5
@@ -92,14 +112,14 @@ var Table = (function() {
     return out;
   }
 
-  // 빌런 좌석 성향 HUD (VillainTracker 있을 때만)
-  function _hudHTML(name) {
+  // 빌런 좌석 성향 HUD (VillainTracker 있을 때만). hideTypes(유형 가림)면 style 칩은 빼고 숫자만
+  function _hudHTML(name, hideTypes) {
     if (typeof VillainTracker === 'undefined' || !VillainTracker.hudText) return '';
     var t = VillainTracker.hudText(name);
     if (!t) return '';
     var title = String(t.title || '').replace(/"/g, '&quot;');
     return '<div class="seat-hud" title="' + title + '">' + t.short +
-      (t.style ? ' <span class="seat-style-chip">' + t.style + '</span>' : '') + '</div>';
+      (t.style && !hideTypes ? ' <span class="seat-style-chip">' + t.style + '</span>' : '') + '</div>';
   }
 
   var ACTION_LABEL = { fold:'폴드', call:'콜', check:'체크', raise:'레이즈', allin:'올인', '3bet':'3벳', bet:'벳' };
@@ -178,6 +198,6 @@ var Table = (function() {
     seatEl.appendChild(div);
   }
 
-  if (typeof module !== 'undefined') module.exports = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots };
-  return { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots };
+  if (typeof module !== 'undefined') module.exports = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, _hudHTML };
+  return { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, _hudHTML };
 })();

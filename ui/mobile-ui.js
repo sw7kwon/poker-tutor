@@ -3,6 +3,7 @@
 // 원위치를 기록해 데스크톱 폭으로 돌아가면 그대로 되돌림. 패널의 style.display는 건드리지 않고
 // #m-dock[data-tab] + CSS(css/mobile.css)로 비활성 탭만 숨긴다 → 기존 JS(getElementById 접근)는 무수정.
 // 로드 시 DOM 접근 없음(node 테스트 러너 안전). app.js 훅은 모두 typeof 가드로 호출된다.
+// M4-P5: openTab(key) 추가(계약 T2, 극장이 띵킹 탭을 연다). 기존 동작은 그대로.
 var MobileUI = (function() {
   var MQ = '(max-width: 600px), (orientation: portrait) and (max-width: 760px)';   // css/mobile.css와 같은 문자열
   var TOP = ['last-verdict', 'coach-reminder', 'coach-pre', 'thinking-panel'];        // 항상 보이는 상단부
@@ -13,7 +14,9 @@ var MobileUI = (function() {
     { key: 'think', label: '💭 띵킹' },
     { key: 'review', label: '📝 총평' }
   ];
+  var TAB_KEYS = { coach: true, chart: true, think: true, review: true };
   var _active = false, _moved = [], _dock = null, _tab = 'coach', _collapsed = true, _inited = false;
+  var _forced = null;     // openTab으로 연 탭 키(내용이 비어 보여도 숨기지 않음)
   var _savedTop = null;   // _reveal 직전 게임 화면 스크롤 위치 — 접으면 되돌림
 
   function _el(id) { return document.getElementById(id); }
@@ -164,6 +167,7 @@ var MobileUI = (function() {
       think: !(typeof ThinkingUI !== 'undefined' && ThinkingUI.isOn && ThinkingUI.isOn()) || _hidden(_el('thinking-feed')),
       review: _hidden(_el('gto-commentary'))
     };
+    if (_forced && Object.prototype.hasOwnProperty.call(hide, _forced)) hide[_forced] = false;   // openTab으로 연 탭은 늘 보임
     if (hide[_tab]) { _tab = 'coach'; }
     var tg = _el('equity-toggle');
     var lv = tg && /코칭\s*L\d/.exec(tg.textContent || '');
@@ -190,8 +194,21 @@ var MobileUI = (function() {
   }
 
   // ── app.js 훅 (모바일이 아니면 전부 no-op) ──
+  // 다른 모듈이 도크 탭을 직접 연다(M4 계약 T2, 극장이 세로 폰에서 '💭 띵킹' 탭을 자동 선택).
+  // key = 'coach'|'chart'|'think'|'review'. 연 탭은 내용 판정(띵킹 꺼짐 등)과 무관하게 보이고, onNewHand나 openTab(null)이 푼다.
+  // key가 비어 있으면 강제 표시를 풀고 접는다. 도크가 없으면(데스크톱, node 테스트) 아무것도 하지 않고 false.
+  function openTab(key) {
+    if (!_active || !_dock) return false;
+    if (!key) { _forced = null; _collapse(); return true; }
+    if (!TAB_KEYS[key]) return false;
+    _forced = key;
+    _open(key);
+    return true;
+  }
+
   function onNewHand() {
     if (!_active) return;
+    _forced = null;
     _tab = 'coach'; _collapsed = true; _savedTop = null;
     _refresh();
     var sc = _el('screen-game');
@@ -224,6 +241,7 @@ var MobileUI = (function() {
   return {
     init: init, isMobile: function() { return _active; },
     onNewHand: onNewHand, onHeroTurn: onHeroTurn, onAfterDecision: onAfterDecision, onHandEnd: onHandEnd,
-    _state: function() { return { active: _active, tab: _tab, collapsed: _collapsed }; }
+    openTab: openTab,
+    _state: function() { return { active: _active, tab: _tab, collapsed: _collapsed, forced: _forced }; }
   };
 })();

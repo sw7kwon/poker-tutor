@@ -226,11 +226,25 @@ var Gto = (function() {
     return ((position === 'SB' ? 3 : 2.5) + Math.max(0, limpers || 0)) * (bb || 1);
   }
 
-  // 림퍼 뒤 GTO 액션. 아이솔 = 그 자리 RFI 표(표 안 레이즈, 밖 폴드, 따라 콜은 없음).
+  // 아이솔 기준 표의 자리(M4-P9, 로드맵 결정 사항 13): 림퍼 1명이면 그 자리 RFI 표, 2명 이상이면 한 칸 좁은 RFI 표.
+  // 림퍼가 많을수록 아이솔해도 여럿이 따라와 멀티웨이가 되기 쉽고, 그중 누군가 강한 패로 림프했을 가능성도 커져 레인지를 좁힌다.
+  // 좁은 표는 늘 원래 표의 부분집합이다(UTG ⊂ HJ, HJ ⊂ CO, CO ⊂ BTN, CO ⊂ SB, j-coach-ext 18이 고정). 그래서 두 표의 교집합 = 좁은 표.
+  // 6인에서 HJ 앞 림퍼는 UTG 1명뿐이라 HJ→UTG는 쓰일 일이 없지만 규칙을 맞춰 둔다. 3명 이상이어도 한 칸만 좁힌다.
+  // BB는 RFI 표 대신 vsLimpBB(+ CO 표 alt)를 쓰므로 null.
+  var ISO_TIGHTER = { HJ: 'UTG', CO: 'HJ', BTN: 'CO', SB: 'CO' };
+  function isoPos(position, limpers) {
+    if (position === 'BB' || !GTO_RANGES.rfi[position]) return null;
+    return (limpers || 0) >= 2 && ISO_TIGHTER[position] ? ISO_TIGHTER[position] : position;
+  }
+
+  // 림퍼 뒤 GTO 액션. 아이솔 = isoPos 표(표 안 레이즈, 밖 폴드, 따라 콜은 없음). limpers 생략은 1명(그 자리 RFI 표, 예전 2인자 호출과 같다).
   // BB는 RFI 표가 없고 콜할 돈이 0이라 레이즈 아니면 체크: 아주 강한 패(vsLimpBB)만 레이즈, 나머지는 체크.
-  function gtoActionVsLimp(position, holeCards) {
+  function gtoActionVsLimp(position, holeCards, limpers) {
     if (position === 'BB') return _in(holeCards, GTO_RANGES.vsLimpBB) ? 'raise' : 'check';
-    return gtoAction(position, holeCards);
+    var ip = isoPos(position, limpers == null ? 1 : limpers);
+    if (!ip) return gtoAction(position, holeCards);
+    // 그 자리 표와 좁은 표의 교집합(좁은 표가 부분집합이라 결과는 좁은 표와 같다)
+    return (gtoAction(position, holeCards) === 'raise' && _in(holeCards, GTO_RANGES.rfi[ip])) ? 'raise' : 'fold';
   }
 
   // BB가 림퍼 상대로 체크가 정답인 손 중 CO 오픈 표 안의 손은 아이솔 레이즈도 괜찮다(둘 다 정답). 그 외 null.
@@ -242,8 +256,9 @@ var Gto = (function() {
   // 현재 상태 기준 프리플랍 GTO 권장 (라운드 2 힌트용)
   // facing: false(오픈) | true(vs오픈) | 'vs3bet'(내 오픈에 3벳 맞음) | 'vs4bet'(내 3벳에 4벳 맞음) | 'cold3bet'(콜드 3벳 직면)
   // opener: vs오픈일 때 오프너 포지션(없으면 null)
-  // 림퍼 뒤(facing false, limpers ≥ 1)는 추가 필드 limpers, size(아이솔 raise-to), alt(BB만, 체크와 함께 정답인 레이즈)를 준다.
-  // facing은 false 그대로 둔다(app.js 힌트 문구와 gto-chart.js가 그 자리 RFI 표를 그대로 보여 주게).
+  // 림퍼 뒤(facing false, limpers ≥ 1)는 추가 필드 limpers, size(아이솔 raise-to), alt(BB만, 체크와 함께 정답인 레이즈),
+  // isoPos(아이솔 기준 RFI 표의 자리, 림퍼 1명 = 내 자리, 2명 이상 = 한 칸 좁은 자리, BB는 null)를 준다.
+  // facing은 false 그대로 둔다(app.js 힌트 문구는 오픈 상황 그대로, gto-chart.js는 isoPos 표를 그린다).
   function preflopHint(state, heroPos) {
     if (state.street !== 'preflop') return null;
     var facing4 = isFacing4bet(state);
@@ -257,7 +272,7 @@ var Gto = (function() {
       : facing3 ? gtoActionVs3bet(heroPos, state.heroCards)
       : cold3 ? gtoActionVsCold3bet(state.heroCards)
       : facing ? gtoActionVsRfi(heroPos, state.heroCards, opener)
-      : limpers > 0 ? gtoActionVsLimp(heroPos, state.heroCards)
+      : limpers > 0 ? gtoActionVsLimp(heroPos, state.heroCards, limpers)
       : gtoAction(heroPos, state.heroCards);
     var label = { raise: '레이즈', call: '콜', fold: '폴드', check: '체크' }[act] || act;
     var out = { action: act, label: label, facing: facing, opener: opener };
@@ -265,13 +280,14 @@ var Gto = (function() {
       out.limpers = limpers;
       out.size = isoSize(heroPos, limpers, state.bigBlind);
       out.alt = vsLimpAlt(heroPos, state.heroCards);
+      out.isoPos = isoPos(heroPos, limpers);
     }
     return out;
   }
 
   var api = { GTO_RANGES, gtoAction, gtoActionVsRfi, gtoActionVs3bet, gtoActionVs4bet, gtoActionVsCold3bet, gtoActionVsLimp,
     isFacing3bet, isFacing4bet, isFacingCold3bet, openerPos, preflopHint, rangeClassSet, villainRangeFor, callerRangeFor,
-    limperCount, isoSize, vsLimpAlt };
+    limperCount, isoSize, vsLimpAlt, isoPos };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
