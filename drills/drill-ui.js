@@ -16,7 +16,7 @@ var DrillUI = (function() {
 
   function _cardsHTML(cards) {
     return cards.map(function(c) {
-      return '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '">' +
+      return '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
         (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
     }).join('');
   }

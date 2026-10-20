@@ -247,7 +247,8 @@ var HistoryUI = (function() {
     var rank = str[0], suit = str[1];
     var disp = rank === 'T' ? '10' : rank;
     var cls = RED_SUIT[suit] ? 'hist-red' : 'hist-black';
-    return '<span class="hist-card ' + cls + '">' + disp + (SUIT_SYM[suit] || '') + '</span>';
+    var ds = SUIT_SYM[suit] ? ' data-suit="' + suit + '"' : '';   // 4색 덱(a11y.css), 저장 기록이 이상하면 속성 생략
+    return '<span class="hist-card ' + cls + '"' + ds + '>' + disp + (SUIT_SYM[suit] || '') + '</span>';
   }
 
   function _cardsHTML(arr) {

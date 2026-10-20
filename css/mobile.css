@@ -3,9 +3,9 @@
 .raise-step { display: none; }
 .m-rotate { display: none; }
 
-/* ── 루트 글자 크기 노브: rem 기반 크기를 작은 폰에서 일괄 축소 ── */
-@media (max-width: 360px) { html { font-size: 15px; } }
-@media (max-width: 330px) { html { font-size: 14px; } }
+/* ── 루트 글자 크기 노브: rem 기반 크기를 작은 폰에서 일괄 축소(--root-fs: 설정의 글자 크기 115/130%가 이 값에 곱해짐, a11y.js) ── */
+@media (max-width: 360px) { html { font-size: 15px; --root-fs: 15px; } }
+@media (max-width: 330px) { html { font-size: 14px; --root-fs: 14px; } }
 
 /* ── 세로 폰 (ui/mobile-ui.js의 MQ와 같은 문자열) ── */
 @media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
@@ -142,7 +142,7 @@
   .m-dock #thinking-feed { max-height: none; font-size: .8rem; }
   .m-dock .thinking-line { padding: 4px 0; }
   .m-dock-top #thinking-panel { width: 100%; margin: 0; }
-  .m-dock .thinking-chip { min-height: 36px; padding: 6px 12px; font-size: .8rem; }
+  .m-dock .thinking-chip { min-height: var(--tap); padding: 6px 12px; font-size: .8rem; }   /* 탭 44px(설계서 5.9절 6번) */
   .m-dock .thinking-row { gap: 6px; margin: 4px 0; }
   .m-dock .thinking-step { flex: 0 0 100%; min-width: 0; font-size: .76rem; color: var(--text-dim); }   /* 단계 이름은 한 줄, 칩은 그 아래 */
   #thinking-panel.m-collapsed .thinking-row { display: none; }

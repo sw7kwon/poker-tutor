@@ -1,8 +1,8 @@
 {
-  "version": "81b8826-202610201204",
-  "sha": "81b8826",
+  "version": "537d4ae-202610201537",
+  "sha": "537d4ae",
   "branch": "feat/journey",
-  "builtAt": "2026-10-20T03:04:11.086Z",
+  "builtAt": "2026-10-20T06:37:41.964Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",
@@ -10,6 +10,7 @@
     "ai/villain.js",
     "app.js",
     "build-info.json",
+    "css/a11y.css",
     "css/animations.css",
     "css/cards.css",
     "css/history.css",
@@ -19,6 +20,7 @@
     "css/main.css",
     "css/mobile-screens.css",
     "css/mobile.css",
+    "css/puzzle.css",
     "css/pwa.css",
     "css/table.css",
     "css/theater.css",

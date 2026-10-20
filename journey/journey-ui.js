@@ -1,5 +1,7 @@
-// journey/journey-ui.js (채우는 패키지: M1-P3)
+// journey/journey-ui.js (채우는 패키지: M1-P3, M2 연결: M2-P7)
 // 여정 홈(칭호, 스트릭, 데일리 목표 링, 오늘의 5분 버튼, 첫 카드, 지도, 빠른 줄, 카드)과 노드 시트, 서브뷰 라우팅.
+// M2-P7: 노드 드릴은 PuzzleUI.can(드릴 명세)이면 PuzzleUI.start(C5), 아니면 기존 DrillUI. 홈 상단 ⚙ 설정과 퍼즐 레이팅 칩(C7),
+//        카드 영역의 데일리 5 카드(C6). 퍼즐 결과의 XP는 PuzzleUI가 준다(여기서는 recordDrillSet과 통과 판정만).
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 패키지 모듈은 전부 typeof 가드로 부르고,
 //       없거나 실패하면 화면이 깨지지 않게 대체 표시로 내려간다(병렬 구현 중 스텁일 수 있음).
 // 화면 구조: #journey-root > .j-view(홈 또는 서브뷰, TodayUI 셸) + .j-layer(노드 시트). 토스트는 body의 #journey-toast.
@@ -28,7 +30,13 @@ var JourneyUI = (function() {
     mdf: 'MDF', alpha: '알파', bluffratio: '블러프 비율', combos: '콤보 세기', 'facingbet-river': '리버 콜/폴드',
     'facingbet-next': '다음 1장 콜/폴드', spr: 'SPR', rangehit: '레인지 적중', rangepaint: '레인지 색칠', rangeshape: '레인지 모양',
     toygame: '토이 게임', geosize: '기하 사이즈', variance: '분산', intent: '속마음 읽기', hudread: 'HUD 읽기', prescribe: '유형별 처방',
-    mixed: '혼합' };
+    mixed: '혼합',
+    // M2 퍼즐 모드와 복습 채움(구형 계획의 type 'puzzle')
+    puzzle: '약점 퍼즐', daily5: '데일리 5', rush: '퍼즐 러시', survival: '서바이벌' };
+  // 진행 상태를 저장하지 않는 퍼즐 화면(해시 #j/puzzle, #j/rush, #j/daily5, #j/survival): 뒤로/새로고침으로 다시 오면 홈으로.
+  // 러시와 서바이벌은 빠른 줄에서 다시 시작하면 된다.
+  var TRANSIENT_VIEWS = { puzzle: true, rush: true, daily5: true, survival: true };
+  var RATING_TIP = '퍼즐 레이팅, 나의 추세용';
   var LIGHT_LABEL = { green: '초록', yellow: '노랑', red: '빨강', marginal: '애매한 스팟' };
   // 통과 기준 문구용(조건 DSL, journey-data.js 머리 주석의 필드 의미 그대로)
   var CONCEPT_LABEL = { rfi: '오픈', vs_rfi: '상대 오픈 대응', blind_defense: '블라인드 방어', vs_3bet: '3벳 대응', pot_odds: '팟 오즈',
@@ -217,7 +225,14 @@ var JourneyUI = (function() {
     if (step === 'boss') return '승급 시험';
     return '';
   }
-  function _typeName(t) { return TYPE_LABEL[t] || t || ''; }
+  function _typeName(t) {
+    if (TYPE_LABEL[t]) return TYPE_LABEL[t];
+    // 이 표에 없는 새 유형은 퍼즐 등록부(M2-P1 TYPE_META 또는 register meta)의 이름을 쓴다
+    var P = _m('Puzzles'), m = null;
+    try { m = (P && P.TYPE_META && P.TYPE_META[t]) || (P && typeof P.meta === 'function' ? P.meta(t) : null); } catch (e) { m = null; }
+    var nm = m && (m.label || m.name || m.title);
+    return (typeof nm === 'string' && nm) ? nm : (t || '');
+  }
   function _drillCount(d) {
     if (!d) return 0;
     if (d.type === 'mixed' && Array.isArray(d.set)) return d.set.reduce(function(a, x) { return a + _num(x && x[1], 0); }, 0);
@@ -271,6 +286,7 @@ var JourneyUI = (function() {
       '<button type="button" class="j-btn j-ghost" onclick="JourneyUI.quick(\'more\')">⋯ 더보기</button></div></div></div>';
   }
 
+  function homeHTML(s) { return _homeHTML(s || state()); }   // 순수 문자열(테스트, 하네스용)
   function _homeHTML(s) {
     var sm = summary(s);
     return '<div class="j-home">' + _topHTML(s, sm) +
@@ -304,13 +320,38 @@ var JourneyUI = (function() {
             '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="17" class="j-ring-bg"/>' +
             '<circle cx="20" cy="20" r="17" class="j-ring-fg" stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 20 20)"/></svg>' +
             '<span class="j-ring-t">' + _fmtMin(mins) + '<small>/' + goal + '</small></span></span>' +
+          gearButton() +   // 스트릭, 링과 한 묶음(좁은 화면에서 줄이 바뀌어도 같이 오른쪽 정렬)
         '</div>' +
       '</div>' +
       '<div class="j-level"><span class="j-lv">L' + sm.level + '</span>' +
         '<span class="j-xpbar" aria-hidden="true"><i style="width:' + barPct + '%"></i></span>' +
-        '<span class="j-xp-t">' + lvTxt + '</span></div>' +
+        '<span class="j-xp-t">' + lvTxt + '</span>' + ratingChip() + '</div>' +
       (habit ? '<div class="j-habit">🧭 ' + _esc(habit) + '</div>' : '') +
       '</header>';
+  }
+  // 상단 ⚙ 설정(44px, 설정 뷰는 M2-P5 SettingsView. 없으면 준비 중 카드)
+  function gearButton() {
+    return '<button type="button" class="j-gear" aria-label="설정" title="설정(글자 크기, 4색 덱, 모션, 소리)" onclick="JourneyUI.view(\'settings\')">' +
+      '<span aria-hidden="true">⚙</span></button>';
+  }
+  // 퍼즐 레이팅 칩: Rating.label()(RD가 크면 '1000?'). Rating 모듈이 없거나 label이 비면 숨긴다.
+  function _ratingLabel() {
+    if (!_can('Rating', 'label')) return '';
+    var lb = _call('Rating', 'label');
+    if ((lb == null || lb === '') && _can('Rating', 'current')) lb = _call('Rating', 'label', _call('Rating', 'current'));
+    if (typeof lb === 'number' && isFinite(lb)) lb = String(Math.round(lb));
+    return (typeof lb === 'string' && lb) ? lb : '';
+  }
+  function ratingChip() {
+    var lb = _ratingLabel();
+    if (!lb) return '';
+    return '<button type="button" class="j-rating" title="' + RATING_TIP + '" aria-label="퍼즐 레이팅 ' + _esc(lb) + ', 나의 추세용" onclick="JourneyUI._ratingTap()">' +
+      '<span class="j-rating-in"><span aria-hidden="true">🎯</span><b>' + _esc(lb) + '</b></span></button>';
+  }
+  // 폰에는 툴팁이 없으니 탭하면 같은 문구를 토스트로
+  function _ratingTap() {
+    var lb = _ratingLabel();
+    toast(RATING_TIP + (/\?$/.test(lb) ? '. ?는 아직 푼 문제가 적어 잠정 값이라는 뜻이에요' : '') + '. 승급은 레이팅이 아니라 통과 기준으로 정해져요', 3200);
   }
   function _fmtMin(m) { m = Math.round(m * 10) / 10; return (m % 1 === 0) ? String(m) : m.toFixed(1); }
   function _habitSentence(s) {
@@ -456,7 +497,7 @@ var JourneyUI = (function() {
       var PM = _m('PuzzleModes');
       if (PM && typeof PM.rush === 'function') { _call('PuzzleModes', 'rush'); return; }
       if (PM && typeof PM.start === 'function') { _call('PuzzleModes', 'start', 'rush'); return; }
-      view('rush'); return;
+      _soonView('rush'); return;   // view('rush')는 진행 상태 없는 퍼즐 해시라 홈으로 가므로 준비 중 카드를 직접 띄운다
     }
     if (name === 'theater') {
       var TU = _m('TheaterUI');
@@ -466,11 +507,13 @@ var JourneyUI = (function() {
     }
   }
 
-  // (5) 카드 영역: 첫 완주 뒤 설정 카드, 실력 확인(건너뛴 경우), 월초 백업 안내
+  // (5) 카드 영역: 첫 완주 뒤 설정 카드, 데일리 5, 실력 확인(건너뛴 경우), 월초 백업 안내
   function _cardsHTML(s, sm) {
     var out = [];
     var sc = settingsCard();
     if (sc) out.push(sc);
+    var d5 = daily5Card();
+    if (d5) out.push(d5);
     var pl = s.placement || {};
     if (!pl.done && pl.declinedAt && sm.nodesPassed === 0) {
       out.push('<div class="j-card"><div class="j-card-t">📝 실력 확인 3분</div>' +
@@ -483,6 +526,29 @@ var JourneyUI = (function() {
         '<div class="j-card-acts"><button type="button" class="j-btn" onclick="BackupUI.open()">백업하기</button></div></div>');
     }
     return out.join('');
+  }
+
+  // 데일리 5 카드(C6): 오늘 미완이면 시작 버튼, 완료면 점수. PuzzleModes.daily5/daily5Status가 없으면 숨긴다.
+  function daily5Card() {
+    if (!_can('PuzzleModes', 'daily5') || !_can('PuzzleModes', 'daily5Status')) return '';
+    var st = _call('PuzzleModes', 'daily5Status', _now());
+    if (!st || typeof st !== 'object') return '';
+    if (st.done) {
+      var sc = Number(st.score);
+      return '<div class="j-card j-d5 is-done" role="group" aria-label="데일리 5 완료">' +
+        '<div class="j-d5-head"><span class="j-d5-ic" aria-hidden="true">🗓</span><div class="j-card-t">데일리 5 완료</div>' +
+        (isFinite(sc) && st.score !== null ? '<span class="j-d5-score">' + Math.round(sc) + '점</span>' : '') + '</div>' +
+        '<div class="j-card-d">' + (isFinite(sc) && st.score !== null ? '오늘 점수 ' + Math.round(sc) + '점(100점 만점). ' : '') + '내일 새 5문제가 나와요.</div></div>';
+    }
+    return '<div class="j-card j-d5" role="group" aria-label="데일리 5">' +
+      '<div class="j-d5-head"><span class="j-d5-ic" aria-hidden="true">🗓</span><div class="j-card-t">데일리 5</div></div>' +
+      '<div class="j-card-d">날마다 바뀌는 5문제, 약 3분이에요. 문제마다 한 줄 해설이 나오고 100점 만점으로 채점해요.</div>' +
+      '<div class="j-card-acts"><button type="button" class="j-btn j-primary" onclick="JourneyUI._daily5()">▶ 데일리 5 시작</button></div></div>';
+  }
+  // 홈 카드에서 시작: 인자 없이 부른다(C6, 끝난 뒤 화면 정리는 PuzzleModes가 맡고 홈은 다시 그릴 때 점수를 보인다)
+  function _daily5() {
+    if (!_can('PuzzleModes', 'daily5')) { toast('데일리 5를 준비하고 있어요'); return; }
+    _call('PuzzleModes', 'daily5');
   }
 
   function settingsCard() {
@@ -788,11 +854,30 @@ var JourneyUI = (function() {
     var nd = node(id);
     return (nd && Array.isArray(nd.absorbs) && nd.absorbs.length) ? nd.absorbs[0] : null;
   }
+  // 드릴 경로(5.8절 2번): 여정 드릴은 PuzzleUI가 맡고 Drills.record/due를 공유한다. PuzzleUI가 없거나 can이 false면 기존 DrillUI.
+  // 아직 생성기가 없는 유형(rangepaint, toygame, hudread, prescribe, intent 등)은 can이 false라 null → nextDoable이 다음 노드로 안내.
   function _drillPath(nd) {
-    var t = nd.drill && nd.drill.type;
-    if (t && _can('DrillUI', 'start') && _can('Drills', 'get') && _call('Drills', 'get', t)) return { kind: 'drill' };
-    if (t && _can('PuzzleUI', 'start')) return { kind: 'puzzle' };
+    var t = nd && nd.drill && nd.drill.type;
+    if (!t) return null;
+    if (_puzzleCan(puzzleSpec(nd))) return { kind: 'puzzle' };
+    if (t !== 'mixed' && _can('DrillUI', 'start') && _can('Drills', 'get') && _call('Drills', 'get', t)) return { kind: 'drill' };
     return null;
+  }
+  // 노드 드릴 → PuzzleUI.start/can 명세(C5): {type, count, set?, variant?, spots?, tol?, overlap?, node}
+  function puzzleSpec(nd, count) {
+    var d = nd && nd.drill;
+    if (!d || !d.type) return null;
+    var s = { type: d.type, count: _num(count, 0) > 0 ? Math.floor(count) : _drillCount(d), node: nd.id };
+    if (Array.isArray(d.set)) s.set = d.set.map(function(x) { return Array.isArray(x) ? x.slice() : x; });
+    if (d.variant) s.variant = d.variant;
+    if (Array.isArray(d.spots)) s.spots = d.spots.slice();
+    if (d.tol != null) s.tol = d.tol;
+    if (d.overlap != null) s.overlap = d.overlap;
+    return s;
+  }
+  function _puzzleCan(spec) {
+    if (!spec || !_can('PuzzleUI', 'start') || !_can('PuzzleUI', 'can')) return false;
+    return !!_call('PuzzleUI', 'can', spec);
   }
   function missionConfig(nd) {
     var cfg = (nd && nd.mission && nd.mission.config) || 'sixmax';
@@ -824,8 +909,14 @@ var JourneyUI = (function() {
       if (!dp) return;
       var t = nd.drill.type, cnt = _drillCount(nd.drill);
       if (dp.kind === 'puzzle') {
-        _call('PuzzleUI', 'start', { type: t, count: cnt, node: id, onDone: function(r) { if (r) _call('Journey', 'recordDrillSet', id, { n: r.n, ok: r.ok }, _now()); _afterNode(id); } });
-        return;
+        var spec = puzzleSpec(nd), fired = false;
+        spec.title = nd.title;
+        spec.onDone = function(r) { if (fired) return; fired = true; _onNodePuzzleDone(id, r); };
+        try { _m('PuzzleUI').start(spec); return; }
+        catch (e) { _warn('PuzzleUI.start', e); }
+        if (fired) return;
+        // 퍼즐 화면을 열지 못함: 기존 드릴이 있는 유형이면 DrillUI로, 없으면 시트로 돌아가 안내
+        if (!(t !== 'mixed' && _can('DrillUI', 'start') && _call('Drills', 'get', t))) { toast('퍼즐을 열지 못했어요. 잠시 뒤 다시 해 주세요'); openNode(id); return; }
       }
       _setPending({ kind: 'drill', node: id, type: t, count: cnt, startedAt: now, before: _drillStats(t) });
       _call('DrillUI', 'start', t, { count: cnt, spots: nd.drill.spots, dueFirst: false });
@@ -840,6 +931,30 @@ var JourneyUI = (function() {
     if (what === 'boss') { _call('Boss', 'start', id, now); return; }
   }
   function _drillStats(t) { var st = _call('Drills', 'stats', t) || {}; return { n: _num(st.n, 0), ok: _num(st.ok, 0) }; }
+  // 노드 시트에서 연 퍼즐 세트가 끝남(C5 r = {n, ok, xp, rated, ratingDelta}): 노드 드릴 기록과 통과 판정만.
+  // Drills.record, JStats, Rating, XP는 PuzzleUI가 이미 처리했으므로 여기서 XP를 다시 주지 않는다.
+  function _onNodePuzzleDone(id, r) {
+    var n = Math.max(0, Math.floor(_num(r && r.n, 0))), ok = Math.max(0, Math.min(n, Math.floor(_num(r && r.ok, 0))));
+    _closeNavView('puzzle');
+    if (n > 0) {
+      _call('Journey', 'recordDrillSet', id, { n: n, ok: ok }, _now());
+      var rd = _num(r && r.ratingDelta, 0);
+      toast('드릴 ' + n + '문항 중 ' + ok + '개 정답' + (Math.round(rd) ? ', 레이팅 ' + (rd > 0 ? '+' : '') + Math.round(rd) : '') + _drillPassHint(id), 3200);
+    }
+    _afterNode(id);
+  }
+  // 세트 직후 토스트에 붙일 통과 안내: 드릴 기준 미달이면 기준 개수, 드릴은 됐지만 레슨이 남았으면 그 안내(통과면 빈 문자열)
+  function _drillPassHint(id) {
+    if (status(id) === 'passed' || !_can('Journey', 'evaluateNode')) return '';
+    var ev = _call('Journey', 'evaluateNode', id);
+    if (!ev || ev.pass || !ev.need) return '';
+    var rq = ev.req || {};
+    if (ev.need.drill && !ev.drill && rq.drillPass) return '. 드릴 통과는 ' + rq.drillCount + '문항 중 ' + rq.drillPass + '개 이상이에요';
+    if (ev.need.drill && ev.drill && ev.need.lesson && !ev.lesson) return '. 드릴 기준은 채웠어요, 레슨을 끝까지 보면 통과';
+    return '';
+  }
+  // 퍼즐 화면이 남긴 해시 기록(#j/puzzle 등)이 맨 위면 조용히 걷어낸다(없으면 아무 일 없음)
+  function _closeNavView(name) { if (_can('Nav', 'closeView')) _call('Nav', 'closeView', name); }
 
   // 노드 진행 기록 뒤 통과 판정(이미 통과면 생략), 결과 토스트
   function checkPass(id) {
@@ -1013,10 +1128,17 @@ var JourneyUI = (function() {
   }
 
   // ── 서브뷰 라우팅 ──────────────────────────────────────
+  // 라우팅 판정(순수): 'home' | 'node' | 'today' | 'view'(views/* 위임 또는 준비 중 카드)
+  function viewRoute(name) {
+    if (!name || name === 'home' || TRANSIENT_VIEWS[name]) return 'home';
+    if (name === 'node' || name === 'today') return name;
+    return 'view';
+  }
   function view(name, params) {
-    if (!name || name === 'home') { open(); return; }
-    if (name === 'node') { if (!_screenActive()) _showScreen(); if (_cur !== 'home') render(); openNode(params, { fromNav: true }); return; }
-    if (name === 'today') { _showScreen(); if (_can('TodayUI', 'show')) _call('TodayUI', 'show'); else render(); return; }
+    var route = viewRoute(name);
+    if (route === 'home') { open(); return; }   // 퍼즐 세트, 러시, 데일리 5 해시는 진행 상태가 없으니 홈(진행 중 블록이면 그 블록)으로
+    if (route === 'node') { if (!_screenActive()) _showScreen(); if (_cur !== 'home') render(); openNode(params, { fromNav: true }); return; }
+    if (route === 'today') { _showScreen(); if (_can('TodayUI', 'show')) _call('TodayUI', 'show'); else render(); return; }
     _showScreen();
     var v = _mount();
     if (!v) return;
@@ -1029,6 +1151,17 @@ var JourneyUI = (function() {
       if (V && typeof V.open === 'function') { V.open(params, v); return; }
       if (V && typeof V.render === 'function') { v.innerHTML = ''; V.render(v, params); return; }
     } catch (e) { if (typeof console !== 'undefined') console.error('[JourneyUI] 뷰 ' + name + ' 실패', e); }
+    v.innerHTML = _soonHTML(name);
+  }
+  // 준비 중 카드를 직접 띄운다(빠른 줄의 퍼즐 러시처럼 모듈이 아직 없을 때)
+  function _soonView(name) {
+    _showScreen();
+    var v = _mount();
+    if (!v) return;
+    closeSheet({ silent: true });
+    _navView(name, '');
+    _cur = name;
+    _scrollTop();
     v.innerHTML = _soonHTML(name);
   }
   function _soonHTML(name) {
@@ -1093,9 +1226,13 @@ var JourneyUI = (function() {
     curriculumFor: curriculumFor, missionConfig: missionConfig, checkPass: checkPass, hasPending: hasPending, watchReturn: watchReturn,
     canDo: canDo, nextDoable: nextDoable,
     xp: _xp, dayKey: _dayKey,
+    // M2-P7 연결(순수 문자열과 판정: 테스트, 하네스, 다른 패키지용)
+    homeHTML: homeHTML, ratingChip: ratingChip, gearButton: gearButton, daily5Card: daily5Card,
+    puzzleSpec: puzzleSpec, viewRoute: viewRoute,
     // 인라인 onclick 핸들러
     _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _act: _act,
-    _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings
+    _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings,
+    _ratingTap: _ratingTap, _daily5: _daily5
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

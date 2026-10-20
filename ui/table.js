@@ -29,6 +29,7 @@ var Table = (function() {
     (state.board||[]).forEach(function(c, i) {
       var el = document.createElement('div');
       el.className = 'card ' + (i >= _boardDrawn ? 'deal-anim ' : '') + (RED[c.suit] ? 'red' : 'black');
+      el.setAttribute('data-suit', c.suit);   // 4색 덱(a11y.css html.four-color)
       el.textContent = (c.rank==='T'?'10':c.rank) + SUIT_SYM[c.suit];
       boardEl.appendChild(el);
     });
@@ -49,7 +50,7 @@ var Table = (function() {
       if (hole && hole.length===2) {
         if (isHero) {
           cardsHtml = hole.map(function(c){
-            return '<div class="card hero-card '+(RED[c.suit]?'red':'black')+'">'+(c.rank==='T'?'10':c.rank)+SUIT_SYM[c.suit]+'</div>';
+            return '<div class="card hero-card '+(RED[c.suit]?'red':'black')+'" data-suit="'+c.suit+'">'+(c.rank==='T'?'10':c.rank)+SUIT_SYM[c.suit]+'</div>';
           }).join('');
         } else if (!isFolded) {
           cardsHtml = '<div class="card back"></div><div class="card back"></div>';
@@ -140,7 +141,7 @@ var Table = (function() {
       var cardsEl = seatEl.querySelector('.seat-cards');
       if (!cardsEl) return;
       cardsEl.innerHTML = cards.map(function(c) {
-        return '<div class="card fadein ' + (RED[c.suit] ? 'red' : 'black') + '">' +
+        return '<div class="card fadein ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
           (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
       }).join('');
     });

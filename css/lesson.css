@@ -1,1 +1,147 @@
-/* css/lesson.css (채우는 패키지: M3-P1) */
+/* css/lesson.css (채우는 패키지: M2-P4a의 sr- 장면 렌더러 스타일, M3-P1이 레슨 플레이어 스타일을 이어서 채운다)
+   lessons/scene-render.js가 만드는 장면 그림. 클래스는 전부 sr- 접두(격자 셀 색은 기존 차트의 gto-raise 등을 그대로 쓴다).
+   기준: 세로 412px에서 가로 넘침 0, 탭 요소 44px 이상, 모션 줄이기면 깜빡임과 채우기 애니메이션 없음. */
+
+/* 공통 장면 */
+.sr-scene { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; }
+.sr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.sr-k { flex: 0 0 auto; min-width: 3.2em; font-size: .78rem; color: var(--text-dim); }
+.sr-none { font-size: .85rem; color: var(--text-dim); }
+.sr-line { font-size: .92rem; color: var(--text); line-height: 1.4; }
+.sr-pot { font-weight: 600; }
+.sr-note { font-size: .86rem; color: #c9d1d9; line-height: 1.45; }
+
+/* 카드(cards.css의 .card를 쓰고 크기만 덮는다. 4색 덱은 a11y.css가 .card[data-suit]로 바꾼다) */
+.sr-cards { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.card.sr-card { flex: 0 0 auto; cursor: default; }
+.card.sr-card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+.card.sr-card.hero-card, .card.sr-card.hero-card:hover { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
+.card.sr-sm { width: 34px; height: 48px; font-size: .86rem; border-radius: 4px; }
+.card.sr-xs { width: 24px; height: 32px; font-size: .66rem; border-radius: 3px; letter-spacing: -1px; box-shadow: none; }
+.card.sr-xs:hover { box-shadow: none; }
+.sr-slot { flex: 0 0 auto; width: 44px; height: 62px; border-radius: 5px; border: 2px dashed rgba(255,255,255,.18); }
+.sr-slot.sr-sm { width: 34px; height: 48px; }
+.sr-slot.sr-xs { width: 24px; height: 32px; }
+
+/* 카드 장면(족보 사다리, 비교 2열) */
+.sr-cardscene { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 440px; margin: 0 auto; min-width: 0; }
+.sr-cardscene.sr-ccmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sr-crow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; padding: 6px 8px; border-radius: 10px; background: rgba(255,255,255,.03); }
+.sr-ccmp .sr-crow { flex-direction: column; align-items: flex-start; }
+.sr-ladder .sr-crow > .sr-k { flex: 0 0 5.4em; width: 5.4em; }
+.sr-crow.is-hl { background: rgba(212,175,55,.12); outline: 1px solid rgba(212,175,55,.6); }
+.sr-cnote { font-size: .8rem; color: var(--text-dim); }
+
+/* 자리와 레인지 칩 */
+.sr-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; flex: 1 1 auto; }
+.sr-seat { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #161b22;
+  border: 1px solid var(--hud-border); font-size: .8rem; color: #c9d1d9; }
+.sr-seat b { color: var(--text); }
+.sr-seat.is-active { border-color: var(--gold); color: var(--text); background: rgba(212,175,55,.14); }
+.sr-seat.is-hero { border-style: dashed; }
+.sr-combo { display: inline-flex; gap: 1px; padding: 2px; border-radius: 5px; background: rgba(255,255,255,.07); }
+.sr-combo.is-dead { opacity: .35; outline: 1px dashed rgba(255,255,255,.35); } /* 내 손이나 보드와 겹쳐 불가능(콤보 수에서 뺀다) */
+.sr-ctext { padding: 3px 7px; font-size: .78rem; font-weight: 700; color: var(--text); }
+.sr-cnt { font-size: .74rem; color: var(--text-dim); }
+.sr-rtext { flex: 1 1 100%; font-size: .8rem; color: var(--text-dim); }
+
+/* 13x13 격자 */
+.sr-grid { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 400px; margin: 0 auto; min-width: 0; }
+.sr-ghead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: .86rem; color: var(--text); }
+.sr-gpct { color: var(--gold); font-weight: 700; }
+.sr-tag { font-size: .7rem; padding: 1px 7px; border-radius: 999px; border: 1px solid #388bfd; color: #79c0ff; white-space: nowrap; }
+.sr-gcells { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 1px; background: #000; border: 1px solid #000;
+  border-radius: 4px; overflow: hidden; }
+.sr-grid .sr-cell { aspect-ratio: 1; min-width: 0; overflow: hidden; position: relative; display: flex; align-items: center;
+  justify-content: center; font-size: clamp(.56rem, 2.3vw, .72rem); font-size: min(clamp(.56rem, 2.3vw, .72rem), 2.8vw); font-weight: 700;
+  line-height: 1; letter-spacing: -.3px; } /* 셀 폭은 화면 폭에 묶여 있어 글자 확대(130%)에서도 2.8vw를 넘기지 않는다 */
+.sr-grid .sr-blank, .sr-zcell.sr-blank { background: #2b3138; color: #c9d1d9; }
+.sr-grid .sr-cell.sr-hl { z-index: 1; box-shadow: inset 0 0 0 2px #ffd54a; animation: sr-blink .9s ease-in-out 3; }
+@keyframes sr-blink {
+  0%, 100% { box-shadow: inset 0 0 0 2px #ffd54a; filter: none; }
+  50% { box-shadow: inset 0 0 0 3px #fff3b0; filter: brightness(1.45); }
+}
+.sr-grid-empty p { font-size: .86rem; color: var(--text-dim); text-align: center; padding: 16px 8px; border: 1px dashed var(--hud-border); border-radius: 8px; }
+
+/* 2단계 선택: 줄을 누르면 그 줄 바로 아래에 큰 버튼 줄이 열린다(설계서 5.9절 6번) */
+.sr-pick .sr-cell { cursor: pointer; }
+.sr-has-sel .sr-cell:not(.sr-on) { opacity: .42; }
+.sr-grid .sr-cell.sr-on { box-shadow: inset 0 2px 0 #ffd54a, inset 0 -2px 0 #ffd54a; }
+.sr-grid .sr-cell.sr-sel { box-shadow: inset 0 0 0 3px #fff; }
+.sr-zoom { grid-column: 1 / -1; min-width: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #161b22; }
+.sr-zhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .86rem; color: var(--text); word-break: keep-all; }
+.sr-zback { flex: 0 0 auto; min-width: 44px; min-height: 44px; padding: 0 14px; border-radius: 10px; cursor: pointer;
+  background: #21262d; color: var(--text); border: 1px solid var(--hud-border); font: inherit; font-size: .86rem; }
+.sr-zcells { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; }
+.sr-zcell { min-width: 44px; min-height: 48px; padding: 4px 2px; border-radius: 8px; border: 1px solid rgba(0,0,0,.55); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font: inherit; font-size: .92rem; line-height: 1.05; }
+.sr-zcell b { font-weight: 800; }
+.sr-zcell small { font-size: .66rem; font-weight: 600; opacity: .9; }
+.sr-zcell.sr-sel { outline: 3px solid #fff; outline-offset: -3px; box-shadow: 0 0 0 2px #ffd54a; }
+.sr-zcell:focus-visible, .sr-zback:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+@media (hover: hover) { .sr-zcell:hover, .sr-zback:hover { filter: brightness(1.12); } }
+
+/* 범례(색 + 글자, 색약 모드 글자는 a11y.css가 gto-* ::after로 붙인다) */
+.sr-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .74rem; color: var(--text-dim); }
+.sr-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.sr-sw { display: inline-block; flex: 0 0 auto; width: 14px; height: 14px; border-radius: 3px; font-style: normal; font-size: .56rem;
+  line-height: 14px; text-align: center; border: 1px solid rgba(0,0,0,.4); }
+
+/* 포지션 층(좁은 자리부터 진하게, 밝기로 구분되어 색약에도 보인다) */
+.sr-grid .sr-cell.sr-l0, .sr-sw.sr-l0 { background: #0b4f1f; color: #eafaf0; }
+.sr-grid .sr-cell.sr-l1, .sr-sw.sr-l1 { background: #1e7d32; color: #eafaf0; }
+.sr-grid .sr-cell.sr-l2, .sr-sw.sr-l2 { background: #43a04f; color: #f2fff4; }
+.sr-grid .sr-cell.sr-l3, .sr-sw.sr-l3 { background: #7cc47f; color: #0f2b13; }
+.sr-grid .sr-cell.sr-l4, .sr-sw.sr-l4 { background: #b3e0ae; color: #0f2b13; }
+.sr-grid .sr-cell.sr-l5, .sr-sw.sr-l5 { background: #def3da; color: #0f2b13; }
+.sr-grid .sr-cell.sr-lay { animation: sr-grow .45s ease both; animation-delay: calc(var(--sr-l, 0) * .8s); }
+@keyframes sr-grow { from { opacity: .08; transform: scale(.55); } to { opacity: 1; transform: none; } }
+
+/* 축소판(해설 오버레이 미니맵) */
+.sr-grid.sr-mini { max-width: 196px; gap: 4px; }
+.sr-mini .sr-ghead { font-size: .72rem; }
+.sr-mini .sr-tag { font-size: .62rem; padding: 0 5px; }
+.sr-mini .sr-gcells { border-radius: 3px; }
+.sr-grid.sr-mini .sr-cell { font-size: .45rem; letter-spacing: 0; }
+.sr-mini .sr-lb { display: none; }
+.sr-grid.sr-mini .sr-cell.sr-hl { box-shadow: inset 0 0 0 2px #ffd54a, 0 0 0 1px #ffd54a; }
+.sr-mini .sr-legend { font-size: .66rem; gap: 2px 8px; }
+.sr-mini .sr-sw { width: 10px; height: 10px; line-height: 10px; font-size: .45rem; }
+
+/* 팟 오즈 링과 같은 축의 막대, 콜/폴드 바늘 */
+.sr-ringbox { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; max-width: 400px; margin: 0 auto; min-width: 0; }
+.sr-ring-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.sr-ringbox.is-solo .sr-ring-svg { width: 132px; max-width: 100%; }
+.sr-ring-svg text { font-family: inherit; }
+.sr-ring-bg { stroke: #30363d; }
+.sr-ring-fg { stroke: var(--gold); }
+.sr-ring-pct { fill: var(--text); font-size: 20px; font-weight: 800; }
+.sr-ring-sub { fill: var(--text-dim); font-size: 10px; }
+.sr-ax-lb { fill: #c9d1d9; font-size: 12px; font-weight: 600; }
+.sr-track { fill: #21262d; }
+.sr-needbar { fill: var(--gold); opacity: .85; }
+.sr-eqbar { fill: var(--blue); }
+.sr-eqplus { fill: var(--green); }
+.sr-eqminus { fill: none; stroke: var(--red); stroke-width: 1.5; stroke-dasharray: 3 2; }
+.sr-needle.sr-call { stroke: var(--green); }
+.sr-needle.sr-fold { stroke: var(--red); }
+.sr-needle.sr-even { stroke: var(--gold); }
+.sr-tip.sr-call { fill: var(--green); }
+.sr-tip.sr-fold { fill: var(--red); }
+.sr-tip.sr-even { fill: var(--gold); }
+.sr-zone { font-size: 12px; font-weight: 700; }
+.sr-zone-fold { fill: #ff9a93; }
+.sr-zone-call { fill: #7ee787; }
+.sr-tick { fill: var(--text-dim); font-size: 10px; }
+.sr-cap { font-size: .9rem; color: var(--text); text-align: center; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+.sr-formula { font-size: .84rem; color: var(--text-dim); }
+.sr-verdict { font-size: .92rem; font-weight: 700; text-align: center; padding: 4px 10px; border-radius: 8px; line-height: 1.4; word-break: keep-all; overflow-wrap: anywhere; }
+.sr-verdict.sr-call { color: #7ee787; background: rgba(63,185,80,.12); }
+.sr-verdict.sr-fold { color: #ff9a93; background: rgba(248,81,73,.12); }
+.sr-verdict.sr-even { color: var(--gold); background: rgba(212,175,55,.12); }
+
+/* 모션 줄이기(시스템 설정 또는 설정 패널) */
+@media (prefers-reduced-motion: reduce) {
+  .sr-grid .sr-cell.sr-hl, .sr-grid .sr-cell.sr-lay { animation: none; }
+}
+html.reduce-motion .sr-grid .sr-cell.sr-hl, html.reduce-motion .sr-grid .sr-cell.sr-lay { animation: none; }

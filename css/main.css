@@ -146,7 +146,7 @@ body {
 .fb-line { font-size: .85rem; line-height: 1.5; margin: 6px 0; word-break: keep-all; }
 .drill-next { margin-top: 8px; }
 .drill-mini { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; width: 100%; max-width: 312px; margin: 6px auto 4px; }
-.mini-cell { aspect-ratio: 1; font-size: 7px; display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; }
+.mini-cell { aspect-ratio: 1; font-size: max(7px, .4375rem); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; }
 .mini-raise { background: #b8860b; }
 .mini-call { background: #1f6feb; }
 .mini-fold { background: #30363d; }
