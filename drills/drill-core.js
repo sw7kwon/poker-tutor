@@ -1,11 +1,13 @@
-// drills/drill-core.js — 8차 WP6: 드릴 레지스트리 + Leitner 간격반복 저장소 + 시드 RNG
+// drills/drill-core.js, 8차 WP6(여정 M1-P6 확장): 드릴 레지스트리 + Leitner 간격반복 저장소 + 시드 RNG
 // 저장 키 'poker_drills' = {v:1, items:{'type|key':{box,due,n,wrong,last}}, stats:{type:{n,ok,streak,best}}, daily:{'YYYY-MM-DD':{n,ok}}}
 var Drills = (function() {
   var KEY = 'poker_drills';
   var MIN = 60 * 1000, DAY = 24 * 60 * MIN;
-  var INTERVALS = [0, 10 * MIN, DAY, 3 * DAY, 7 * DAY, 21 * DAY];
-  var MAX_ITEMS = 600;
+  var INTERVALS = [0, 10 * MIN, DAY, 3 * DAY, 7 * DAY, 21 * DAY, 60 * DAY, 120 * DAY];
+  var MAX_BOX = INTERVALS.length - 1; // 7
+  var MAX_ITEMS = 2000;
   var _registry = {};
+  var _policies = {}; // type → 'once'(Leitner 항목 미생성). 없으면 'srs'
   var _mem = null; // localStorage 불가 시 메모리 폴백
 
   function _empty() { return { v: 1, items: {}, stats: {}, daily: {} }; }
@@ -52,28 +54,52 @@ var Drills = (function() {
     };
   }
 
-  function _prune(d) {
+  // 유형별 키 정책. 'srs'(기본) = Leitner 항목 기록, 'once' = 통계와 일별 집계만(쇼다운, 순서, 시드 기반 1회성 문항)
+  function keyPolicy(type, policy) {
+    if (!type) return null;
+    if (policy === 'once') _policies[type] = 'once';
+    else if (policy === 'srs') delete _policies[type];
+    return policyOf(type);
+  }
+  function policyOf(type) { return _policies[type] === 'once' ? 'once' : 'srs'; }
+
+  // 항목 수가 MAX_ITEMS를 넘으면 가치 낮은 것부터 삭제:
+  // (box ≤ 1이고 n === 1인 1회성 저box 항목, last 오름차순) → (나머지, last 오름차순)
+  // keepId(방금 기록한 항목)는 삭제하지 않는다. 가득 찬 저장소에서 새 오답이 곧바로 지워지는 것 방지
+  function _prune(d, keepId) {
     var keys = Object.keys(d.items);
-    if (keys.length <= MAX_ITEMS) return;
-    var old = keys.filter(function(k) { return d.items[k].box >= 4; })
-      .sort(function(a, b) { return (d.items[a].last || 0) - (d.items[b].last || 0); });
     var over = keys.length - MAX_ITEMS;
-    for (var i = 0; i < old.length && over > 0; i++, over--) delete d.items[old[i]];
+    if (over <= 0) return;
+    var byLast = function(a, b) { return (d.items[a].last || 0) - (d.items[b].last || 0); };
+    var low = [], rest = [];
+    keys.forEach(function(k) {
+      if (k === keepId) return;
+      var it = d.items[k];
+      if ((it.box || 0) <= 1 && it.n === 1) low.push(k); else rest.push(k);
+    });
+    var order = low.sort(byLast).concat(rest.sort(byLast));
+    for (var i = 0; i < order.length && over > 0; i++, over--) delete d.items[order[i]];
   }
 
-  // 1문항 결과 기록. 정답 box+1(최대 5), due=now+INTERVALS[box] / 오답 box 0, due=now+10분
+  // 1문항 결과 기록. 정답 box+1(최대 7), due=now+INTERVALS[box] / 오답 box 0, due=now+10분
+  // policy 'once' 유형은 key 없이도 stats/daily만 올리고 항목을 만들지 않는다(반환 null)
   function record(type, key, ok, ms, now) {
-    if (!type || !key) return null;
+    if (!type) return null;
+    var once = policyOf(type) === 'once';
+    if (!once && !key) return null;
     now = (typeof now === 'number') ? now : Date.now();
     var d = _load();
-    var id = type + '|' + key;
-    var it = d.items[id] || { box: 0, due: now, n: 0, wrong: 0, last: 0 };
-    it.box = ok ? Math.min(it.box + 1, 5) : 0;
-    it.due = now + (ok ? INTERVALS[it.box] : INTERVALS[1]); // 오답은 box 0 + 10분 뒤 복습
-    it.n += 1;
-    if (!ok) it.wrong += 1;
-    it.last = now;
-    d.items[id] = it;
+    var it = null, id = null;
+    if (!once) {
+      id = type + '|' + key;
+      it = d.items[id] || { box: 0, due: now, n: 0, wrong: 0, last: 0 };
+      it.box = ok ? Math.min(it.box + 1, MAX_BOX) : 0;
+      it.due = now + (ok ? INTERVALS[it.box] : INTERVALS[1]); // 오답은 box 0 + 10분 뒤 복습
+      it.n += 1;
+      if (!ok) it.wrong += 1;
+      it.last = now;
+      d.items[id] = it;
+    }
     var s = d.stats[type] || { n: 0, ok: 0, streak: 0, best: 0 };
     s.n += 1;
     if (ok) { s.ok += 1; s.streak += 1; if (s.streak > s.best) s.best = s.streak; }
@@ -84,20 +110,43 @@ var Drills = (function() {
     var dy = d.daily[dk] || { n: 0, ok: 0 };
     dy.n += 1; if (ok) dy.ok += 1;
     d.daily[dk] = dy;
-    _prune(d);
+    if (!once) _prune(d, id);
     _save(d);
     return it;
   }
 
-  // 복습 기한이 지난 키 목록(오래 밀린 것부터). 반환은 type 접두를 뗀 key
-  function due(type, now, limit) {
+  // 정렬 비교: 기본은 due 오름차순(오래 밀린 것부터), opts.order === 'box'면 (box 오름차순, due 오름차순)
+  function _cmp(items, opts) {
+    var byBox = !!(opts && opts.order === 'box');
+    return function(a, b) {
+      var A = items[a], B = items[b];
+      if (byBox && (A.box || 0) !== (B.box || 0)) return (A.box || 0) - (B.box || 0);
+      return A.due - B.due;
+    };
+  }
+
+  // 복습 기한이 지난 키 목록. 반환은 type 접두를 뗀 key
+  function due(type, now, limit, opts) {
     now = (typeof now === 'number') ? now : Date.now();
     var d = _load();
     var pre = type + '|';
     var list = Object.keys(d.items).filter(function(id) {
       return id.indexOf(pre) === 0 && d.items[id].n > 0 && d.items[id].due <= now;
-    }).sort(function(a, b) { return d.items[a].due - d.items[b].due; })
+    }).sort(_cmp(d.items, opts))
       .map(function(id) { return id.slice(pre.length); });
+    return (typeof limit === 'number') ? list.slice(0, limit) : list;
+  }
+
+  // 전 유형 복습 대기 목록 → [{type, key, box, due}] (정렬 규칙은 due와 같음)
+  function dueAll(now, limit, opts) {
+    now = (typeof now === 'number') ? now : Date.now();
+    var d = _load();
+    var list = Object.keys(d.items).filter(function(id) {
+      return id.indexOf('|') > 0 && d.items[id].n > 0 && d.items[id].due <= now;
+    }).sort(_cmp(d.items, opts)).map(function(id) {
+      var p = id.indexOf('|'), it = d.items[id];
+      return { type: id.slice(0, p), key: id.slice(p + 1), box: it.box || 0, due: it.due };
+    });
     return (typeof limit === 'number') ? list.slice(0, limit) : list;
   }
 
@@ -137,8 +186,9 @@ var Drills = (function() {
   }
 
   var api = {
-    INTERVALS: INTERVALS, register: register, get: get, types: types, rng: rng,
-    record: record, due: due, dueCount: dueCount, stats: stats, today: today, item: item,
+    INTERVALS: INTERVALS, MAX_ITEMS: MAX_ITEMS, register: register, get: get, types: types, rng: rng,
+    keyPolicy: keyPolicy, policyOf: policyOf,
+    record: record, due: due, dueAll: dueAll, dueCount: dueCount, stats: stats, today: today, item: item,
     recordFromGame: recordFromGame, _load: _load, _reset: _reset
   };
   if (typeof module !== 'undefined') module.exports = api;

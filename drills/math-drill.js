@@ -1,5 +1,6 @@
-// drills/math-drill.js — 8차 WP6: 팟 오즈 암산 4지선다
-// 필요 승률 = B/(P+2B) (콜 B로 P+B를 노림). 함정 보기: 자기 콜 빼먹기 B/(P+B), B/P, 정답±8%p
+// drills/math-drill.js, 8차 WP6: 팟 오즈 암산 4지선다
+// 표기 규약(설계서 8.4): 팟(상대 벳 포함) X = P+B, 콜 Y = B, 필요 승률 = Y/(X+Y) = B/(P+2B).
+// 내부 키 'f='(P = 벳 전 팟 대비 벳 비율)는 레거시 호환으로 유지. 함정 보기: 자기 콜 빼먹기 B/(P+B), B/P, 정답±8%p
 var MathDrill = (function() {
   var POTS = [4, 6, 8, 10, 12, 15, 20, 30, 40];
   var FRACS = [
@@ -43,18 +44,21 @@ var MathDrill = (function() {
       labels[id] = o.label;
       if (o.ok) answer = id;
     });
+    var X = P + B;
     return {
-      type: 'potodds', key: 'f=' + F.k, P: P, B: B, f: F.k,
+      type: 'potodds', key: 'f=' + F.k, P: P, B: B, f: F.k, potTotal: X, toCall: B,
       answer: answer, answerPct: Math.round(correct * 100), options: options, labels: labels,
-      prompt: '팟 ' + P + 'bb에 상대가 ' + B + 'bb 벳. 콜하면 몇 번에 1번 이겨야 본전일까?'
+      prompt: '팟 ' + X + 'bb(상대 벳 ' + B + 'bb 포함), 콜 ' + B + 'bb. 콜하면 몇 번에 1번 이겨야 본전일까?'
     };
   }
 
   function explain(q) {
-    var k = _num1((q.P + 2 * q.B) / q.B);
-    var pct = Math.round(q.B / (q.P + 2 * q.B) * 100);
-    var line = '콜 ' + q.B + 'bb로 ' + (q.P + q.B) + 'bb를 노림 = ' + _num1((q.P + q.B) / q.B) + '배 내기 → ' +
-      k + '번에 1번(' + pct + '%) 이기면 본전. (최종 팟 = 팟 ' + q.P + ' + 상대 벳 ' + q.B + ' + 내 콜 ' + q.B + ' = ' + (q.P + 2 * q.B) + 'bb, 내 콜 몫 ' + q.B + 'bb)';
+    var X = q.P + q.B, Y = q.B;
+    var k = _num1((X + Y) / Y);
+    var pct = Math.round(Y / (X + Y) * 100);
+    var line = '팟 ' + X + 'bb, 콜 ' + Y + 'bb → 필요 승률 ' + Y + '/(' + X + '+' + Y + ') = ' + pct + '%. ' +
+      '콜 ' + Y + 'bb로 ' + X + 'bb를 노림 = ' + _num1(X / Y) + '배 내기 → ' +
+      k + '번에 1번(' + pct + '%) 이기면 본전. (콜하면 최종 팟 = 팟 ' + X + ' + 내 콜 ' + Y + ' = ' + (X + Y) + 'bb, 그중 내 콜 몫 ' + Y + 'bb)';
     return { line: line, model: null };
   }
 

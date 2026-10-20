@@ -1,4 +1,4 @@
-// engine/thinking.js — WP8: 띵킹 프로세스 모드 (투머치포커식 속마음 중계)
+// engine/thinking.js, WP8: 띵킹 프로세스 모드 (속마음 중계)
 // 순수 함수만 (DOM 없음). 강도/텍스처는 Villain._handStrength / _isBoardWet / PostflopGuide 재사용.
 var Thinking = (function() {
   var RANKS = '23456789TJQKA';
@@ -17,7 +17,7 @@ var Thinking = (function() {
     return word + (has ? withB : noB);
   }
   // 기존 모듈 사유 문구의 긴줄표/가운뎃점 → 쉼표 (UI 문구 규칙)
-  function _clean(t) { return String(t || '').replace(/\s*—\s*/g, ', ').replace(/\s*·\s*/g, ', '); }
+  function _clean(t) { return String(t || '').replace(/\s*\u2014\s*/g, ', ').replace(/\s*\u00B7\s*/g, ', '); }
 
   function _ri(r) { return RANKS.indexOf(r); }
   function _isAggro(a) { return a === 'bet' || a === 'raise' || a === '3bet' || a === 'allin'; }

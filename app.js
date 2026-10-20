@@ -22,9 +22,14 @@ var App = (function() {
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     document.getElementById(id).classList.add('active');
+    if (typeof Nav !== 'undefined' && Nav.onShow) Nav.onShow(id);
   }
 
-  function showMenu() { showScreen('screen-menu'); }
+  function showMenu() {
+    // 여정 진행 중(오늘의 5분, 미션/보스)이면 메뉴 대신 여정 홈 또는 진행 중 블록으로
+    if (typeof Journey !== 'undefined' && Journey.active && Journey.active() && typeof JourneyUI !== 'undefined' && JourneyUI.resume) { JourneyUI.resume(); return; }
+    showScreen('screen-menu');
+  }
 
   function toggleEquity() {
     var panel = document.getElementById('equity-overlay');
@@ -77,6 +82,7 @@ var App = (function() {
     _lastEV = null;
     _lastVerdict = null; _lastView = null;
     if (typeof CoachUI !== 'undefined') CoachUI.onNewHand({handNum:_round, gtoMode:_gtoMode, gtoRound:_gtoRound, practice:!!_practice, sessionId:_sessionId, mode:_villainConfig});
+    if (typeof Journey !== 'undefined' && Journey.onNewHand) Journey.onNewHand({ state: _state, handNum: _round, mode: _villainConfig, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, sessionId: _sessionId, heroPos: _heroPos, hu: playersSpec.length === 1 });
     // 결과 배너 숨기기
     var banner = document.getElementById('result-banner');
     if (banner) banner.style.display = 'none';
@@ -106,6 +112,11 @@ var App = (function() {
   }
 
   function _buildPlayersSpec(config) {
+    // 여정 캐스트 구성('sixmax-cast', 'sixmax-cast-hidden')은 Journey가 만든다. 그 외 null → 기존 분기
+    if (typeof Journey !== 'undefined' && Journey.playersSpec) {
+      var js = Journey.playersSpec(config, _heroPos, _POS);
+      if (js) return js;
+    }
     if (config === 'headsup-tag') {
       return [{ type: 'TAG', name: 'Mike', pos: _heroPos === 'BTN' ? 'BB' : 'BTN' }];
     }
@@ -133,7 +144,7 @@ var App = (function() {
   function _processVillainActions() {
     if (_state.street === 'showdown') { _showResult(); return; }
     var result = GameState.applyVillainActions(_state);
-    if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount); }); // WP8 (액션 전 상태)
+    if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount, a); }); // WP8 (액션 전 상태, a에 potBefore 등 스냅샷)
     _state = result.newState;
     if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, result.villainActions);
     Table.render(_state);
@@ -358,6 +369,7 @@ var App = (function() {
         eq: _lastEQ, view: _lastView, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound,
         sessionId: _sessionId, dec: dec });
     }
+    if (typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) });
     if (typeof MobileUI !== 'undefined' && MobileUI.onAfterDecision) MobileUI.onAfterDecision();
     if (_state.handOver) {
       _showResult();
@@ -566,6 +578,8 @@ var App = (function() {
       _round = resume.round;
       // 원복된 _round/_gtoRound 기준으로 아래 기존 로직이 그대로 이어짐(fall-through)
     }
+    // 여정 세션(미션 5핸드, 자유 3핸드 등) 분량을 채우면 세션 요약으로. 연습 ▶(연습 종료 후 원래 세션 복귀)에도 같은 판정
+    if (typeof Journey !== 'undefined' && Journey.shouldEndSession && Journey.shouldEndSession()) { showSessionSummary(); return; }
     _round++;
     if (_gtoMode && _gtoRound < 3) {
       // GTO 루프: 같은 seed 재플레이 (카드 동일 — 빌런 확률 분기는 비결정)
@@ -592,7 +606,7 @@ var App = (function() {
         });
       }
     }
-    if (_villainConfig === 'headsup-tag' || _villainConfig === 'mixed') {
+    if (_buildPlayersSpec(_villainConfig).length === 1) {
       _heroPos = (_heroPos === 'BTN') ? 'BB' : 'BTN';
     } else {
       var idx = _POS.indexOf(_heroPos);
@@ -618,6 +632,7 @@ var App = (function() {
     setTimeout(function() {
       // 신호등 + 핸드 복기는 총평 패널에 통합 (연습 모드에서도 동일하게 렌더)
       if (typeof CoachUI !== 'undefined' && CoachUI.onHandEnd) CoachUI.onHandEnd({decisions:decisionsSnap, practice:!!_practice, gtoMode:_gtoMode, gtoRound:_gtoRound, sessionId:_sessionId});
+      if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: result, state: _state, net: heroNet, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, heroFolded: !!(_state.folded && _state.folded.Hero) });
       _renderHandSummary(result);
       // 액션바 교체
       var actionBar = document.getElementById('action-bar');

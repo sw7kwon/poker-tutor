@@ -20,13 +20,17 @@
 <link rel="stylesheet" href="css/mobile-screens.css">
 <link rel="stylesheet" href="css/touch.css">
 <link rel="stylesheet" href="css/pwa.css">
+<link rel="stylesheet" href="css/journey.css">
+<link rel="stylesheet" href="css/lesson.css">
+<link rel="stylesheet" href="css/theater.css">
 </head>
 <body>
 
 <!-- 메뉴 -->
-<div id="screen-menu" class="screen active">
+<div id="screen-menu" class="screen">
   <div class="menu-container">
     <h1 class="game-title">♠ POKER TUTOR</h1>
+    <button class="menu-btn" onclick="JourneyUI.open()">🗺 여정 홈</button>
     <button class="menu-btn" onclick="App.startGame()">🃏 게임 모드</button>
     <button class="menu-btn" onclick="App.startScenario()">✏️ 시나리오 모드</button>
     <button class="menu-btn" onclick="App.startCurriculum()">📚 커리큘럼</button>
@@ -35,6 +39,9 @@
     <button class="menu-btn" onclick="BackupUI.open()">💾 기록 백업/복원</button>
   </div>
 </div>
+
+<!-- 포커 여정 홈 (JourneyUI가 #journey-root에 렌더) -->
+<div id="screen-journey" class="screen active"><div id="journey-root"></div></div>
 
 <!-- 빌런 선택 -->
 <div id="screen-villain-select" class="screen">
@@ -65,11 +72,12 @@
     <div class="coach-level-row">코칭 보조: <select id="coach-level-select" onchange="CoachUI.setLevel(this.value)"><option value="auto">자동(추천)</option><option value="0">L0 풀코칭(정답 항상 보기)</option><option value="1">L1 먼저 판단</option><option value="2">L2 예측(승률도 직접)</option><option value="3">L3 실전</option></select></div>
     <!-- WP8 띵킹 프로세스 모드 토글 (ThinkingUI.init이 바인딩) -->
     <div class="thinking-toggle-box">
-      <label><input type="checkbox" id="thinking-toggle"> 💭 띵킹 프로세스 모드(투머치포커식 속마음 중계)</label>
+      <label><input type="checkbox" id="thinking-toggle"> 💭 띵킹 프로세스 모드(상대 속마음 중계)</label>
       <div id="thinking-reveal-wrap">공개 방식:
         <select id="thinking-reveal">
           <option value="live">실시간 공개 (상대 속마음이 바로 보임, 학습용)</option>
           <option value="end">핸드 끝나고 공개 (공정 플레이)</option>
+          <option value="after">결정 후 공개(기본, 맞히기)</option>
         </select>
       </div>
     </div>
@@ -276,6 +284,58 @@
 <script src="ui/thinking-ui.js"></script>
 <script src="ui/mobile-ui.js"></script>
 <script src="ui/touch.js"></script>
+<!-- 포커 여정 (M1-P0 선등록, 순서는 test.html 신규 모듈 블록과 동일) -->
+<script src="data/glossary.js"></script>
+<script src="journey/journey-data.js"></script>
+<script src="journey/stats.js"></script>
+<script src="journey/hero-stats.js"></script>
+<script src="journey/rating.js"></script>
+<script src="journey/review-queue.js"></script>
+<script src="journey/boss.js"></script>
+<script src="journey/seasons.js"></script>
+<script src="journey/badges.js"></script>
+<script src="journey/placement.js"></script>
+<script src="journey/today.js"></script>
+<script src="journey/journey-core.js"></script>
+<script src="journey/cast.js"></script>
+<script src="journey/nav.js"></script>
+<script src="journey/a11y.js"></script>
+<script src="lessons/scene-render.js"></script>
+<script src="lessons/lesson-core.js"></script>
+<script src="lessons/lesson-player.js"></script>
+<script src="lessons/widgets/toy-game.js"></script>
+<script src="lessons/widgets/variance-cone.js"></script>
+<script src="lessons/widgets/range-paint.js"></script>
+<script src="lessons/data/precalc.js"></script>
+<script src="lessons/data/stage1.js"></script>
+<script src="lessons/data/stage2.js"></script>
+<script src="lessons/data/stage3.js"></script>
+<script src="lessons/data/stage4.js"></script>
+<script src="lessons/data/stage5.js"></script>
+<script src="lessons/data/stage6.js"></script>
+<script src="puzzles/puzzle-core.js"></script>
+<script src="puzzles/gen-basic.js"></script>
+<script src="puzzles/gen-math.js"></script>
+<script src="puzzles/gen-postflop.js"></script>
+<script src="puzzles/gen-range.js"></script>
+<script src="puzzles/gen-read.js"></script>
+<script src="puzzles/seed-bank-data.js"></script>
+<script src="puzzles/puzzle-ui.js"></script>
+<script src="puzzles/puzzle-modes.js"></script>
+<script src="theater/plans.js"></script>
+<script src="theater/cast-ai.js"></script>
+<script src="theater/highlight.js"></script>
+<script src="theater/seed-bank-data.js"></script>
+<script src="theater/theater-core.js"></script>
+<script src="theater/theater-ui.js"></script>
+<script src="ai/villain-adaptive.js"></script>
+<script src="journey/views/dashboard.js"></script>
+<script src="journey/views/weekly.js"></script>
+<script src="journey/views/collection.js"></script>
+<script src="journey/views/placement.js"></script>
+<script src="journey/views/settings.js"></script>
+<script src="journey/today-ui.js"></script>
+<script src="journey/journey-ui.js"></script>
 <!-- 앱 -->
 <script src="app.js"></script>
 <script src="pwa.js"></script>

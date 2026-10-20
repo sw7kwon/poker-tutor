@@ -1,4 +1,4 @@
-// drills/preflop-drill.js — 8차 WP6: 프리플랍 레인지 플래시카드
+// drills/preflop-drill.js, 8차 WP6: 프리플랍 레인지 플래시카드
 // 정답은 항상 런타임 GtoChart.buildChartModel 모델에서 읽는다(하드코딩 금지). 'none' 셀/스팟은 출제 제외.
 var PreflopDrill = (function() {
   var SUITS = ['s', 'h', 'd', 'c'];
@@ -106,12 +106,14 @@ var PreflopDrill = (function() {
   }
 
   // 출제: 30% 복습 대기, 50% 경계 셀, 20% 콤보 가중 균등
+  // opts.noReview === true(데일리 5, 배치 고사): 복습 분기를 건너뛰어(roll 0.5) 복습 대기가 없는 새 사용자와 같은 문제열
   function next(rnd, opts) {
     rnd = rnd || Math.random;
     opts = opts || {};
     var spots = _spots(opts);
     if (!spots.length) return null;
     var roll = opts.dueFirst ? 0 : rnd();
+    if (roll < 0.3 && opts.noReview === true) roll = 0.5;
     if (roll < 0.3 && typeof Drills !== 'undefined') {
       var dueKeys = Drills.due('preflop', opts.now, 20);
       if (opts.exclude) dueKeys = dueKeys.filter(function(k) { return opts.exclude.indexOf(k) < 0; });

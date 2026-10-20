@@ -36,7 +36,12 @@ var DrillUI = (function() {
   }
 
   function _spotLabel(q) {
-    if (q.type !== 'preflop') return '팟의 ' + q.f + ' 크기 벳';
+    if (q.type !== 'preflop') {
+      // 지문의 '팟'은 상대 벳 포함(설계서 8.4)이므로 벳 크기는 '벳 전 팟' 기준으로 적는다(팟 15에 5 벳 = 팟 20, 벳 전 팟의 1/3)
+      var f = String(q.f);
+      if (f === '1') return '벳 전 팟과 같은 크기 벳';
+      return '벳 전 팟의 ' + f + (f.indexOf('/') > 0 ? ' 크기 벳' : '배 벳');
+    }
     if (q.kind === 'rfi') return q.pos + ' 오픈(앞 전원 폴드)';
     if (q.kind === 'vsRfi') return q.pos + ' vs ' + (q.opener || '상대') + ' 오픈';
     return q.pos + ' 오픈 후 3벳 맞음';
@@ -120,7 +125,7 @@ var DrillUI = (function() {
     if (!gen) return;
     if (typeof App !== 'undefined' && App.showScreen) App.showScreen('screen-drill');
     opts = opts || {};
-    _s = { type: type, gen: gen, count: opts.count || 20, n: 0, results: [], pending: [], streak: 0,
+    _s = { type: type, gen: gen, count: opts.count || 20, n: 0, results: [], pending: [], streak: 0, opts: opts,
       rnd: Drills.rng((Date.now() ^ 0x5bd1e995) >>> 0), q: null, answered: false, waiting: false, t0: 0 };
     _show('drill-hub', false); _show('drill-result', false); _show('drill-stage', true);
     _set('drill-title', gen.title);
@@ -135,7 +140,7 @@ var DrillUI = (function() {
     for (var i = 0; i < _s.pending.length; i++) {
       if (_s.pending[i].at <= _s.n) { q = _s.pending.splice(i, 1)[0].q; q.retry = true; break; }
     }
-    if (!q) q = _s.gen.next(_s.rnd, {});
+    if (!q) q = _s.gen.next(_s.rnd, _s.opts || {});
     if (!q) { _showResult(); return; }
     _s.q = q; _s.answered = false; _s.waiting = false; _s.t0 = Date.now();
     _set('drill-progress', (_s.n + 1) + '/' + _s.count);
@@ -143,7 +148,7 @@ var DrillUI = (function() {
     var tag = q.retry ? '<span class="drill-tag">다시 풀기</span>' : (q.review ? '<span class="drill-tag">복습</span>' : '');
     _set('drill-prompt', tag + _esc(q.prompt));
     _set('drill-cards', q.type === 'preflop' ? _cardsHTML(q.cards) :
-      '<div class="drill-pot">팟 <b>' + q.P + 'bb</b> + 상대 벳 <b>' + q.B + 'bb</b></div>');
+      '<div class="drill-pot">팟 <b>' + (q.potTotal != null ? q.potTotal : q.P + q.B) + 'bb</b>(상대 벳 ' + q.B + 'bb 포함), 콜 <b>' + (q.toCall != null ? q.toCall : q.B) + 'bb</b></div>');
     _set('drill-choices', _choicesHTML(q, 'answer'));
     _set('drill-feedback', '');
   }

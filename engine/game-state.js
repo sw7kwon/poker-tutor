@@ -168,6 +168,8 @@ var GameState = (function() {
       s.pendingQueue.shift();
       var villain = s.players[name];
       villain.holeCards = s.holeCards[name];
+      // 액션 직전 스냅샷(속마음/극장이 이 값으로 콜 금액과 팟을 계산)
+      var potBefore = s.pot, currentBetBefore = s.currentBet, haveBefore = s.playerBets[name] || 0;
       var result = Villain.getAction(villain, s);
       var action = result.action, amt = result.amount;
 
@@ -217,7 +219,8 @@ var GameState = (function() {
 
       // label('3벳','4벳','올인'): 강등(콜/체크)되면 null
       villainActions.push({ name: name, action: action, amount: amt, phrase: result.phrase,
-        label: action === result.action ? (result.label || null) : null });
+        label: action === result.action ? (result.label || null) : null,
+        potBefore: potBefore, currentBetBefore: currentBetBefore, haveBefore: haveBefore });
 
       var active = s.names.filter(function(n){ return !s.folded[n]; });
       if (active.length <= 1) {
