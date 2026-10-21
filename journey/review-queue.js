@@ -6,7 +6,9 @@
 //            box(0~4), due(ms, 졸업이면 null), n, ok, lastAt(ISO|null), lastOk(true|false|null), miss(선택, 연습에서 그 상황이 안 나온 연속 횟수) }
 //   key = 'mode|heroPos|seed|street'(App.startPractice에 필요한 정보 전부, poker_mistakes 200캡과 독립). 항목 200개 상한.
 //   Drills 'mistake' 항목은 만들지 않는다(F4: Leitner 상자 대신 이 모듈의 자체 일정).
-// 일정: 큐에 들어오면 1일 뒤, 맞히면 3일, 7일, 21일 뒤, 21일 차에 맞히면 졸업(box 4). 틀리면 1일부터(box 0).
+// 일정: 큐에 들어오면 다음 날부터, 맞히면 3일, 7일, 21일 뒤, 21일 차에 맞히면 졸업(box 4). 틀리면 다음 날부터(box 0).
+//   '며칠 뒤'는 24시간 배수가 아니라 로컬 날짜 + n일의 0시다(M7 TIME-07, _dueAt). 월요일 밤에 생긴 실수는 화요일 아침부터 기한이다.
+//   이미 저장된 due는 그대로 두고, 다음에 기록할 때부터 새 식이 적용된다.
 //   기한 전에 미리 맞힌 연습(주간 리포트의 다시 풀기 등)은 상자를 올리지 않고 기록(n, ok, lastAt)만 남긴다. 틀리면 기한과 상관없이 처음부터.
 // 연습 연쇄: practice(items, opts)가 App.startPractice로 최대 5개를 차례로 연다. 핸드가 끝나면 Journey.onHandEnd가
 //   onPracticeHandEnd(ctx)를 부르고(BOSS 연결), 결과바 ▶(App.nextRound)의 연습 종료 분기가 onPracticeExit()을 부른다(HUD 연결).
@@ -60,6 +62,12 @@ var ReviewQueue = (function() {
   function _isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function _num(x, d) { x = Number(x); return isFinite(x) ? x : d; }
   function _fn(o, k) { return !!o && typeof o[k] === 'function'; }
+  // TIME-07: 복습 기한 = t의 로컬 날짜 + n일의 0시. 정확히 24시간 배수로 밀면 저녁에 생긴 실수가 다음 날 아침 오늘의 5분에 안 나오고
+  // 하는 시각이 들쭉날쭉할 때 간격마다 하루씩 밀린다. Date 생성자로 날짜를 더해 서머타임이 있는 지역에서도 0시가 밀리지 않는다.
+  function _dueAt(t, n) {
+    var d = new Date(t);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n).getTime();
+  }
   function _cmp(a, b) { a = String(a); b = String(b); return a < b ? -1 : (a > b ? 1 : 0); }
   function _copy(o) { return o == null ? o : JSON.parse(JSON.stringify(o)); }
   function _warn(e) { try { if (typeof console !== 'undefined' && console.warn) console.warn('[ReviewQueue]', (e && e.message) || e); } catch (x) {} }
@@ -163,7 +171,7 @@ var ReviewQueue = (function() {
     }
     it.at = _iso(t);
     it.box = 0;
-    it.due = t + INTERVALS[0] * DAY;
+    it.due = _dueAt(t, INTERVALS[0]);
     if (it.gradAt) delete it.gradAt;
     if (it.miss) delete it.miss;
     _prune(q, k);
@@ -200,12 +208,12 @@ var ReviewQueue = (function() {
     var due = (it.due == null) ? null : _num(it.due, null);
     if (!ok) {
       it.box = 0;
-      it.due = t + INTERVALS[0] * DAY;
+      it.due = _dueAt(t, INTERVALS[0]);
       if (it.gradAt) delete it.gradAt;
     } else if (box < GRAD_BOX && (due === null || due <= t)) {
       it.box = box + 1;
       if (it.box >= GRAD_BOX) { it.due = null; it.gradAt = _iso(t); }
-      else it.due = t + INTERVALS[it.box] * DAY;
+      else it.due = _dueAt(t, INTERVALS[it.box]);
     }
     _save();
     return _copy(it);
@@ -218,7 +226,7 @@ var ReviewQueue = (function() {
     if (!_isObj(it)) return null;
     var t = _now(now);
     it.miss = Math.max(0, Math.floor(_num(it.miss, 0))) + 1;
-    if (_isDue(it, t)) it.due = t + MISS_DAYS[Math.min(MISS_DAYS.length - 1, it.miss - 1)] * DAY;
+    if (_isDue(it, t)) it.due = _dueAt(t, MISS_DAYS[Math.min(MISS_DAYS.length - 1, it.miss - 1)]);
     _save();
     return _copy(it);
   }
@@ -644,7 +652,8 @@ var ReviewQueue = (function() {
     if (!r.reached) return 'ℹ 이번엔 ' + st + '까지 가지 않았어요. 다음 복습에 다시 나와요';
     if (!r.ok) return 'ℹ ' + st + ' 결정이 아직 빨강이에요. 내일 다시 나와요';
     if (r.graduated) return '✅ ' + st + ' 결정을 바로잡았어요. 이 핸드는 졸업!';
-    var d = (r.due != null) ? Math.max(1, Math.round((r.due - _now(now)) / DAY)) : null;
+    // 기한은 로컬 날짜의 0시라(_dueAt) 날짜 차이로 센다. 21:30에 풀면 3일 뒤 0시까지 2.1일이어도 '3일 뒤'
+    var d = (r.due != null) ? Math.max(1, Math.round((_dueAt(r.due, 0) - _dueAt(_now(now), 0)) / DAY)) : null;
     return '✅ ' + st + ' 결정을 바로잡았어요' + (d ? '. 다음 복습은 ' + d + '일 뒤' : '');
   }
   // App.startPractice 토스트(2.2초)가 끝난 뒤에 보인다. 그 사이 핸드가 끝나 판정이 났거나(빠른 폴드) 연쇄가 바뀌었으면

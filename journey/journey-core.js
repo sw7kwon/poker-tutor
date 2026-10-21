@@ -77,7 +77,8 @@ var Journey = (function() {
   var CAST_ORDER = ['교수', '햇살', '바위', '콜마스터', '불도저', '카멜레온'];
 
   var _cache = null;          // 상태 캐시(메모리 폴백 겸용)
-  var _session = null;        // 세션 컨텍스트(메모리 전용, 새로고침하면 사라짐)
+  var _unsaved = false;       // 마지막 저장이 실패함(저장소 없음, 용량 초과): 메모리 캐시만 최신이라 바깥 이벤트로 비우면 진행이 사라진다
+  var _session = null;       // 세션 컨텍스트(메모리 전용, 새로고침하면 사라짐)
   var _todayRunning = false;  // 오늘의 5분 진행 중(메모리 전용)
   var _hand = null;           // 진행 중 핸드 메타(onNewHand)
   var _lastPass = null;       // 자동 통과 결과 { id, opened, promoted, at }
@@ -285,7 +286,7 @@ var Journey = (function() {
   function save(state) {
     if (_isObj(state)) _cache = state;
     if (!_cache) return;
-    _writeJSON(KEY, _cache);
+    _unsaved = !_writeJSON(KEY, _cache);
   }
   function reset() {
     _cache = null; _session = null; _todayRunning = false; _hand = null; _lastPass = null; _lastTouch = null;
@@ -419,6 +420,13 @@ var Journey = (function() {
     return c;
   }
 
+  // 끝낸 레슨 수(M7 FLOW-06: 첫 실행 판정)
+  function _countLessonsDone(st) {
+    var c = 0;
+    _nodesData().forEach(function(nd) { var r = nd && st.nodes[nd.id]; if (r && r.lesson && r.lesson.done) c++; });
+    return c;
+  }
+
   function nodeStatus(id) {
     var r = _st().nodes[id];
     return (r && r.status) || 'locked';
@@ -515,7 +523,8 @@ var Journey = (function() {
       if (!r.lesson.done) {
         r.lesson.done = true; r.lesson.doneAt = _iso(now);
         addXp('lesson', undefined, now);
-      }
+        noteActivity(now, Math.min(10, _num(nd.est, 3)));   // M7 FLOW-07: 첫 완료만 활동일과 분(노드 예상 시간)으로
+      } else noteActivity(now, 0);                           // 다시 본 레슨도 활동일(분은 첫 완료에만)
       if (r.status !== 'passed') r.status = 'done';
     }
     _autoPass(st, id, now);
@@ -537,6 +546,7 @@ var Journey = (function() {
       if (n >= Math.min(c, 10)) r.drill.best = Math.max(r.drill.best, ok / n);
       _autoPass(st, id, now);
       save();
+      noteActivity(now, n * 25 / 60);                        // M7 FLOW-07: 드릴 세트도 활동일, 문항당 25초(Today.SEC.puzzle)
     }
     return r;
   }
@@ -679,8 +689,9 @@ var Journey = (function() {
   }
 
   // ── 하루 기록과 스트릭(4.2절) ────────────────────────
-  function _day(st, now) {
-    var k = dayKey(now);
+  // key: 시작한 날의 기록에 쓰고 싶을 때(자정을 넘긴 오늘의 5분, M7 TIME-02). 생략하면 now의 날짜.
+  function _day(st, now, key) {
+    var k = key || dayKey(now);
     var d = st.daily[k];
     if (!_isObj(d)) d = st.daily[k] = {};
     if (!Array.isArray(d.blocks)) d.blocks = [];
@@ -696,8 +707,24 @@ var Journey = (function() {
   }
   function dayRecord(now) { var d = _day(_st(), _now(now)); return d; }
 
-  // gap = now - lastActiveAt. 같은 dayKey면 cur 변화 없음. gap ≤ 36h면 cur+1. gap > 36h면 miss = floor((gap-36h)/24h)+1,
-  // freezes ≥ miss면 소모하고 cur+1(frozenDays 기록), 아니면 cur = 1. cur가 7의 배수가 되면 freezes = min(2, freezes+1).
+  // 'YYYY-MM-DD' ↔ 일 번호(UTC 자정 기준, seasons.js와 같은 식). 날짜 덧셈은 일 번호로 해서 ms 덧셈과 서머타임 오차가 없다.
+  function _dayIdx(k) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(k));
+    return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY) : NaN;
+  }
+  function _keyOf(idx) {
+    var t = new Date(idx * DAY);
+    var m = t.getUTCMonth() + 1, d = t.getUTCDate();
+    return t.getUTCFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+  }
+  // 마지막 활동 날짜 키(저장된 lastDay가 깨졌으면 lastActiveAt에서 다시 계산)
+  function _lastKey(s, last) { return isFinite(_dayIdx(s.lastDay)) ? s.lastDay : dayKey(last); }
+  // 빠진 날 수: 달력 날짜 차(dd-1)와 시간 차(36h 유예 뒤 24h 단위) 중 관대한 쪽
+  function _missDays(dd, gap) { return Math.min(dd - 1, Math.floor((gap - STREAK_GAP) / DAY) + 1); }
+
+  // 규칙(TIME-01): 달력 날짜 차 dd = 오늘 - 마지막 활동일. 같은 dayKey면 cur 변화 없음. dd ≤ 0(서쪽 이동)이면 cur 유지.
+  // dd === 1(어제 했음)이거나 gap ≤ 36h면 cur+1. 그 밖에는 miss = min(dd-1, floor((gap-36h)/24h)+1)이고,
+  // freezes ≥ miss면 소모하고 cur+1(frozenDays에 빠진 날 기록), 아니면 cur = 1. cur가 7의 배수가 되면 freezes = min(2, freezes+1).
   function touchDay(now) {
     now = _now(now);
     var st = _st(), s = st.streak;
@@ -708,16 +735,20 @@ var Journey = (function() {
     if (!isFinite(last)) { s.cur = 1; res.changed = true; inc = true; }
     else if (s.lastDay !== dk && now >= last) {
       var gap = now - last;
-      if (gap <= STREAK_GAP) { s.cur += 1; inc = true; }
+      var ld = _lastKey(s, last);
+      var dd = _dayIdx(dk) - _dayIdx(ld);
+      if (dd <= 0) { /* 서쪽으로 이동해 날짜가 같거나 앞섬: cur 그대로, 시각만 갱신 */ }
+      else if (dd === 1 || gap <= STREAK_GAP) { s.cur += 1; inc = true; res.changed = true; }
       else {
-        var miss = Math.floor((gap - STREAK_GAP) / DAY) + 1;
+        var miss = _missDays(dd, gap);
         if (s.freezes >= miss) {
           s.freezes -= miss; s.cur += 1; inc = true; res.freezeUsed = miss;
-          for (var i = 1; i <= miss; i++) s.frozenDays.push(dayKey(last + i * DAY));
+          var base = _dayIdx(ld);
+          for (var i = 1; i <= miss; i++) s.frozenDays.push(_keyOf(base + i));
           if (s.frozenDays.length > 60) s.frozenDays = s.frozenDays.slice(-60);
         } else s.cur = 1;
+        res.changed = true;
       }
-      res.changed = true;
     }
     if (inc && s.cur > 0 && s.cur % 7 === 0 && s.freezes < 2) { s.freezes += 1; res.freezeGranted = true; }
     if (s.cur > s.best) s.best = s.cur;
@@ -731,17 +762,21 @@ var Journey = (function() {
   function _liveStreak(st, now) {
     var s = st.streak, last = s.lastActiveAt ? _ms(s.lastActiveAt) : NaN;
     if (!isFinite(last) || !(s.cur > 0)) return 0;
-    var gap = now - last;
-    if (gap <= STREAK_GAP || s.lastDay === dayKey(now)) return s.cur;
-    var miss = Math.floor((gap - STREAK_GAP) / DAY) + 1;
-    return s.freezes >= miss ? s.cur : 0;
+    var gap = now - last, dk = dayKey(now);
+    if (gap <= STREAK_GAP || s.lastDay === dk) return s.cur;
+    var dd = _dayIdx(dk) - _dayIdx(_lastKey(s, last));
+    if (dd <= 1) return s.cur;
+    return s.freezes >= _missDays(dd, gap) ? s.cur : 0;
   }
 
   // 블록 1개 완료: doneBlocks와 minutes 누적, 스트릭 갱신(touchDay). XP는 지급하지 않고 blockXp[name]에 표시용으로만 남긴다.
   // name === 'wrap'이면 오늘의 5분 완주(하루 1회 todayDone XP)로 보고 진행 중 표시를 끈다.
-  function markBlock(name, minutes, xp, now) {
+  // opts.day('YYYY-MM-DD')가 있으면 그 날의 기록(doneBlocks, done, minutes, blockXp, todayDone)에 쓴다. 자정을 넘겨 끝낸 블록을 계획을 시작한 날에
+  // 붙이기 위한 것이고, 스트릭(touchDay)과 JStats 분은 실제 시각(now)으로 센다.
+  function markBlock(name, minutes, xp, now, opts) {
     now = _now(now);
-    var st = _st(), d = _day(st, now);
+    var okDay = (opts && typeof opts.day === 'string' && isFinite(_dayIdx(opts.day))) ? opts.day : null;
+    var st = _st(), d = _day(st, now, okDay);
     name = String(name || 'block');
     d.doneBlocks += 1;
     if (d.done.indexOf(name) < 0) d.done.push(name);
@@ -759,6 +794,22 @@ var Journey = (function() {
     }
     save();
     return d;
+  }
+  // 학습 활동 1개(레슨 완료, 드릴 세트, 데일리 5 완주, 6인 실전 1핸드 등)를 활동일로 센다(M7 FLOW-07, 설계서 4.2절).
+  // 스트릭(touchDay)과 오늘 분(목표 링)은 오늘의 5분 블록과 극장 1편 말고도 쌓여야 한다. 오늘의 5분이 진행 중이면 블록 완료(markBlock)가
+  // 활동일과 분을 세므로 여기서는 아무것도 하지 않는다(중복 방지, 마무리 카드의 프리즈 표시도 지켜짐). minutes는 추정 분, 0이면 활동일만.
+  function noteActivity(now, minutes) {
+    if (_todayRunning) return null;
+    now = _now(now);
+    var res = touchDay(now);
+    var m = Math.max(0, Math.min(30, _num(minutes, 0)));
+    if (m > 0) {
+      var d = _day(_st(), now);
+      d.minutes = Math.round((d.minutes + m) * 100) / 100;
+      if (typeof JStats !== 'undefined' && _fn(JStats, 'record')) { try { JStats.record('minutes', m, now); } catch (e) { _warn(e); } }
+      save();
+    }
+    return res;
   }
   // 오늘의 plan 저장(TodayUI). 저장하면 오늘의 5분 진행 중(active)으로 본다.
   function setPlan(plan, now) {
@@ -1290,6 +1341,7 @@ var Journey = (function() {
         var st = _st();
         _ordered().filter(function(nd) { return nd && nd.mission && nd.kind !== 'boss' && _availableRec(st, nd); })
           .forEach(function(nd) { recordMissionHand(nd.id, now); });
+        noteActivity(now, 1);                                // M7 FLOW-07: 연습, GTO 2회차, 헤즈업을 뺀 실전 1핸드(1분)도 활동일
       }
       if (typeof Boss !== 'undefined' && _fn(Boss, 'onHandEnd')) Boss.onHandEnd(ctx, { excluded: excluded });
       // 실수 SRS(계약 F4): 연습 핸드는 집계하지 않지만 다시 풀기 판정으로 ReviewQueue에 넘긴다
@@ -1374,9 +1426,13 @@ var Journey = (function() {
       now: now, weekday: new Date(now).getDay(), goalMinutes: _num(st.goal && st.goal.minutes, 5), stage: st.stage,
       nextNode: next, due: _dueItems(now), mistakes: _mistakes(now), weak: _weak(now), avail: _avail(st),
       daily5Done: !!(_isObj(d) && d.daily5), theaterEpisode: (st.theater && st.theater.mini) || null,
-      placementDone: !!(st.placement && st.placement.done), nodesPassed: _countPassed(st),
+      placementDone: !!(st.placement && st.placement.done), nodesPassed: _countPassed(st), lessonsDone: _countLessonsDone(st),
+      // M7 FLOW-05: 모든 노드를 통과해 다음 노드가 없음(엔드게임). 데이터가 없어 nextNode가 없는 경우와 구분한다
+      endgame: !nn && _nodesData().length > 0 && _countPassed(st) >= _nodesData().length,
       prevPlan: (_isObj(d) && d.plan) || null, curriculumSession: nn ? sessionFor(nn.id) : null,
-      rating: st.rating ? { r: st.rating.r, rd: st.rating.rd } : null
+      rating: st.rating ? { r: st.rating.r, rd: st.rating.rd } : null,
+      // M7 TIME-08: 이번 주 챌린지 소개를 아직 안 봤나(월요일만이 아니라 그 주 첫 방문). Seasons가 없으면 null(Today는 월요일로 판단)
+      weeklyUnseen: (typeof Seasons !== 'undefined' && _fn(Seasons, 'seenWeek')) ? !Seasons.seenWeek(st, now) : null
     };
   }
 
@@ -1467,6 +1523,21 @@ var Journey = (function() {
   // s = 저장소 객체(getItem/setItem/removeItem) | false(저장소 없음) | null(실제 localStorage). 캐시는 비운다.
   function _setStore(s) { _storeOver = (s === false) ? false : (s || null); _cache = null; }
 
+  // M7 DATA-01: 같은 출처의 창(탭)은 localStorage를 공유한다. 다른 창이 저장한 뒤 이 창이 오래된 메모리 캐시를 그대로 저장하면
+  // 다른 창에서 쌓은 여정 전체를 덮어쓴다. 캐시를 비우면 다음 load()가 저장소를 다시 읽는다. 진행 중 세션(_session, _hand)은 메모리 그대로 둔다.
+  // Storage.importAll, restorePrev처럼 이 창이 저장소를 직접 바꾼 곳도 이 함수를 불러야 한다(같은 창에는 storage 이벤트가 안 온다).
+  function _invalidate() { _cache = null; }
+  // 바깥 이벤트(다른 창 저장, 화면 복귀)로 비울 때: 이 창의 마지막 저장이 실패했으면(저장소 없음, 용량 초과) 메모리 캐시가 유일한 최신본이라
+  // 비우지 않는다. 비우면 다음 load()가 예전 값(또는 기본값)을 읽어 앱을 오갈 때마다 진행이 되돌아간다.
+  function _invalidateExternal() { if (!_unsaved) _cache = null; }
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('storage', function(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) _invalidateExternal(); });
+    window.addEventListener('pageshow', function(e) { if (e && e.persisted) _invalidateExternal(); });   // 뒤로가기 캐시(bfcache)에서 되살아남
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') _invalidateExternal(); });
+  }
+
   var api = {
     KEY: KEY, V: V,
     load: load, save: save, reset: reset, defaults: defaults, migrate: migrate,
@@ -1474,7 +1545,7 @@ var Journey = (function() {
     completeLesson: completeLesson, recordDrillSet: recordDrillSet, recordMissionHand: recordMissionHand,
     evaluateNode: evaluateNode, passNode: passNode, promote: promote,
     addXp: addXp, levelFor: levelFor, xpToNext: xpToNext,
-    touchDay: touchDay, markBlock: markBlock, dayKey: dayKey, dayRecord: dayRecord, setPlan: setPlan, endToday: endToday,
+    touchDay: touchDay, noteActivity: noteActivity, markBlock: markBlock, dayKey: dayKey, dayRecord: dayRecord, setPlan: setPlan, endToday: endToday,
     recordTheater: recordTheater, highlightOfDay: highlightOfDay,
     todayCtx: todayCtx, active: active, shouldEndSession: shouldEndSession,
     startSession: startSession, session: session, endSession: endSession,
@@ -1484,7 +1555,7 @@ var Journey = (function() {
     HIDDEN_NAMES: HIDDEN_NAMES.slice(), HIDDEN_ONE: HIDDEN_ONE, HIDDEN_TYPES: HIDDEN_TYPES.slice(),
     routePractice: routePractice, sessionFor: sessionFor, mapModel: mapModel, summary: summary, showFirstCard: showFirstCard,
     lastPass: lastPass, lastTouch: lastTouch, castList: _castList, node: _node,
-    _setData: _setData, _setStore: _setStore
+    _setData: _setData, _setStore: _setStore, _invalidate: _invalidate
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

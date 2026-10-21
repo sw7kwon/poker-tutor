@@ -6,7 +6,10 @@
 //         due: [{type, key, box, due}], weak: ['pot_odds', ...], avail: { puzzles, lessons, theater, daily5,
 //         highlights, rush, weekly }, daily5Done, theaterEpisode: {...}|null, placementDone, nodesPassed,
 //         prevPlan: plan|null, curriculumSession: n|null, rating: {r, rd}|null, puzzleTypes?: [...] }
-//         mistakes?: [{key, box, due, ...}](M5 계약 F4, Journey.todayCtx 또는 TodayUI.ctx가 ReviewQueue.due(now, 3)로 채움) }
+//         mistakes?: [{key, box, due, ...}](M5 계약 F4, Journey.todayCtx 또는 TodayUI.ctx가 ReviewQueue.due(now, 3)로 채움),
+//         weeklyUnseen?(M7 TIME-08: 이번 주 챌린지 소개를 아직 안 봄, boolean이면 요일 대신 이것으로 weeklyIntro 판단),
+//         lessonsDone?(M7 FLOW-06: 끝낸 레슨 수), endgame?(M7 FLOW-05: 모든 노드를 통과해 nextNode가 없음),
+//         more?(M7 결정 32: '더 하기' 라운드, 시간 예산을 맞추려 뺀 데일리 5를 빼지 않는다), budget?(false면 시간 예산 맞추기를 끔) }
 //   puzzleTypes(C9, TodayUI.ctx가 채움) = 등록된 퍼즐 유형 ['potodds', ...] 또는 [{type, stage}].
 //     단계가 없으면 TYPE_STAGE(부록 A 노드에서 그 유형이 처음 나오는 단계)를 쓴다. 없으면(undefined/null) M1 출력 그대로.
 // plan = { day, blocks: [ review, learn, fun, wrap ], estMin, lessonNode, fillToday? }
@@ -17,7 +20,10 @@
 //     puzzleTypes가 없을 때의 채움 항목은 M1 형식 { type:'puzzle', key:null, box:null, concept, fill:true }
 //     실수 핸드 항목(F4) = { type:'mistake', key, box }: 블록 끝(채움 뒤)에 목표 5/10/15분이면 1/2/3개, (box asc, due asc, key asc).
 //       기한 전(due > now)과 졸업(box 4 이상) 항목은 뺀다. 복습 상한(8/15/25)과 채움 판정에는 세지 않는다. 추정 1개 60초(연습 1핸드).
-//   learn  { id:'learn', kind:'placement'|'lesson'|'drill'|'mission'|'curriculum'|'gto', node, est, ... }
+//   learn  { id:'learn', kind:'placement'|'lesson'|'drill'|'mission'|'curriculum'|'gto'|'boss'|'endgame', node, est, ... }
+//     boss(M7 FLOW-05)는 단계 학습 노드를 다 끝내고 승급 시험만 남았을 때(nextNode.step 'boss'), endgame은 모든 노드를 통과한 뒤의 실전 5핸드.
+//   시간 예산(M7 결정 32): 목표 5/10/15분이면 항목별 표준 소요(SEC) 합을 6/11/16분 안으로 맞춘다. 넘으면 데일리 5, 채움 퍼즐, 복습 개수,
+//     재미 블록 길이, 새 배움 핸드 수, 주말 러시, 실수 핸드 순으로 줄인다(새 배움 블록은 빼지 않는다). 줄인 목록은 plan.trimmed.
 //     drill은 puzzleTypes가 있으면 노드 drill 명세의 set, variant, spots를 함께 싣는다.
 //   fun    { id:'fun', kind:'theater'|'highlight'|'free'|'rush'|'weeklyIntro', est, hands? }
 //   wrap   { id:'wrap' }
@@ -25,7 +31,9 @@
 var Today = (function() {
   // 추정 시간 단위(초): 레슨 장면 20, 퍼즐 25, 복습 드릴 10, 극장 1편 90, 게임 1핸드 60(4.1절).
   // 러시와 배치 고사는 이름 그대로 3분(5.5절 "3분 러시", 2.6절 "실력 확인 3분"). 미니시즌 1편(6~8핸드)은 3분(M6 통합 검증).
-  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180, mistake: 60, mini: 180 };
+  var SEC = { scene: 20, puzzle: 25, review: 10, theater: 90, hand: 60, rush: 180, placement: 180, mistake: 60, mini: 180, boss: 300 };
+  // 시간 예산(초): 보통 사용자의 계획 추정이 목표보다 조금 긴 정도(6/11/16분)로. M2 남은 것 2번(데일리 5 + 드릴 10문항이 붙는 날 9.8~10.6분)을 줄인다.
+  var BUDGET = { 5: 360, 10: 660, 15: 960 };
   // 복습 상한: 전체 8/15/25, 성숙(box 4 이상) 3/5/8
   var CAPS = { 5: { total: 8, mature: 3 }, 10: { total: 15, mature: 5 }, 15: { total: 25, mature: 8 } };
   var MATURE_BOX = 4;
@@ -33,7 +41,7 @@ var Today = (function() {
   // FILL_TO = 4 x (1, 1.8, 2.6) 반올림, 5분 목표에서 복습 블록 1~2분(4 x 25초 = 100초).
   var FILL_WHEN = 3;
   var FILL_TO = { 5: 4, 10: 7, 15: 10 };
-  var HANDS = { gto: 5, mission: 5, free: 3 };
+  var HANDS = { gto: 5, mission: 5, free: 3, endgame: 5 };
   // 실수 핸드 다시 풀기(F4): 목표 5/10/15분에 1/2/3개
   var MISTAKES = { 5: 1, 10: 2, 15: 3 };
   var DRILL_SET = 10;        // 드릴 세트 1회 = 노드 지정 유형 10문항(노드 count가 더 작으면 그 수)
@@ -315,11 +323,16 @@ var Today = (function() {
     }
     // 실수 핸드 다시 풀기(F4)는 블록 끝에. 퍼즐 가용과 상관없이(App.startPractice로 연다)
     items = items.concat(mistakeItems(ctx.mistakes, goal, now));
-    return { block: { id: 'review', items: items, daily5: !!(avail.daily5 && !ctx.daily5Done), est: 0 }, added: added };
+    // 첫 실행(끝낸 레슨도 통과한 노드도 없음)에는 데일리 5를 계획에 붙이지 않는다: 아직 배우지 않은 문제를 채점하며 시작하게 되기 때문(M7 FLOW-06).
+    // 홈 카드의 데일리 5는 그대로 할 수 있다.
+    var firstRun = _num(ctx.nodesPassed, 0) === 0 && _num(ctx.lessonsDone, 0) === 0;
+    return { block: { id: 'review', items: items, daily5: !!(avail.daily5 && !ctx.daily5Done && !firstRun), est: 0 }, added: added };
   }
 
   // ── 블록 2: 새 배움 ──
   function _gto() { return { id: 'learn', kind: 'gto', node: null, hands: HANDS.gto, est: 0 }; }
+  // 모든 노드를 통과한 뒤(M7 FLOW-05): GTO 미러 대신 6인 캐스트 실전 5핸드(적응형 빌런)
+  function _endgame() { return { id: 'learn', kind: 'endgame', node: null, hands: HANDS.endgame, est: 0 }; }
 
   // 오늘(같은 day) 신규 레슨(또는 커리큘럼)을 이미 배정한 노드 id, 없으면 null.
   // plan.lessonNode로 같은 날 계획에 계속 물려준다. 그래서 계획을 여러 번 다시 짜도
@@ -349,7 +362,7 @@ var Today = (function() {
       return { id: 'learn', kind: 'placement', node: null, est: 0 };
     }
     var nn = ctx.nextNode;
-    if (!nn || !nn.id) return _gto();
+    if (!nn || !nn.id) return ctx.endgame ? _endgame() : _gto();
     var nd = _nodeData(nn.id);
     var capped = false;
     if (nn.step === 'lesson') {
@@ -368,6 +381,8 @@ var Today = (function() {
       }
     }
     var b = null;
+    // 단계의 학습 노드를 다 끝내고 승급 시험만 남았으면 시험으로 이어 준다(M7 FLOW-05). 퍼즐이 없는 M1 폴백에서는 열 수 없으니 GTO 미러
+    if (nn.step === 'boss' && !fallback) return { id: 'learn', kind: 'boss', node: nn.id, est: 0 };
     if (!fallback) {
       var hasDrill = !!(nd && nd.drill), hasMission = !!(nd && nd.mission);
       if (nn.step === 'drill' || (nn.step === 'lesson' && hasDrill)) {
@@ -385,8 +400,8 @@ var Today = (function() {
   }
 
   // ── 블록 3: 재미 ──
-  function _funBase(ctx, wd, goal, avail, day) {
-    if ((wd === 0 || wd === 6) && avail.rush) return { kind: 'rush' };
+  function _funBase(ctx, wd, goal, avail, day, noRush) {
+    if ((wd === 0 || wd === 6) && avail.rush && !noRush) return { kind: 'rush' };
     if (avail.theater) {
       // mini: 진행 중인 미니시즌에 오늘 안 본 편이 있음(TheaterUI.start가 그 편을 연다, 계약 H7). 이름과 추정 시간이 그 편을 따른다
       var ep = ctx.theaterEpisode, mini = !!(ep && typeof ep === 'object' && !ep.done && ep.lastDay !== day);
@@ -398,11 +413,13 @@ var Today = (function() {
     return { kind: 'free', hands: HANDS.free };
   }
 
-  function _funBlock(ctx, wd, goal, avail, day) {
-    var base = _funBase(ctx, wd, goal, avail, day);
+  function _funBlock(ctx, wd, goal, avail, day, noRush) {
+    var base = _funBase(ctx, wd, goal, avail, day, noRush);
     var b;
-    if (wd === 1 && avail.weekly) {
-      // 월요일: 주간 챌린지 소개(와 우승 예측 카드)를 앞에 두고 원래 재미 블록을 이어 붙인다.
+    // M7 TIME-08: 이번 주 소개를 아직 안 봤을 때(ctx.weeklyUnseen). 월요일에 앱을 안 연 주도 그 주 첫 방문에 소개가 나온다. 모르면 월요일로 판단
+    var intro = (typeof ctx.weeklyUnseen === 'boolean') ? ctx.weeklyUnseen : wd === 1;
+    if (intro && avail.weekly) {
+      // 이번 주 첫 방문(보통 월요일): 주간 챌린지 소개(와 우승 예측 카드)를 앞에 두고 원래 재미 블록을 이어 붙인다.
       base.est = 0;
       b = { id: 'fun', kind: 'weeklyIntro', follow: base };
     } else {
@@ -425,7 +442,8 @@ var Today = (function() {
     switch (b.kind) {
       case 'lesson': return _num(b.scenes, 0) * SEC.scene;
       case 'drill': return _num(b.count, 0) * SEC.puzzle;
-      case 'mission': case 'gto': case 'free': return _num(b.hands, 0) * SEC.hand;
+      case 'mission': case 'gto': case 'free': case 'endgame': return _num(b.hands, 0) * SEC.hand;
+      case 'boss': return SEC.boss;
       case 'theater': return b.mini ? SEC.mini : _num(b.episodes, 1) * SEC.theater;
       case 'highlight': return SEC.theater;
       case 'rush': return SEC.rush;
@@ -437,10 +455,81 @@ var Today = (function() {
 
   function _min(sec) { return Math.round(sec / 6) / 10; }
 
-  function estimate(plan) {
+  function _total(plan) {
     var s = 0;
     ((plan && plan.blocks) || []).forEach(function(b) { s += _sec(b); });
-    return _min(s);
+    return s;
+  }
+  function estimate(plan) { return _min(_total(plan)); }
+
+  // ── 시간 예산에 맞추기(M7 결정 32) ──
+  // 데일리 5(125초) + 노드 드릴 10문항(250초) + 극장(90초) 같은 조합이 목표 5분의 두 배가 되던 것을 줄인다. 새 배움 블록은 빼지 않고,
+  // 줄이는 순서는 되돌리기 쉬운 것부터(데일리 5는 홈 카드로, 채움 퍼즐과 복습은 다음에 다시 나옴). 예산 이하면 아무것도 바꾸지 않는다.
+  // 기한 된 복습은 승급 시험 날이 아니면 3개 아래로 줄이지 않는다(간격 반복이 멈추지 않게, M7 통합 검증). 그래서 드릴과 미니시즌이 겹친 날은 예산을 넘을 수 있다.
+  // ctx.more('더 하기')면 첫 라운드가 뺀 데일리 5를 이번에는 줄이지 않는다.
+  function _dueCount(rv) { return rv.items.filter(function(it) { return it && it.type !== 'mistake' && !it.fill; }).length; }
+  function _capDue(rv, keep, cut) {
+    var n = 0, before = rv.items.length;
+    rv.items = rv.items.filter(function(it) {
+      if (!it || it.type === 'mistake' || it.fill) return true;
+      n++;
+      return n <= keep;
+    });
+    if (rv.items.length < before) { cut.push('due' + keep); return true; }
+    return false;
+  }
+  function _funOf(b) { return (b && b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') ? b.follow : b; }
+  function _fit(plan, ctx, goal, avail, wd, day) {
+    if (ctx.budget === false) return;      // 시간 예산 끄기(구성 규칙만 시험하거나 진단할 때)
+    var budget = BUDGET[goal], cut = [];
+    var rv = plan.blocks[0], learn = plan.blocks[1];
+    function over() { return _total(plan) > budget; }
+    function learnHands(max) {
+      if (['gto', 'mission', 'endgame'].indexOf(learn.kind) < 0 || !(_num(learn.hands, 0) > max)) return false;
+      learn.hands = max; cut.push('hands' + max);
+      return true;
+    }
+    var steps = [
+      function() { if (ctx.more || !rv.daily5) return false; rv.daily5 = false; cut.push('daily5'); return true; },
+      function() {
+        var n = rv.items.length;
+        rv.items = rv.items.filter(function(it) { return !(it && it.fill); });
+        if (rv.items.length === n) return false;
+        if (typeof plan.fillToday === 'number') plan.fillToday = Math.max(0, plan.fillToday - (n - rv.items.length));
+        cut.push('fill');
+        return true;
+      },
+      function() {
+        var f = _funOf(plan.blocks[2]);
+        if (!f || f.kind !== 'rush') return false;
+        plan.blocks[2] = _funBlock(ctx, wd, goal, avail, day, true);   // 주말 러시(3분) 대신 극장, 명장면, 자유 게임. 러시는 홈의 ⚡에서 한다
+        cut.push('rush');
+        return true;
+      },
+      function() { return _capDue(rv, 5, cut); },
+      function() { return _capDue(rv, 3, cut); },
+      function() {
+        var f = _funOf(plan.blocks[2]);
+        if (f && f.kind === 'free' && _num(f.hands, 0) > 2) { f.hands = 2; cut.push('free2'); return true; }
+        if (f && f.kind === 'theater' && _num(f.episodes, 1) > 1) { f.episodes = 1; cut.push('episodes1'); return true; }
+        return false;
+      },
+      function() { return learnHands(4); },
+      function() { return learnHands(3); },
+      // (M7 통합 검증) 복습은 승급 시험 날이 아니면 기한 된 것 3개(약 30초)까지 남긴다. 드릴 250초 + 미니시즌 180초처럼 새 배움과 재미만으로
+      //   예산을 넘는 날마다 복습을 0개로 줄여(드릴 단계는 평일에도 1개), 몇 주 쓰면 밀린 복습이 쌓이기만 하던 것
+      function() { return learn.kind === 'boss' && _capDue(rv, 1, cut); },
+      function() {
+        var n = rv.items.length;
+        rv.items = rv.items.filter(function(it) { return !(it && it.type === 'mistake'); });
+        if (rv.items.length === n) return false;
+        cut.push('mistake');
+        return true;
+      },
+      function() { return learn.kind === 'boss' && _capDue(rv, 0, cut); }
+    ];
+    for (var i = 0; i < steps.length && over(); i++) steps[i]();
+    if (cut.length) plan.trimmed = cut;
   }
 
   function build(ctx) {
@@ -463,21 +552,22 @@ var Today = (function() {
       _funBlock(ctx, wd, goal, avail, day),
       { id: 'wrap' }
     ];
-    blocks.forEach(function(b) {
+    var newLesson = (learn.kind === 'lesson' || learn.kind === 'curriculum') && learn.node ? learn.node : null;
+    var plan = { day: day, blocks: blocks, estMin: 0, lessonNode: newLesson || lessonToday };
+    if (stages) plan.fillToday = fillUsed + rv.added;
+    _fit(plan, ctx, goal, avail, wd, day);
+    plan.blocks.forEach(function(b) {
       if (b.id === 'wrap') return;
       if (b.follow) b.follow.est = _min(_sec(b.follow));
       b.est = _min(_sec(b));
     });
-    var newLesson = (learn.kind === 'lesson' || learn.kind === 'curriculum') && learn.node ? learn.node : null;
-    var plan = { day: day, blocks: blocks, estMin: 0, lessonNode: newLesson || lessonToday };
-    if (stages) plan.fillToday = fillUsed + rv.added;
     plan.estMin = estimate(plan);
     return plan;
   }
 
   var api = {
     build: build, caps: caps, orderReview: orderReview, estimate: estimate, sessionFor: sessionFor, conceptTypes: conceptTypes,
-    mistakeItems: mistakeItems,
+    mistakeItems: mistakeItems, BUDGET: BUDGET,
     SEC: SEC, CAPS: CAPS, LIMITS: LIMITS, HANDS: HANDS, MATURE_BOX: MATURE_BOX, MISTAKES: MISTAKES,
     CONCEPT_TYPES: CONCEPT_TYPES, CONCEPT_SPOTS: CONCEPT_SPOTS, TYPE_STAGE: TYPE_STAGE, TYPE_BASE: TYPE_BASE
   };

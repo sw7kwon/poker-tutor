@@ -12,7 +12,8 @@ var LESSONS = (typeof LESSONS !== 'undefined') ? LESSONS : [];
 
 // ── s1-01 족보 사다리 ──
 LESSONS.push({
-  id: 's1-01', node: 's1-01', title: '족보 사다리', est: 3, source: '엔진 계산',
+  id: 's1-01', node: 's1-01', title: '족보 사다리', est: 3,
+  source: '엔진 계산(표준 홀덤 규칙, HandEval/GameState 구현)',
   scenes: [
     { t: 'ask', id: 'q1',
       q: '먼저 감으로 골라 봐요. 플러시(같은 무늬 다섯 장)와 스트레이트(이어진 숫자 다섯 장), 더 센 쪽은?',
@@ -60,7 +61,8 @@ LESSONS.push({
 
 // ── s1-02 테이블 한 바퀴 ──
 LESSONS.push({
-  id: 's1-02', node: 's1-02', title: '테이블 한 바퀴', est: 3, source: '엔진 계산',
+  id: 's1-02', node: 's1-02', title: '테이블 한 바퀴', est: 3,
+  source: '엔진 계산(표준 홀덤 규칙, HandEval/GameState 구현)',
   scenes: [
     { t: 'table', heroPos: 'BTN', hero: ['Ah', 'Kd'], blinds: { sb: 0.5, bb: 1 },
       seats: [
@@ -68,7 +70,7 @@ LESSONS.push({
         { pos: 'BTN', name: '나' }, { pos: 'SB', name: '햇살', bet: 0.5 }, { pos: 'BB', name: '불도저', bet: 1 }
       ],
       focus: 'BTN',
-      caption: '자리 이름은 6개예요. 딜러 버튼(BTN) 왼쪽의 SB와 BB는 카드를 받기 전에 블라인드를 내요.' },
+      caption: '6인 테이블 자리 이름은 6개예요. BTN 왼쪽의 SB와 BB는 카드를 받기 전에 블라인드를 내요.' },
     { t: 'ask', id: 'q1',
       q: '프리플랍, 6명 모두 카드를 받았어요. 첫 바퀴에서 가장 마지막에 말하는 자리는?',
       choices: ['BTN', 'BB', 'SB'], answer: 1, pick: ['BTN', 'BB', 'SB'],
@@ -87,7 +89,7 @@ LESSONS.push({
         { pos: 'BTN', name: '나' }, { pos: 'SB', name: '햇살' }, { pos: 'BB', name: '불도저' }
       ],
       calc: { type: 'order', street: 'postflop', seats: ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'] },
-      caption: '플랍부터는 {{first}}부터 시작해요. 마지막은 {{last}}, 남들 선택을 다 보고 정할 수 있어요.' },
+      caption: '6명이 다 남으면 플랍부터 {{first}}부터, 마지막은 {{last}}. 폴드한 자리는 건너뛰어요.' },
     { t: 'ask', id: 'q2',
       q: '플랍, SB와 BB와 CO 세 명이 남았어요. 첫 바퀴에서 가장 마지막에 말하는 자리는?',
       choices: ['CO', 'SB', 'BB'], answer: 0, pick: ['CO', 'SB', 'BB'],
@@ -95,31 +97,32 @@ LESSONS.push({
       why: '플랍부터는 SB부터 시계 방향, 남은 셋은 {{list}} 순서라 {{last}}가 끝이에요.' },
     { t: 'say', text: '게임 화면 안내 1. 내가 결정할 때마다 신호등이 떠요. 🟢 좋은 선택, 🟡 아쉬운 선택, 🔴 손해 보는 선택.' },
     { t: 'say', text: '게임 화면 안내 2. 핸드가 끝나면 📝 총평(결과 패널)이 열려요. 큰 점은 승패, 줄마다 신호등은 결정 점수예요.' },
-    { t: 'sum', text: '프리플랍은 BB가, 플랍부터는 BTN이 마지막에 말한다.' }
+    { t: 'sum', text: '프리플랍 첫 바퀴는 BB가, 플랍부터는 남은 사람 중 BTN(없으면 BTN에 가장 가까운 앞자리)이 마지막에 말한다.' }
   ]
 });
 
 // ── s1-03 액션과 민레이즈 ──
 LESSONS.push({
-  id: 's1-03', node: 's1-03', title: '액션과 민레이즈', est: 3, source: '엔진 계산',
+  id: 's1-03', node: 's1-03', title: '액션과 민레이즈', est: 3,
+  source: '엔진 계산(표준 홀덤 규칙, HandEval/GameState 구현)',
   scenes: [
     { t: 'say', text: '앞에 벳이 없으면 ⏭️ 체크(넘기기) 아니면 💰 벳(먼저 걸기). 🏳️ 폴드(포기)는 언제든 할 수 있어요.' },
-    { t: 'say', text: '앞에 벳이 있으면 📞 콜(같은 만큼 내기), ⬆️ 레이즈(더 올리기), 🏳️ 폴드. 🔥 올인은 내 칩 전부예요.' },
+    { t: 'say', text: '앞에 벳이 있으면 📞 콜, ⬆️ 레이즈, 🏳️ 폴드. 🔥 올인은 내 칩 전부예요. 화면 버튼은 폴드, 콜(체크), 레이즈(벳) 셋이에요.' },
     { t: 'ask', id: 'q1',
       q: '플랍, 앞사람이 모두 체크해서 내가 낼 돈이 없어요. 내 패가 약하면?',
       choices: ['폴드', '체크'], answer: 1,
-      why: '공짜로 다음 카드를 볼 수 있으니 체크예요. 여기서 폴드는 이길 기회만 버려요.' },
+      why: '약한 패는 공짜로 다음 카드를 보는 체크예요. 폴드는 이길 기회만 버리고, 강한 패라면 벳이 맞아요.' },
     { t: 'table', heroPos: 'BTN', hero: ['7c', '2d'], board: ['Ks', '9h', '4d'], potTotal: 6.5, toCall: 0,
       seats: [
         { pos: 'CO', name: '햇살', action: '체크' }, { pos: 'BTN', name: '나' }, { pos: 'BB', name: '교수', action: '체크' }
       ],
       focus: 'toCall',
-      caption: '내가 낼 돈 {{toCall}}bb. 이럴 땐 체크가 공짜예요. 게임에서 여기서 폴드하면 🔴 빨간불이에요.' },
+      caption: '내가 낼 돈 {{toCall}}bb. 체크가 공짜라 콜 버튼이 체크로 바뀌어요. 여기서 폴드하면 🔴 빨간불이에요.' },
     { t: 'table', heroPos: 'BTN', board: ['Jc', '7d', '2s'], potTotal: 9.5, toCall: 4,
       seats: [{ pos: 'BB', name: '교수', bet: 4, action: '벳 4' }, { pos: 'BTN', name: '나' }],
       focus: 'BB',
       calc: { type: 'minraise', currentBet: 4, lastRaise: 4 },
-      caption: '첫 벳이 {{inc}}bb면 최소 레이즈는 {{to}}bb까지(총액), 즉 2배예요.' },
+      caption: '플랍 이후 첫 벳이 {{inc}}bb면 최소 레이즈는 {{to}}bb까지(총액), 즉 2배예요.' },
     { t: 'table', heroPos: 'BTN', board: ['Qh', '8d', '4c'], potTotal: 15.5, toCall: 6,
       seats: [
         { pos: 'SB', name: '햇살', bet: 2, action: '벳 2' }, { pos: 'BB', name: '교수', bet: 6, action: '레이즈 6' },
@@ -128,18 +131,28 @@ LESSONS.push({
       focus: 'BB',
       calc: { type: 'minraise', currentBet: 6, lastRaise: 4 },
       caption: '레이즈 뒤에는 현재 벳에 직전 증분 {{inc}}bb를 더해요. 최소 {{to}}bb까지예요.' },
+    { t: 'table', heroPos: 'BTN', board: [], potTotal: 4.5, toCall: 3, blinds: { sb: 0.5, bb: 1 },
+      seats: [
+        { pos: 'UTG', name: '교수', bet: 3, action: '오픈 3' }, { pos: 'HJ', folded: true, action: '폴드' },
+        { pos: 'CO', folded: true, action: '폴드' }, { pos: 'BTN', name: '나' },
+        { pos: 'SB', name: '햇살', bet: 0.5 }, { pos: 'BB', name: '불도저', bet: 1 }
+      ],
+      focus: 'UTG',
+      calc: { type: 'minraise', currentBet: 3, lastRaise: 2 },
+      caption: '프리플랍은 BB 블라인드가 첫 벳이라 오픈은 {{inc}}bb 올린 레이즈예요. 다음은 최소 {{to}}bb, 오픈의 2배가 아니에요.' },
     { t: 'ask', id: 'q2',
       q: '프리플랍, UTG가 3bb로 오픈하고 CO가 9bb로 레이즈했어요. 내가 다시 레이즈하려면 최소 몇 bb까지?',
       choices: ['18bb', '15bb', '12bb'], answer: 1,
       calc: { type: 'minraise', currentBet: 9, lastRaise: 6 },
       why: '직전 증분 {{inc}}bb를 현재 벳에 더하면 {{to}}bb. 무조건 2배가 아니에요.' },
-    { t: 'sum', text: '낼 돈이 없으면 체크, 최소 레이즈는 현재 벳에 직전 증분을 더한 만큼이다.' }
+    { t: 'sum', text: '낼 돈이 없을 때 약한 패는 체크(강한 패는 벳), 최소 레이즈는 현재 벳에 직전 증분을 더한 만큼(프리플랍은 블라인드가 첫 벳)이다.' }
   ]
 });
 
 // ── s1-04 bb로 세기 ──
 LESSONS.push({
-  id: 's1-04', node: 's1-04', title: 'bb로 세기', est: 2, source: '엔진 계산',
+  id: 's1-04', node: 's1-04', title: 'bb로 세기', est: 2,
+  source: '엔진 계산(표준 홀덤 규칙, HandEval/GameState 구현)',
   scenes: [
     { t: 'ask', id: 'q1',
       q: 'UTG가 2.5bb로 오픈했어요. 나는 BB라 이미 1bb를 냈어요. 콜하려면 몇 bb를 더 내야 할까?',
@@ -172,7 +185,8 @@ LESSONS.push({
 
 // ── s1-05 보드와 내 패 ──
 LESSONS.push({
-  id: 's1-05', node: 's1-05', title: '보드와 내 패', est: 2, source: '엔진 계산',
+  id: 's1-05', node: 's1-05', title: '보드와 내 패', est: 2,
+  source: '엔진 계산(표준 홀덤 규칙, HandEval/GameState 구현)',
   scenes: [
     { t: 'ask', id: 'q1',
       q: '보드 5♠ 6♦ 7♣ 8♥ 9♠. 나 A♥ A♦, 상대 2♣ 3♦. 누가 이길까?',
@@ -208,7 +222,7 @@ LESSONS.push({
 
 // ── s1-06 결과와 결정은 다르다 ──
 LESSONS.push({
-  id: 's1-06', node: 's1-06', title: '결과와 결정은 다르다', est: 3, source: '엔진 계산',
+  id: 's1-06', node: 's1-06', title: '결과와 결정은 다르다', est: 3, source: '엔진 계산(올인 승률 eqExact, 쇼다운 HandEval), 결과와 결정 분리는 포커 학습 통념(코칭 신호등과 미션 판정은 이 앱 정의)',
   scenes: [
     { t: 'ask', id: 'q1',
       q: '내가 훨씬 유리할 때 올인했는데 마지막 카드에 졌어요. 올인은 잘못이었을까?',
@@ -232,7 +246,8 @@ LESSONS.push({
     { t: 'say',
       calc: { type: 'eqExact', hero: ['As', 'Ad'], vs: ['Ks', 'Kc'], board: ['9c', '5d', '2h'] },
       text: '같은 올인을 100번 하면 약 {{eq}}번은 내가 이겨요. 진 한 번 때문에 결정을 바꾸지 않아요.' },
-    { t: 'say', text: '첫 실전 10핸드는 코칭 L0(풀코칭)로 해요. 추천 버튼에 금색 테두리가 보이니 보고 따라 해 봐요.' },
+    { t: 'say', text: '첫 실전은 10핸드부터 코칭 L0(풀코칭)로 해요. 추천 버튼에 금색 테두리가 보이니 보고 따라 해 봐요.' },
+    { t: 'say', text: '미션 판정은 차트와 팟 오즈 결정이 30번 쌓여야 나와요(보통 30핸드 안팎). 10핸드 뒤 "핸드 몇 개 더"는 실패가 아니에요.' },
     { t: 'say', text: '미션은 이긴 판 수가 아니라 신호등 색으로 매겨요. 📝 총평의 큰 점(승패)보다 줄마다 신호등을 보세요.' },
     { t: 'ask', id: 'q2',
       q: '둘 중 더 좋은 결정은?',

@@ -11,7 +11,7 @@
 //                    강도 제외와 raise 폐기는 기본과 같고, 코치가 같은 레인지로 다시 센 V.marginal이 정답('둘 다 OK' 여부)과 같아야 한다.
 //                    정답 비율 둘 다 OK 40%, 콜 30%, 폴드 30%. 기본 변형('default', 'multiway')의 생성 경로와 난수 소비는 그대로다.
 //   facingbet-next   exact. 플랍/턴, 상대는 명시한 손 1개 또는 작은 레인지. 남은 덱의 다음 1장을 열거해 "다음 카드 뒤 앞서는 비율"을
-//                    지금 콜 가격과 비교(마진 0.08). 'draw'는 히어로 드로우 스팟. 강도 제외와 raise 폐기도 리버와 같이 적용.
+//                    지금 콜 가격과 비교(마진 0.08). 'draw'는 히어로 드로우 스팟(M7 S3-01: 턴만, 다음 1장이 마지막 카드라 계산이 정확). 강도 제외와 raise 폐기도 리버와 같이 적용.
 // M5-COACH: raise 폐기 판정 때 코치에 명시 콤보를 그대로 넘긴다(헤즈업, { narrow: false }). 코치가 같은 레인지로 다시 센
 //   승률(Equity.nextCard 경로)이 문항 eq와 다르면 폐기한다. 멀티웨이는 { basis: 'eq' }(넘긴 eq 그대로).
 // 높이 규칙(설계서가 정하지 않은 구름(paired)과 안개(monotone)): 보드에서 가장 높은 카드가 Q 이상이면 하이, 10 또는 J면 미드, 9 이하면 로우.
@@ -239,6 +239,25 @@ var GenPostflop = (function() {
       perCombo = k;
     });
     return { eq: cnt ? tot / cnt : 0, n: cnt, cards: perCombo, winCards: winC, tieCards: tieC };
+  }
+
+  // 플랍에서 턴과 리버 2장을 모두 열거한 승률(해설 전용, M7 PZ-03). 남은 덱 C(45,2) = 990 조합마다 상대 콤보(그 두 장이 든 콤보 제외)와 비교, 무승부 0.5.
+  function equityTwoCards(hero, board, combos) {
+    var tot = 0, cnt = 0, dead = _deadMap(hero.concat(board)), live = ALL.filter(function(x) { return !dead[x]; });
+    var vb = [0, 0].concat(board.map(_int), [0, 0]), l1 = vb.length - 2, l2 = vb.length - 1, sp = combos.map(_split);
+    for (var a = 0; a < live.length; a++) {
+      for (var b = a + 1; b < live.length; b++) {
+        var x = live[a], y = live[b], hEv = _ev(hero.concat(board, [x, y]));
+        vb[l1] = _int(x); vb[l2] = _int(y);
+        for (var k = 0; k < sp.length; k++) {
+          var v = sp[k];
+          if (v[0] === x || v[0] === y || v[1] === x || v[1] === y) continue;
+          vb[0] = _int(v[0]); vb[1] = _int(v[1]);
+          tot += _share2(hEv, HandEval.evaluateIdx(vb)); cnt++;
+        }
+      }
+    }
+    return { eq: cnt ? tot / cnt : 0, n: cnt };
   }
 
   // ════════════════ texture ════════════════
@@ -583,7 +602,7 @@ var GenPostflop = (function() {
       var B = _bet(P, f), pt = P + (1 + callers) * B;
       return { B: B, potTotal: pt, need: _need(pt, B) };
     }).filter(function(o) {
-      if (target === 'both') return Math.abs(eq - o.need) < BOTH_BAND;
+      if (target === 'both') return Math.abs(eq - o.need) < BOTH_BAND && Math.abs(eq * (o.potTotal + o.B) - o.B) < BOTH_EV_MAX;
       return Math.abs(eq - o.need) >= MARGIN && (eq > o.need ? 'call' : 'fold') === target;
     });
     return ok.length ? _pick(ok, rnd) : null;
@@ -615,6 +634,9 @@ var GenPostflop = (function() {
   var MW_FRACS = [1 / 3, 1 / 2, 2 / 3, 3 / 4, 1];
   // marginal 변형(M6-WIDGET, H3): 둘 다 OK 기준과 벳 크기(1.25배, 2배 오버벳까지 넓혀 필요 승률 17~40%를 고르게)
   var BOTH_BAND = 0.04;
+  // (M7, PZ-02) 둘 다 OK는 승률 차이 4%p 미만(팟 대비 상대 기준)인데 큰 팟과 오버벳에서는 그 차이가 콜 EV 3~7.5bb에 이른다. '폴드(0)와 차이가 작아요'가
+  //   참이 되도록 둘 다 OK 정답은 콜 기대값이 2bb 미만인 스팟만 낸다(코치 V.marginal은 4%p 그대로, 그 부분집합).
+  var BOTH_EV_MAX = 2;
   var MARG_FRACS = [1 / 4, 1 / 3, 1 / 2, 2 / 3, 3 / 4, 1, 1.25, 1.5, 2];
   var VALUE_OK = ['nut', 'strong', 'medium'];
   var CALLER_OK = ['strong', 'medium', 'weak-pair'];
@@ -856,8 +878,10 @@ var GenPostflop = (function() {
       }
       var gap = Math.abs(r.eq - need), want;
       if (marg) {   // H3: 4%p 안쪽 = 둘 다 OK, 8%p 이상 = 분명한 쪽, 그 사이는 출제 금지
-        if (gap < BOTH_BAND) want = 'both';
-        else if (gap >= MARGIN) want = r.eq > need ? 'call' : 'fold';
+        if (gap < BOTH_BAND) {
+          if (Math.abs(r.eq * (s.potTotal + s.toCall) - s.toCall) >= BOTH_EV_MAX) return false;   // M7 PZ-02: 둘 다 OK는 콜 EV 2bb 미만만
+          want = 'both';
+        } else if (gap >= MARGIN) want = r.eq > need ? 'call' : 'fold';
         else return false;
         var nearWant = want === 'both' ? (r.eq > need ? 'call' : 'fold') : 'both';
         if (!q.options.every(function(o) { return !!o.near === (o.id === nearWant); })) return false;
@@ -902,7 +926,9 @@ var GenPostflop = (function() {
         ? '차이 ' + gapTxt + '%p로 4%p 안쪽 → 둘 다 OK. ' + (evZero
           ? '콜의 기대값이 0bb(승률 차이 × 콜 뒤 팟 ' + potAfter + 'bb)라 폴드(0)와 똑같아요.'
           : '조금 나은 쪽은 ' + better + '. 콜의 기대값은 약 ' + evTxt + 'bb(승률 차이 × 콜 뒤 팟 ' + potAfter +
-            'bb)로 폴드(0)와 차이가 작아요.') + ' (' + LABEL_RIVER + ')'
+            'bb)로 ' + (Math.abs(evc) >= BOTH_EV_MAX
+              ? '콜 뒤 팟의 ' + _pct1(Math.abs(evc) / (s.potTotal + s.toCall)) + '%라 팟에 비해선 작지만, bb로는 ' + _num(Math.abs(evc)) + 'bb 차이라 자주 생기면 쌓여요.'
+              : '폴드(0)와 차이가 작아요.')) + ' (' + LABEL_RIVER + ')'
         : '차이 ' + gapTxt + '%p로 8%p 이상 벌어져 → ' + (call ? '콜' : '폴드') + '. 이럴 땐 둘 다 OK가 아니에요. (' + LABEL_RIVER + ')';
     } else {
       var info = d.groups || [];
@@ -1002,7 +1028,10 @@ var GenPostflop = (function() {
     var S = _S(), target = rnd() < 0.5 ? 'call' : 'fold';
     for (var deal = 0; deal < 100; deal++) {
       var sc = _pick(S.hu, rnd);
-      var street = rnd() < 0.5 ? 'flop' : 'turn', nb = street === 'flop' ? 3 : 4;
+      // (M7, S3-01) 드로우 변형은 턴만: 턴의 '다음 1장'은 마지막 카드(리버)라 다음 1장 기준 계산이 정확히 맞는다. 플랍은 다음 1장 19%만 보고
+      //   '폴드'를 정답으로 가르치면 큰 드로우를 과하게 접는 습관이 되고, 레슨의 '모자란 몫은 임플라이드 오즈로 채워요'와 어긋난다.
+      //   기본 변형은 난수 소비 그대로(드로우일 때만 이 호출을 건너뛴다).
+      var street = drawVar ? 'turn' : (rnd() < 0.5 ? 'flop' : 'turn'), nb = street === 'flop' ? 3 : 4;
       var board = _draw(rnd, nb, {});
       if (!board) return null;
       var hero = _heroFrom(sc.hero, _deadMap(board), rnd);
@@ -1081,6 +1110,15 @@ var GenPostflop = (function() {
     }
     var s2 = '필요 승률 ' + _num(s.toCall) + ' ÷ (' + _num(s.potTotal) + '+' + _num(s.toCall) + ') = ' + _pct(need) + '% → ' +
       (call ? '콜' : '폴드') + '.' + (flop ? ' 리버 카드와 그 뒤 벳(임플라이드 오즈)은 계산에 없어요.' : '');
+    // (M7, PZ-03) 플랍 폴드 정답인데 턴과 리버 2장을 다 본 승률이 필요 승률을 넘으면, 이 규칙이 '다음 1장 기준'일 뿐임을 숨기지 않는다
+    //   (큰 드로우도 팟 벳엔 접으라는 일반화 방지). 올인처럼 두 장을 끝까지 보는 스팟이면 콜이 맞을 수 있다는 조건부 문장.
+    if (flop && !call && s.range && Array.isArray(s.range.combos)) {
+      var e2 = null;
+      try { e2 = equityTwoCards(s.hero, s.board, s.range.combos); } catch (e) { e2 = null; }
+      if (e2 && e2.eq - need >= 0.02) {   // 반올림해도 차이가 보이는 만큼 넘을 때만
+        s2 += ' 이 문제는 다음 1장만 보는 규칙이라 폴드지만, 턴과 리버 2장을 끝까지 본다면 내 승률이 ' + _pct(e2.eq) + '%로 필요 승률을 넘어요. 올인처럼 두 장을 끝까지 보는 스팟이면 콜이 맞을 수 있어요.';
+      }
+    }
     return { line: s1 + ' ' + s2, lines: [s1, s2], label: LABEL_EXACT,
       scene: { hero: s.hero, board: s.board, ring: { potTotal: s.potTotal, toCall: s.toCall, eq: d.eq } } };
   }
@@ -1103,9 +1141,9 @@ var GenPostflop = (function() {
   }
 
   var api = {
-    gens: gens, META: META, MARGIN: MARGIN, BOTH_BAND: BOTH_BAND, MARG_FRACS: MARG_FRACS, VALID_IDS: VALID_IDS, CLASS_WEATHER: CLASS_WEATHER, CLASS_HEIGHT: CLASS_HEIGHT,
+    gens: gens, META: META, MARGIN: MARGIN, BOTH_BAND: BOTH_BAND, BOTH_EV_MAX: BOTH_EV_MAX, MARG_FRACS: MARG_FRACS, VALID_IDS: VALID_IDS, CLASS_WEATHER: CLASS_WEATHER, CLASS_HEIGHT: CLASS_HEIGHT,
     topHeight: topHeight, heightOf: heightOf, axesOf: axesOf, classifyIndep: _classifyIndep, axesIndep: _axesIndep,
-    equityVsCombos: equityVsCombos, equityMultiway: equityMultiway, equityNextCard: equityNextCard,
+    equityVsCombos: equityVsCombos, equityMultiway: equityMultiway, equityNextCard: equityNextCard, equityTwoCards: equityTwoCards,
     cardText: cardText, classCombos: _classCombos,
     _scoreOf: _scoreOf, _eqMultiFast: _eqMultiFast, _nextFast: _nextFast, _itemOf: _itemOf, _coachAction: _coachAction, _coachInfo: _coachInfo, _coachVerdict: _coachVerdict
   };

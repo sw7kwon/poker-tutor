@@ -442,13 +442,52 @@ var PuzzleModes = (function() {
     return !!q && Array.isArray(q.options) && q.options.length >= 2 && q.confidence !== 'approx' && !q.appDef && (!q.ui || q.ui === 'choice');
   }
   // Puzzles.daily5가 정본(M2-P1). 없을 때만 같은 규칙(프리플랍 2, 수학 1, 그 외 2, exact/chart, noReview, 날짜 시드)으로 직접 만든다.
-  function dailyList(day, stage) {
+  // M7 FLOW-06: 레슨을 하나도 끝내지 않은 S1 사용자(그냥 시작한 첫날 등)의 데일리 5는 아직 배우지 않은 S2 유형(아웃츠, 프리플랍 레인지,
+  // 팟 오즈)을 묻지 않고 지금 단계 유형만 낸다. 상태를 모르면(Journey.nodes 없음) 건드리지 않는다.
+  function _beginner() {
+    var s = _call('Journey', 'load');
+    if (!s || typeof s !== 'object' || !s.nodes || typeof s.nodes !== 'object') return false;
+    if (_num(s.stage, 1) > 1) return false;
+    return !Object.keys(s.nodes).some(function(id) {
+      var r = s.nodes[id];
+      return !!r && ((r.lesson && r.lesson.done) || r.status === 'passed');
+    });
+  }
+  function _qsig(q) { return [q.type, q.key == null ? '' : q.key, q.prompt, JSON.stringify(q.answer)].join('|'); }
+  // Puzzles.daily5 결과에서 지금 단계보다 높은 유형을 빼고, 모자란 칸은 지금 단계 유형으로 채운다(날짜 시드 결정론)
+  function _stageOnly(P, day, stage, arr) {
+    var keep = arr.filter(function(q) { var mt = _meta(q.type) || {}; return !(isFinite(mt.stage) && mt.stage > stage); });
+    if (keep.length >= DAILY_N || !keep.length || typeof P.next !== 'function' || typeof P.types !== 'function') return keep.length ? keep : arr;
+    var cand = [];
+    try { cand = (P.types() || []).slice().sort(); } catch (e) { cand = []; }
+    cand = cand.filter(function(t) {
+      var mt = _meta(t) || {};
+      if (mt.confidence === 'approx' || mt.appDef || mt.rated === false) return false;
+      return isFinite(mt.stage) && mt.stage <= stage && _usable(t);
+    });
+    if (!cand.length) return keep;
+    var rnd = _rng(_dailySeed(day) ^ 0x5bd1e995), seen = {};
+    var used = {};
+    keep.forEach(function(q) { seen[_qsig(q)] = true; used[q.type] = (used[q.type] || 0) + 1; });
+    for (var tries = 0; keep.length < DAILY_N && tries < DAILY_N * 8; tries++) {
+      // 아직 덜 쓴 유형부터(같은 유형만 몰리지 않게), 같으면 날짜 시드 난수로
+      var least = Math.min.apply(null, cand.map(function(x) { return used[x] || 0; }));
+      var pool = cand.filter(function(x) { return (used[x] || 0) === least; });
+      var t = pool[Math.floor(rnd() * pool.length) % pool.length];
+      var q = null;
+      try { q = P.next(t, rnd, { stage: stage, noReview: true, daily: true }); } catch (e) { q = null; }
+      if (_d5ok(q) && !seen[_qsig(q)]) { seen[_qsig(q)] = true; used[q.type] = (used[q.type] || 0) + 1; keep.push(q); }
+    }
+    return keep;
+  }
+  function dailyList(day, stage, beginner) {
     var P = _P(); if (!P) return [];
     var raw = null;
     if (typeof P.daily5 === 'function') {
       try { raw = P.daily5(day, stage, { noReview: true }); } catch (e) { _warn('Puzzles.daily5', e); raw = null; }
       var arr = Array.isArray(raw) ? raw : (raw && (raw.items || raw.list || raw.qs)) || [];
-      return arr.filter(_d5ok).slice(0, DAILY_N);
+      arr = arr.filter(_d5ok).slice(0, DAILY_N);
+      return beginner ? _stageOnly(P, day, stage, arr).slice(0, DAILY_N) : arr;
     }
     if (typeof P.next !== 'function' || typeof P.types !== 'function') return [];
     var rnd = _rng(_dailySeed(day));
@@ -457,7 +496,7 @@ var PuzzleModes = (function() {
     cand = cand.filter(function(t) {
       var mt = _meta(t) || {};
       if (mt.confidence === 'approx' || mt.appDef || mt.rated === false) return false;
-      if (isFinite(mt.stage) && mt.stage > stage + 1) return false;
+      if (isFinite(mt.stage) && mt.stage > stage + (beginner ? 0 : 1)) return false;
       return _usable(t);
     });
     var byG = { preflop: [], math: [], other: [] };
@@ -499,7 +538,7 @@ var PuzzleModes = (function() {
     opts = opts || {};
     var U = _UI();
     var now0 = _num(opts.now, _now()), day = dayKey(now0), stage = _stage(opts);
-    var list = (U && typeof U.run === 'function') ? dailyList(day, stage) : [];
+    var list = (U && typeof U.run === 'function') ? dailyList(day, stage, _beginner()) : [];
     if (!list.length) return _soon(opts);
     var status = daily5Status(now0);
     // 이미 완주한 날: 결과 카드부터(다시 풀기는 연습, 점수와 레이팅에 반영 안 함)
@@ -548,6 +587,7 @@ var PuzzleModes = (function() {
         if (first) {
           var d = _call('Journey', 'dayRecord', now0);
           if (d && typeof d === 'object') { d.daily5 = { score: sc, grades: data.grades.slice() }; _save(); }
+          _call('Journey', 'noteActivity', now0, Math.round(list.length * 25 / 6) / 10);   // M7 FLOW-07: 스트릭과 오늘 분(홈 카드에서 한 데일리 5도 활동)
           var bonus = _xp('daily5', _xpConst('daily5', 15));
           if (sc === 100) bonus += _xp('daily5Perfect', _xpConst('daily5Perfect', 10));
           r.xp += bonus; S.xp += bonus;

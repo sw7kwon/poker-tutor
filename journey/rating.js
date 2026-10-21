@@ -6,7 +6,11 @@
 //   label(rating?) -> '1000?' (RD가 100을 넘으면 잠정 표시 '?')
 //   record(q, ok, now, opts) -> bool: 첫 시도이고 Puzzles.isRated(q)일 때만 pending에 {pr, prd:50, s}를 넣는다.
 //     재도전, 같은 핸드 연습, 2번째 이후 시도, 복습(q.review, Puzzles.fromKey가 붙인다)은 넣지 않는다.
-//   commit(now) -> {r, rd, delta, n, changed}: 세트 1회 = 레이팅 기간 1회. pending이 비면 아무것도 바꾸지 않는다.
+//   commit(now) -> {r, rd, delta, n, changed, capped}: 세트 1회 = 레이팅 기간 1회. pending이 비면 아무것도 바꾸지 않는다.
+//     (M7, 결정 33) 잠정 구간(RD가 100을 넘는 동안, 곧 첫 두세 세트)의 세트 1회 변화는 +-350으로 자른다(capped). 자르면 RD를 150 밑으로
+//     내리지 않아 '?'가 남는다. 조사 결과 산식 버그가 아니다: Glicko-2는 RD 350인 새 선수가 자기 레이팅보다 한참 높은 문항 10개를 8개 맞히면
+//     (1500에서 문항 1900대) 논문 산식대로 2600대로 간다. 원인은 시작값이 실력 단계보다 낮은 것(배치 3단계 1500으로 시작한 채 S5 문항을 풂)이라
+//     레이팅 기록이 없는 동안(n 0)은 현재 단계 기준값(JOURNEY_STAGES.baseRating) 아래로 두지 않는다(_seedStage, 배치와 승급 모두 같은 규칙).
 // 저장 위치는 poker_journey.rating(Journey.load/save, typeof 가드). Journey가 없으면 메모리 상태로 돈다.
 // 로드 시 DOM, window, localStorage 접근 없음.
 var Rating = (function() {
@@ -18,6 +22,9 @@ var Rating = (function() {
   var MAX_RD = 350;
   var R_MIN = 100, R_MAX = 3000;  // 저장 값 안전 범위(update 자체는 순수 그대로, commit만 가둔다)
   var DEF = { r: 1000, rd: 350, vol: 0.06 };
+  var SET_CAP = 350;              // (M7, 결정 33) 잠정 구간(RD > PROVISIONAL_RD)에서 세트 1회 레이팅 변화 상한(+-)
+  var CAPPED_RD = 150;            // 상한에 걸린 세트 뒤 RD 하한(아직 수렴 전)
+  var STAGE_BASE = [1000, 1250, 1500, 1750, 2000, 2250];   // JOURNEY_STAGES가 없을 때의 단계 기준값(3.2절)
   var PENDING_CAP = 60;           // 세트를 끝내지 않고 쌓인 pending 상한(오래된 것부터 버림)
   var HISTORY_CAP = 400;          // 하루 1줄(같은 날은 마지막 값으로 덮음), 1년 넘게 보관
 
@@ -122,13 +129,38 @@ var Rating = (function() {
     if (!Array.isArray(rt.history)) rt.history = [];
     return rt;
   }
+  // 단계 n의 기준 레이팅(JOURNEY_STAGES.baseRating, 없으면 설계서 3.2절 표)
+  function _stageBase(n) {
+    n = Math.floor(_num(n, NaN));
+    if (!isFinite(n) || n < 1) return null;   // 단계를 모르면 시드하지 않는다
+    n = Math.min(n, STAGE_BASE.length);
+    var list = (typeof JOURNEY_STAGES !== 'undefined' && Array.isArray(JOURNEY_STAGES)) ? JOURNEY_STAGES : null;
+    if (list) {
+      for (var i = 0; i < list.length; i++) if (list[i] && list[i].n === n && typeof list[i].baseRating === 'number') return list[i].baseRating;
+    }
+    return STAGE_BASE[n - 1];
+  }
+  // (M7, 결정 33) 레이팅 기록이 아직 없으면(n 0) 현재 단계 기준값보다 낮게 두지 않는다. 배치 고사 결과 단계(placement.apply가 같은 값을 넣음)와
+  // 보스로 올라간 단계 모두 같은 규칙. 기록이 있으면 건드리지 않고, 기준값보다 높게 시작한 값도 그대로. 바뀌었으면 true
+  function _seedStage(st, rt) {
+    if (rt.n > 0 || !_isObj(st)) return false;
+    var base = _stageBase(st.stage);
+    if (base == null || !(base > rt.r)) return false;
+    rt.r = base;
+    return true;
+  }
   // { st, rt, J }: st는 저장 대상 객체(Journey 상태 또는 메모리), rt = st.rating
   function _ctx() {
     var J = _J();
     if (J) {
       try {
         var st = J.load();
-        if (_isObj(st)) { st.rating = _fix(st.rating); return { st: st, rt: st.rating, J: J }; }
+        if (_isObj(st)) {
+          st.rating = _fix(st.rating);
+          var c = { st: st, rt: st.rating, J: J };
+          if (_seedStage(st, st.rating)) _save(c);   // 저장해 두어 다른 화면이 Journey 상태를 직접 읽어도 같은 값
+          return c;
+        }
       } catch (e) { _warn(e); }
     }
     if (!_mem) _mem = { rating: _fix(null) };
@@ -205,9 +237,14 @@ var Rating = (function() {
       return { r: rt.r, rd: rt.rd, delta: 0, n: rt.n, changed: false };
     }
     var res = update({ r: rt.r, rd: rt.rd, vol: rt.vol }, games);
-    var before = rt.r;
-    rt.r = Math.max(R_MIN, Math.min(R_MAX, res.r));
-    rt.rd = Math.min(MAX_RD, res.rd);
+    var before = rt.r, next = res.r, capped = false;
+    // (M7, 결정 33) 잠정 구간(RD > 100)에서는 세트 1회 변화를 +-350으로 자른다. 자르면 아직 수렴 전이라 RD를 150 밑으로 내리지 않는다
+    if (rt.rd > PROVISIONAL_RD) {
+      if (next > before + SET_CAP) { next = before + SET_CAP; capped = true; }
+      else if (next < before - SET_CAP) { next = before - SET_CAP; capped = true; }
+    }
+    rt.r = Math.max(R_MIN, Math.min(R_MAX, next));
+    rt.rd = Math.min(MAX_RD, capped ? Math.max(res.rd, CAPPED_RD) : res.rd);
     rt.vol = res.vol;
     rt.n += games.length;
     rt.pending = [];
@@ -217,7 +254,7 @@ var Rating = (function() {
     else rt.history.push(row);
     if (rt.history.length > HISTORY_CAP) rt.history.splice(0, rt.history.length - HISTORY_CAP);
     _save(c);
-    return { r: rt.r, rd: rt.rd, delta: rt.r - before, n: rt.n, changed: true };
+    return { r: rt.r, rd: rt.rd, delta: rt.r - before, n: rt.n, changed: true, capped: capped };
   }
 
   function pending() { return _ctx().rt.pending.length; }
@@ -228,7 +265,8 @@ var Rating = (function() {
   function _resetMemory() { _mem = null; }
 
   var api = {
-    TAU: TAU, EPS: EPS, SCALE: SCALE, ITEM_RD: ITEM_RD, PROVISIONAL_RD: PROVISIONAL_RD,
+    TAU: TAU, EPS: EPS, SCALE: SCALE, ITEM_RD: ITEM_RD, PROVISIONAL_RD: PROVISIONAL_RD, SET_CAP: SET_CAP, CAPPED_RD: CAPPED_RD,
+    stageBase: _stageBase,
     update: update, current: current, label: label, record: record, commit: commit, pending: pending,
     _setSource: _setSource, _resetMemory: _resetMemory
   };

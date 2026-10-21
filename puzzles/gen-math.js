@@ -281,7 +281,7 @@ var GenMath = (function() {
     if (flushN) parts.push(SUIT_KOR[fs] + ' ' + flushN + '장');
     rankOrder.forEach(function(r) { parts.push(_rankKor(r) + '(' + ranks[r] + '장)'); });
     var txt = parts.join(' + ');
-    if (flushN && rankOrder.length) txt += '(' + rankOrder.map(_rankKor).join(', ') + '의 ' + SUIT_KOR[fs] + '는 플러시에 이미 셈)';
+    if (flushN && rankOrder.length) txt += '(' + rankOrder.map(_rankKor).join(', ') + '의 ' + SUIT_KOR[fs] + (fs === 'c' ? '은' : '는') + ' 플러시에 이미 셈)';   // 받침 있는 '클럽'만 '은'(M7 S2-07)
     return txt;
   }
 

@@ -84,7 +84,8 @@ var PreflopDrill = (function() {
 
   function prompt(sp) {
     if (sp.kind === 'rfi') return '6인 100bb | 당신 ' + sp.pos + ' | 앞 전원 폴드';
-    if (sp.kind === 'vsRfi') return (sp.opener || '상대') + '이(가) 2.5bb 오픈 → 당신 ' + sp.pos;
+    // 오픈 크기는 이 앱 AI 상대와 같게(ai/villain.js): BTN 2.5bb, 나머지 3bb. 오프너를 모르면 예전 표기(2.5bb) 그대로
+    if (sp.kind === 'vsRfi') return (sp.opener || '상대') + '이(가) ' + ((!sp.opener || sp.opener === 'BTN') ? '2.5bb' : '3bb') + ' 오픈 → 당신 ' + sp.pos;
     return '당신 ' + sp.pos + ' 오픈 → 3벳을 맞음';
   }
 

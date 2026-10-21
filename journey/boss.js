@@ -545,8 +545,17 @@ var Boss = (function() {
   }
 
   // ── 조건 10종 ──────────────────────────────────────────
-  // pattern: { pattern, max, window? | minOpp?, filter? }. window = 최근 핸드 수, minOpp = 최근 기회 수(미달이면 보류)
+  // pattern: { pattern, max, window? | minOpp?, filter?, ref? }. window = 최근 핸드 수, minOpp = 최근 기회 수(미달이면 보류)
+  //   ref = 참고 표시(통과 미반영, light와 같은 처리: item.ref, label 뒤 '(참고, 통과 조건 아님)'). 가이드 휴리스틱 패턴(S6 마스터 시험)이 쓴다.
   function _pattern(c, ctx) {
+    var it = _patternCore(c, ctx);
+    if (c && c.ref && it) {
+      it.ref = true;
+      if (it.label) it.label += '(참고, 통과 조건 아님)';
+    }
+    return it;
+  }
+  function _patternCore(c, ctx) {
     var soon = _soonFilter(c.filter);
     if (soon) return _pendingItem(c, soon + ' 기록 "' + _patternLabel(c.pattern) + '"');
     var pl = '"' + _patternLabel(c.pattern) + '"';
@@ -934,8 +943,8 @@ var Boss = (function() {
       return h >= 1 && h <= maxH && (from == null || (isFinite(t) && t >= from));
     }).length;
     var it = { kind: 'custom', fn: 'shortSession', opp: null, count: k, ok: k >= min,
-      label: '스스로 일찍 끝낸 세션(' + maxH + '핸드 이하)', have: k + '번', need: min + '번' };
-    if (!it.ok) it.why = '게임 중 세션 종료 버튼으로 ' + maxH + '핸드 안에 세션을 끝내 보세요(멈출 신호를 느꼈다고 치고 연습)';
+      label: '스스로 일찍 끝낸 세션(' + maxH + '핸드 분량 전)', have: k + '번', need: min + '번' };
+    if (!it.ok) it.why = '게임 중 세션 종료 버튼으로 ' + maxH + '핸드 분량이 끝나기 전에 세션을 끝내 보세요(멈출 신호를 느꼈다고 치고 연습)';
     return it;
   }
 
@@ -1445,7 +1454,7 @@ var Boss = (function() {
     if (c.kind === 'pattern') {
       var where = c.window ? '최근 ' + c.window + '핸드' : (c.minOpp ? '최근 기회 ' + c.minOpp + '번' : '최근 ' + DEFAULT_WINDOW + '핸드');
       var mx = _num(c.max, 0);
-      return where + ((c.filter && c.filter.pos) ? '(' + _list(c.filter.pos) + ')' : '') + '에서 "' + _patternLabel(c.pattern) + '" ' + mx + '회' + (mx > 0 ? ' 이하' : '');
+      return where + ((c.filter && c.filter.pos) ? '(' + _list(c.filter.pos) + ')' : '') + '에서 "' + _patternLabel(c.pattern) + '" ' + mx + '회' + (mx > 0 ? ' 이하' : '') + (c.ref ? ', 참고 표시(통과 조건 아님)' : '');
     }
     if (c.kind === 'light') {
       var toks = (_arr(c.light).length ? _arr(c.light) : ['green']).map(function(t) { return LIGHT_LABEL[t] || t; }).join(' 또는 ');
@@ -1461,7 +1470,7 @@ var Boss = (function() {
     if (c.kind === 'hands') return _num(c.min, 0) + '핸드 체험';
     if (c.kind === 'drillSet' || c.kind === 'puzzleSet') return _arr(c.type).map(_typeName).join(', ') + ' ' + c.count + '문항 중 ' + c.pass + '개 이상' + (c.tol ? '(콤보 수 ±' + c.tol + ' 허용)' : '');
     if (c.kind === 'custom' && c.fn === 'luckMeterViews') return '운 미터 카드 ' + _num(c.min, 1) + '번 열어 보기';
-    if (c.kind === 'custom' && c.fn === 'shortSession') return '세션 종료 버튼으로 ' + _num(c.maxHands, 5) + '핸드 안에 스스로 끝낸 세션 ' + _num(c.min, 1) + '번';
+    if (c.kind === 'custom' && c.fn === 'shortSession') return '세션 종료 버튼으로 ' + _num(c.maxHands, 5) + '핸드 분량이 끝나기 전에 스스로 끝낸 세션 ' + _num(c.min, 1) + '번';
     if (c.kind === 'identify') {
       var need = _idNeed(nd, c);
       return '숨은 좌석 ' + need.seats + '곳' + (need.min < need.seats ? ' 중 ' + need.min + '곳' : '') + '의 유형 맞히기(좌석마다 관찰 ' + need.full + '핸드 뒤' +
@@ -1512,6 +1521,23 @@ var Boss = (function() {
     return { nd: nd, st: st, rec: rec, active: _activeFor(st, id), other: (_isObj(b.active) && b.active.node !== id) ? b.active : null,
       last: b.last[id] || null, wait: retryWait(id, now), sup: supported(nd) };
   }
+  // 최종 단계(마지막 승급 시험) 여부: JOURNEY_STAGES의 가장 큰 n
+  function _isLastStage(stage) {
+    var S = _m('JOURNEY_STAGES'), mx = 0;
+    if (Array.isArray(S)) S.forEach(function(s) { if (s && s.n > mx) mx = s.n; });
+    return mx > 0 && stage >= mx;
+  }
+  // 마지막 단계 통과 뒤 엔드게임 안내(FLOW-05): 이제부터 도는 고리(주간 리포트, 다시 풀기, 실전, 챌린지와 시즌)
+  function _endgameHTML() {
+    var li = [
+      '월요일마다 📅 주간 리포트에서 지난주 비싼 실수 Top 3를 찾아요',
+      '🧩 다시 풀기로 그 핸드를 같은 카드로 다시 쳐서 고쳐요(1일, 3일, 7일, 21일 뒤에 다시 나와요)',
+      '🃏 6인 실전에서 고친 결정을 써요. 상대는 내 습관에 맞춰 조금씩 달라져요(설정에서 끌 수 있어요)',
+      '🗓 주간 챌린지와 월간 시즌 퀘스트가 매주, 매달 새로 열려요'
+    ];
+    return '<div class="j-crit"><div class="j-crit-t">여기부터는 엔드게임 루프예요</div><ul>' +
+      li.map(function(t) { return '<li>' + _esc(t) + '</li>'; }).join('') + '</ul></div>';
+  }
   function viewHTML(id, opts) {
     opts = opts || {};
     var now = _now(opts.now);
@@ -1526,6 +1552,7 @@ var Boss = (function() {
         '<div class="j-wrap-line">' + _esc(nd.title + ' 통과' + (res.promoted ? '. S' + res.promoted + ' ' + _stageName(res.promoted) + ' 단계가 열렸어요' : '')) + '</div>' +
         '<div class="j-wrap-stats"><span>+' + _bossXp() + ' XP</span>' +
         (res.opened && res.opened.length ? '<span>새 노드 ' + res.opened.length + '개</span>' : '') + '</div></div>');
+      if (nd.kind === 'boss' && _isLastStage(stage)) body.push(_endgameHTML());
       body.push(_statusHTML(res.eval, '통과한 기준'));
       body.push(_acts([_btn('여정 홈으로', 'Boss.home()', true)]));
       return '<div class="j-sub">' + _top(nd) + body.join('') + '</div>';
@@ -1754,7 +1781,13 @@ var Boss = (function() {
   // ── 숨은 좌석 유형 맞히기(M6-BOSS, 계약 H4, H8, H9) ──────
   var _idDraft = null;       // { node, key, guesses: { 좌석 이름: 분류 } }(화면에서 고른 것, 제출 전)
   var _idJudge = null;       // { node, res } 맞히기 제출로 보스 시험까지 통과한 판정(결과 화면 버튼)
-  function _afTxt(o) { if (!o.aggr && !o.calls) return '-'; return o.calls ? String(_r1(o.aggr / o.calls)) : '콜 없음'; }
+  // AF 표기(로드맵 결정 30): 트래커 HUD와 같은 함수(VillainTracker.afText)를 쓴다. 없으면 같은 규칙의 복사본
+  function _afTxt(o) {
+    var V = _m('VillainTracker');
+    if (V && typeof V.afText === 'function') return V.afText(o.aggr, o.calls);
+    if (!o.aggr && !o.calls) return '-';
+    return o.calls ? String(_r1(o.aggr / o.calls)) : '콜 없음';
+  }
   function _obsTxt(o) {
     if (!o || !o.n) return '아직 관찰 0핸드';
     return '관찰 ' + o.n + '핸드: VPIP ' + Math.round(o.vpip / o.n * 100) + '%, PFR ' + Math.round(o.pfr / o.n * 100) + '%, AF ' + _afTxt(o);
@@ -1879,8 +1912,8 @@ var Boss = (function() {
       '<div class="j-block-t">' + _esc(need.seats > 1 ? '숨은 좌석 ' + need.seats + '곳 중 ' + need.min + '곳 이상 맞히기' : '숨은 손님 1명의 유형 맞히기') + '</div>' +
       '<div class="j-block-d">' + _esc((mix ? '이 테이블에는 ' + mix + '이 앉아 있어요(누가 누구인지는 비밀). 좌석끼리 숫자를 나란히 비교해 보세요. '
         : '아래 같은 테이블 캐스트(성향을 아는 상대)의 누적 숫자와 나란히 비교해 보면 쉬워요. ') +
-        'VPIP는 팟에 들어온 비율, PFR이 VPIP보다 한참 낮으면 콜 위주(패시브), AF가 높으면 벳과 레이즈가 많아요. 피시와 콜링 스테이션은 같은 루즈-패시브예요.' +
-        _idRuleTxt()) + '</div></div>');
+        'VPIP는 팟에 들어온 비율, PFR이 VPIP보다 한참 낮으면 콜 위주(패시브), AF가 높으면 벳과 레이즈가 많아요. 햇살과 콜마스터처럼 콜이 많은 상대는 둘 다 루즈-패시브예요.' +
+        _idRuleTxt() + ' 100핸드 안팎에서는 정석과 루즈-공격의 경계가 자주 바뀌어요.') + '</div></div>');
     if (!asg) {
       body.push('<div class="j-card"><div class="j-card-t">아직 숨은 좌석을 본 적이 없어요</div><div class="j-card-d">' + _esc(nd.kind === 'boss'
         ? '승급 시험을 시작하고 숨은 테이블에서 실전을 치면 관찰이 쌓여요.'

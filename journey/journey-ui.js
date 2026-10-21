@@ -61,7 +61,7 @@ var JourneyUI = (function() {
     settings: '⚙ 설정', rush: '⚡ 퍼즐 러시', theater: '🎭 속마음 극장' };
   var HABITS = [ { id: '출근길', text: '출근길에' }, { id: '점심 후', text: '점심 먹고' }, { id: '자기 전', text: '자기 전에' } ];
   var SETTINGS_KEY = 'poker_journey_settings';
-  var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서
+  var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges', 'BackupUI'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서. BackupUI는 M7 P5(용량 90% 경고, 월간 백업 카드)
   var SUMMARY_HOME = '↩ 여정 홈으로';                        // (M6-P0, 계약 H11 d) 빠른 줄 자유 게임 세션 요약 정적 버튼
 
   var _inited = false;
@@ -78,6 +78,7 @@ var JourneyUI = (function() {
   var _habitDraft = null;   // 설정 카드에서 고른 습관(저장 전)
   var _origin = false;      // 빠른 줄(자유 게임, 리뷰)로 여정 홈에서 나감: 그 흐름의 "메뉴로"는 더보기 대신 여정 홈으로
   var _passToastAt = null;  // 마지막으로 알린 Journey 자동 통과(lastPass().at)
+  var _homeDay = null;      // 홈을 마지막으로 그린 날짜 키(M7 TIME-04: 백그라운드에서 날짜가 바뀐 채 돌아오면 다시 그린다)
 
   // ── 공용 헬퍼 ──────────────────────────────────────────
   function _m(name) { var o = G[name]; return (o && (typeof o === 'object' || typeof o === 'function')) ? o : null; }
@@ -290,8 +291,23 @@ var JourneyUI = (function() {
       html = _fallbackHTML();
     }
     v.innerHTML = html;
+    _homeDay = _dayKey(_now());
     // (M6-P0, 계약 H11 c) 홈을 그린 뒤 배지 깜짝 해금 확인(COLLECT). 예외는 경고만 남기고 홈은 그대로
     if (_can('Badges', 'onHome')) _call('Badges', 'onHome', _now());
+  }
+
+  // (M7 TIME-04, FLOW-04) 설치형 PWA가 백그라운드에 살아 있는 채 날짜가 바뀐 뒤 앞으로 오면 홈은 그릴 때의 날짜 HTML 그대로라
+  // 어제 기준 카드(주간 챌린지 남은 날, 데일리 5 완료 표시, 오늘 링)가 남는다. 순수 판정: 홈이고 시트가 닫혀 있고 날짜가 바뀌었을 때만 true.
+  function needsRefresh(prevDay, now, cur, sheet) {
+    return !!prevDay && cur === 'home' && !sheet && prevDay !== _dayKey(now);
+  }
+  function _onVisible() {
+    try {
+      if (typeof document !== 'undefined' && document.visibilityState && document.visibilityState !== 'visible') return;
+      if (!_screenActive()) return;                                              // 게임, 레슨 등 다른 화면은 건드리지 않음
+      if (_can('TodayUI', 'running') && _call('TodayUI', 'running')) return;    // 오늘의 5분 진행 중
+      if (needsRefresh(_homeDay, _now(), _cur, _sheetId)) render();
+    } catch (e) { _warn('날짜 넘김 복귀', e); }
   }
 
   function _fallbackHTML() {
@@ -303,12 +319,13 @@ var JourneyUI = (function() {
 
   function homeHTML(s) { return _homeHTML(s || state()); }   // 순수 문자열(테스트, 하네스용)
   function _homeHTML(s) {
-    var sm = summary(s);
+    var sm = summary(s), pc = providerCards(s);
     return '<div class="j-home">' + _topHTML(s, sm) +
       '<section class="j-today-area" aria-label="오늘의 학습">' + (needFirstCard(s) ? firstCard() : _todayBtnHTML(s)) + '</section>' +
+      _topCardsHTML(pc) +
       '<section class="j-map" aria-label="여정 지도">' + renderMap(_mapModel(s), true) + '</section>' +
       _quickHTML() +
-      '<section class="j-cards" aria-label="알림 카드">' + _cardsHTML(s, sm) + '</section>' +
+      '<section class="j-cards" aria-label="알림 카드">' + _cardsHTML(s, sm, pc) + '</section>' +
       '</div>';
   }
 
@@ -329,7 +346,7 @@ var JourneyUI = (function() {
           '<span class="j-badge-txt"><b class="j-badge-t">' + _esc(sm.title) + '</b><span class="j-badge-s">S' + sm.stage + ' ' + _esc(st.name) + '</span></span>' +
         '</div>' +
         '<div class="j-stats">' +
-          '<span class="j-stat j-streak" title="마지막 활동 후 36시간 안에 블록 1개면 이어져요" aria-label="연속 ' + sm.streak + '일">🔥<b>' + sm.streak + '</b>일</span>' +
+          '<span class="j-stat j-streak" title="하루에 활동 1개(오늘의 5분 블록, 레슨, 퍼즐, 6인 실전 핸드, 극장)면 이어져요(시간대 이동은 36시간까지 봐줘요)" aria-label="연속 ' + sm.streak + '일">🔥<b>' + sm.streak + '</b>일</span>' +
           '<span class="j-stat j-freeze" title="공백을 메워 주는 프리즈(최대 2개)" aria-label="프리즈 ' + sm.freezes + '개">❄<b>' + sm.freezes + '</b></span>' +
           '<span class="j-ring" role="img" aria-label="오늘 목표 ' + goal + '분 중 ' + _fmtMin(mins) + '분">' +
             '<svg viewBox="0 0 40 40" width="40" height="40" aria-hidden="true"><circle cx="20" cy="20" r="17" class="j-ring-bg"/>' +
@@ -528,9 +545,9 @@ var JourneyUI = (function() {
 
   // (5) 카드 영역: 공급자 강조 카드(M6, H11 a), 첫 완주 뒤 설정 카드, (월요일 강조면) 주간 리포트, 데일리 5, 공급자 카드(시즌, 미니시즌,
   //     배지 순), 오늘의 명장면, 주간 리포트, 실력 확인(건너뛴 경우), 월초 백업 안내
-  function _cardsHTML(s, sm) {
+  function _cardsHTML(s, sm, pc) {
     var out = [];
-    var pc = providerCards(s);
+    pc = pc || providerCards(s);
     out = out.concat(pc.emph);   // (M6-P0, H11 a) 공급자 강조 카드는 카드 영역 맨 앞
     var sc = settingsCard();
     if (sc) out.push(sc);
@@ -548,7 +565,8 @@ var JourneyUI = (function() {
         '<div class="j-card-d">이미 아는 단계는 10문제 확인으로 건너뛸 수 있어요(한 번만).</div>' +
         '<div class="j-card-acts"><button type="button" class="j-btn" onclick="JourneyUI.view(\'placement\')">실력 확인</button></div></div>');
     }
-    if (sm.xp > 0 && new Date(_now()).getDate() <= 7 && _can('BackupUI', 'open')) {
+    // 월초 백업 안내: BackupUI.homeCard(공급자, M7 P5)가 있으면 그쪽이 월간 백업 카드를 맡으므로 이 카드는 생략한다(중복 방지)
+    if (sm.xp > 0 && new Date(_now()).getDate() <= 7 && _can('BackupUI', 'open') && !_can('BackupUI', 'homeCard')) {
       out.push('<div class="j-card"><div class="j-card-t">💾 이번 달 기록 백업</div>' +
         '<div class="j-card-d">기록은 이 기기에만 있어요. 한 달에 한 번 파일로 남겨 두면 안심이에요.</div>' +
         '<div class="j-card-acts"><button type="button" class="j-btn" onclick="BackupUI.open()">백업하기</button></div></div>');
@@ -558,6 +576,8 @@ var JourneyUI = (function() {
 
   // (M6-P0, 계약 H11 a) 카드 영역 공급자: CARD_PROVIDERS 순으로 M.homeCard(state, now) → { html, emph? } | null.
   // typeof 가드, 예외나 html이 빈 문자열이면 그 카드만 뺀다. emph 카드는 카드 영역 맨 앞, 나머지는 데일리 5 카드 뒤(공급자 순서 유지).
+  // (M7 통합 검증) top: true 카드(저장 공간 경고)는 out.top(있을 때만 키가 생김)에 모아 카드 영역이 아니라 오늘의 5분 바로 아래(지도 위)에
+  //   그린다. 카드 영역은 지도 아래라 폰 첫 화면에 보이지 않아, 기록이 저장되지 않을 수 있다는 경고를 스크롤해야 볼 수 있던 것.
   function providerCards(s) {
     var out = { emph: [], rest: [] }, now = _now();
     s = s || state();
@@ -567,9 +587,14 @@ var JourneyUI = (function() {
       var c = null;
       try { c = M.homeCard(s, now); } catch (e) { _warn(name + '.homeCard', e); return; }
       if (!c || typeof c !== 'object' || typeof c.html !== 'string' || !c.html) return;
+      if (c.top) { (out.top = out.top || []).push(c.html); return; }
       (c.emph ? out.emph : out.rest).push(c.html);
     });
     return out;
+  }
+  function _topCardsHTML(pc) {
+    var list = (pc && pc.top) || [];
+    return list.length ? '<section class="j-cards j-cards-top" aria-label="중요 알림" style="margin:12px 0">' + list.join('') + '</section>' : '';
   }
 
   // 📅 주간 리포트 카드(M5-WEEKLY): WeeklyView.cardInfo(ReviewQueue, now)가 내용이 있다고 할 때만. 없으면 빈 문자열(홈 출력 그대로).
@@ -938,7 +963,10 @@ var JourneyUI = (function() {
     }
     if (nd.mission && !passed) {
       var canM = _can('App', 'selectVillains') && _can('Journey', 'startSession');
-      btns.push(_actBtn(canM, 'mission', nd.id, '🃏 실전 시작(5핸드씩)', canM ? '' : '실전 미션은 곧 열려요'));
+      // (M7 통합 검증) 레슨은 끝났지만(예전 커리큘럼 기록 이전 등) 앞 노드를 아직 통과하지 않은 노드는 실전 핸드가 미션에 쌓이지 않는다
+      // (Journey.onHandEnd는 가용 노드에만 센다). 60핸드를 쳐도 '실전 0/50핸드'로 남던 것을 버튼 단계에서 막고 이유를 보인다
+      var openIds = _call('Journey', 'openNodes'), availM = !Array.isArray(openIds) || openIds.indexOf(nd.id) >= 0;
+      btns.push(_actBtn(canM && availM, 'mission', nd.id, '🃏 실전 시작(5핸드씩)', !canM ? '실전 미션은 곧 열려요' : (availM ? '' : '먼저 위 노드를 통과하면 실전 핸드가 쌓여요')));
     }
     return '<div class="j-acts">' + btns.join('') + '</div>';
   }
@@ -1366,6 +1394,8 @@ var JourneyUI = (function() {
     else if (go === 'game') quick('game');
   }
   if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('load', init);
+  if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', _onVisible);
+  if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('pageshow', _onVisible);
 
   var api = {
     init: init, open: open, resume: resume, render: render, renderMap: renderMap, openNode: openNode, closeSheet: closeSheet,
@@ -1375,7 +1405,7 @@ var JourneyUI = (function() {
     state: state, save: save, summary: summary, status: status, node: node, needFirstCard: needFirstCard, needSettingsCard: needSettingsCard,
     curriculumFor: curriculumFor, missionConfig: missionConfig, checkPass: checkPass, hasPending: hasPending, watchReturn: watchReturn,
     canDo: canDo, nextDoable: nextDoable,
-    xp: _xp, dayKey: _dayKey,
+    xp: _xp, dayKey: _dayKey, needsRefresh: needsRefresh, _onVisible: _onVisible,
     // M2-P7 연결(순수 문자열과 판정: 테스트, 하네스, 다른 패키지용)
     homeHTML: homeHTML, ratingChip: ratingChip, gearButton: gearButton, daily5Card: daily5Card,
     puzzleSpec: puzzleSpec, viewRoute: viewRoute,

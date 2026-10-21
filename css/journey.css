@@ -309,7 +309,13 @@ html.reduce-motion .j-toast { transition: none; }
 .lp-soon span { font-size: .84rem; color: var(--text-dim); }
 .lp-cap { font-size: 1rem; line-height: 1.55; min-height: 3.1em; color: var(--text); }
 /* 밑줄은 text-decoration 대신 테두리(장면을 바꿀 때 점선 잔상이 남는 Chromium 다시 그리기 문제 회피) */
-.lp-term { border-bottom: 2px dotted var(--gold); padding-bottom: 1px; cursor: help; }
+.lp-term { border-bottom: 2px dotted var(--gold); padding-bottom: 1px; cursor: help; position: relative; pointer-events: auto; }
+/* 글줄 속 낱말은 줄 높이를 못 키우므로 보이지 않는 영역으로 누를 곳을 44px 이상(위아래 12, 좌우 16)으로 넓힌다(M7-P2).
+   넓힌 영역은 문단 안 맨 아래 층(z-index -1)에 두고 문단 글자는 누르기를 통과시킨다: 낱말 글자 위를 누르면 언제나 그 낱말이 열리고
+   (이웃 낱말의 넓힌 영역이 앞 낱말 글자를 덮어 'UTG'를 눌렀는데 'HJ' 풀이가 뜨던 문제), 글자 없는 곳과 보통 글자 위만 가까운 낱말로 간다.
+   문단 밖을 누르면 지금처럼 장면(다음으로 넘기기)이 받는다. */
+.lp-cap, .lp-say p, .lp-sum p { position: relative; z-index: 0; pointer-events: none; }
+.lp-term::after { content: ""; position: absolute; left: -16px; right: -16px; top: -12px; bottom: -12px; z-index: -1; }
 .lp-term:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 /* 하단 엄지 영역 */
@@ -356,12 +362,20 @@ body:has(#screen-journey.active .lp) .j-toast { bottom: auto; top: calc(64px + e
 }
 html.reduce-motion .lp-scene { animation: none; }
 html.reduce-motion .lp-opt:active:not([aria-disabled="true"]) { transform: none; }
-/* 데스크톱: 하단 고정 대신 내용 아래. 가로 화면은 55vh가 낮아(768px에서 422px) 13x13 격자 끝 줄과 범례가 잘리므로
-   장면 영역을 화면 높이에서 위 줄, 캡션, 버튼 몫(260px)을 뺀 만큼까지 늘린다(55vh보다 작아지지는 않음). */
+/* 데스크톱: 하단 고정 대신 내용 아래. 세로 560px 미만의 폰 가로(915x412)는 하단 고정을 유지한다(다음 버튼이 화면 아래로 밀려 스크롤해야 보이던 문제, M7-P2). */
 @media (min-width: 761px) and (orientation: landscape), (min-width: 1024px) {
   .lp { min-height: 0; }
-  .lp-scene { max-height: max(55vh, calc(100vh - 260px)); max-height: max(55dvh, calc(100dvh - 260px)); }
+}
+@media (min-width: 761px) and (orientation: landscape) and (min-height: 560px), (min-width: 1024px) {
   .lp-foot { position: static; background: none; padding-top: 6px; }
+}
+/* 결정 31(M7-P2): 장면 최대 55vh는 모바일(폰 세로, 폰 가로)에서만 유지한다. 가로 900px 이상이고 세로가 600px 이상인 화면은
+   55vh가 낮아(768px에서 422px) 13x13 격자 끝 줄과 범례가 잘리므로, 레슨 칸(.lp)을 화면 높이까지만 두고 장면이 남는 높이를
+   스스로 차지하게 한다(장면은 내용만큼만 자라고, 남는 높이를 넘으면 장면 안에서 스크롤). 위 줄, 캡션, 버튼 몫을 따로 빼지 않는다. */
+@media (min-width: 900px) and (min-height: 600px) {
+  .lp { max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); }
+  .lp-stage { flex: 1 1 auto; min-height: 0; }
+  .lp-scene { flex: 0 1 auto; min-height: 0; max-height: none; }
 }
 
 /* M4 통합 검증: 홈의 오늘의 명장면은 요약(제목, 보드, 팟), 전체 카드는 '자세히 보기' 창(TheaterUI.showCard) */

@@ -46,8 +46,10 @@ var CoachUI = (function() {
     _st = s;
     return s;
   }
+  var _unsaved = false;   // 마지막 저장이 실패함(저장소 없음, 용량 초과): 메모리 상태만 최신이라 _reload로 버리지 않는다(M7 DATA-01)
   function _save() {
-    try { if (typeof localStorage !== 'undefined') localStorage.setItem(KEY, JSON.stringify(_st)); } catch (e) {}
+    _unsaved = true;
+    try { if (typeof localStorage !== 'undefined') { localStorage.setItem(KEY, JSON.stringify(_st)); _unsaved = false; } } catch (e) {}
   }
 
   // ── 순수 함수 ──
@@ -643,6 +645,18 @@ var CoachUI = (function() {
 
   if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('load', _init);
 
+  // M7 DATA-01: 다른 창이 poker_coach를 저장했을 수 있다(같은 출처 창은 localStorage 공유). 이미 읽어 둔 상태는 저장소에서 다시 읽어
+  // 오래된 메모리 상태가 다른 창의 레벨과 반복 실수 기록을 덮어쓰지 않게 한다. _st는 null로 두지 않는다(여러 곳이 바로 참조).
+  // 진행 중인 결정/힌트 상태(_awaiting, _hintUsed, _ctx)는 메모리 그대로 둔다.
+  function _reload() { if (_st && !_unsaved) { _st = null; _load(); _syncSelect(); } }
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('storage', function(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) _reload(); });
+    window.addEventListener('pageshow', function(e) { if (e && e.persisted) _reload(); });
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') _reload(); });
+  }
+
   var api = {
     viewFor: viewFor, nextLevel: nextLevel, potOddsChoices: potOddsChoices, eqBucket: eqBucket,
     checklist: checklist, explainLines: explainLines, verdictText: verdictText, lossLabel: lossLabel,
@@ -650,7 +664,7 @@ var CoachUI = (function() {
     onNewHand: onNewHand, beforeDecision: beforeDecision, afterDecision: afterDecision,
     onHandEnd: onHandEnd, currentGoal: currentGoal, showHint: showHint, setLevel: setLevel,
     snapshot: snapshot, restore: restore,
-    handleKey: handleKey, _pick: _pick
+    handleKey: handleKey, _pick: _pick, _reload: _reload
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

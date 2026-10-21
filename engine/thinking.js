@@ -21,7 +21,8 @@ var Thinking = (function() {
   var RANKS = '23456789TJQKA';
   var INTENT_KOR = {
     value: '밸류', bluff: '블러프', semibluff: '세미블러프', 'pot-control': '팟컨트롤',
-    'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정'
+    'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정',
+    curious: '찍어 보는 콜'   // M7 TH-05: 맞은 게 없는데 호기심이나 감으로 받는 콜(팟 오즈로 정당화되는 콜이 아님)
   };
   var GRADE_KOR = { premium: '프리미엄', good: '좋음', spec: '투기적', weak: '약함' };
   var STREET_KOR = { preflop: '프리플랍', flop: '플랍', turn: '턴', river: '리버' };
@@ -173,6 +174,35 @@ var Thinking = (function() {
     return MADE_NAME[t] || (s === 'nut' ? '넛급 손' : '강한 손');
   }
 
+  // 다음 1장으로 스트레이트 이상이 되는 카드의 비율(정수 %). 레슨 s2-07 아웃츠와 같은 정의(lessons/lesson-core.js outsOf):
+  //   남은 덱 중 한 장이 더해져 스트레이트 이상이 되는 카드, 턴 보드(4장)에 리버를 더한 5장만으로 같은 족보면(보드 플레이) 뺀다.
+  //   보드 3~4장이 아니거나 이미 스트레이트 이상이면 null. 드로우 콜 속마음의 '필요 승률 vs 바로 맞을 확률' 비교에 쓴다(M7 TH-04).
+  //   toEnd(올인을 받는 콜)이고 플랍이면 턴과 리버 두 장 중 한 장이라도 맞을 확률 1 - (1 - o/n)(1 - o/(n-1))(레슨 s2-07 '2장' 정확값과 같은 식).
+  var _STRAIGHT = 6;
+  function _hitPct(hole, board, toEnd) {
+    if (typeof HandEval === 'undefined' || !HandEval || !hole || hole.length < 2 || !board || (board.length !== 3 && board.length !== 4)) return null;
+    var known = hole.concat(board), cur = HandEval.evaluate(known);
+    if (!cur || cur.type <= _STRAIGHT) return null;
+    var used = {}, outs = 0, unseen = 0, i, j;
+    known.forEach(function(c) { used[_cardKey(c)] = true; });
+    for (i = 0; i < RANKS.length; i++) for (j = 0; j < SUITS.length; j++) {
+      var c = { rank: RANKS.charAt(i), suit: SUITS[j] };
+      if (used[_cardKey(c)]) continue;
+      unseen++;
+      var ev = HandEval.evaluate(known.concat([c]));
+      if (!ev || ev.type > _STRAIGHT) continue;
+      if (board.length + 1 >= 5) {
+        var bv = HandEval.evaluate(board.concat([c]));
+        if (bv && HandEval.compareHands(ev, bv) === 0) continue;
+      }
+      outs++;
+    }
+    if (!unseen) return null;
+    var p = outs / unseen;
+    if (toEnd && board.length === 3 && unseen > 1) p = 1 - (1 - outs / unseen) * (1 - outs / (unseen - 1));
+    return Math.round(p * 100);
+  }
+
   // ── 말버릇(꼬리말) ──
   // 의도 묶음: go(밸류), bluff(블러프, 세미블러프), wait(콜, 체크, 함정), stop(포기)
   var TAILS = {
@@ -264,6 +294,18 @@ var Thinking = (function() {
       '강한 손을 숨기고 콜. 뒤에서 레이즈가 나오면 그때 올린다.',
       '여기선 조용히 콜만 하자. 강한 손인 걸 들키면 안 돼.'
     ],
+    // M7 TH-03: 프리미엄 손의 일반 콜(극장 계획의 슬로플레이 플랫이 아닌 것). 함정이 아니라 팟을 적당히 유지하는 콜
+    callPremium: [
+      function(c) { return c.gk + ' 손이지만 여기선 콜. 더 올리면 약한 손은 접고 더 센 손만 남아.'; },
+      function(c) { return c.gk + ' 손, 레이즈 대신 콜로 팟을 적당히 유지하자.'; },
+      '좋은 손이지만 지금 올리면 상대 레인지만 좁아져. 콜로 플랍을 본다.'
+    ],
+    // M7 TH-02: 올인을 마주한 콜(더 걸 칩도 숨길 것도 없다)
+    callAllin: [
+      function(c) { return '올인이다. ' + c.gk + ' 손이면 받아야지. 콜.'; },
+      function(c) { return _ro(c.gk + ' 손') + ' 올인도 받는다. 앞서 있을 때가 많아.'; },
+      function(c) { return c.gk + ' 손. 올인이지만 이 정도면 콜이야.'; }
+    ],
     callFish: [
       '카드 두 장이 예뻐 보여. 그냥 궁금해서 콜~',
       '이 손 왠지 맞을 것 같아. 콜~',
@@ -310,7 +352,9 @@ var Thinking = (function() {
     ],
     valueRiver: [
       function(c) { return '리버, ' + _j(c.h, '이면', '면') + ' 더 약한 손이 콜해 줄 때 받아내야지. ' + c.aw + '.'; },
-      function(c) { return _ro(c.h) + ' 마지막 ' + c.aw + '. 쇼다운까지 가면 내가 이길 때가 많아.'; },
+      // M7 TH-07: '이길 때가 많아'는 강한 손(셋, 스트레이트, 플러시 이상)일 때만. 탑페어 같은 중간 손은 더 약한 손이 받아 줘야 이득
+      function(c) { return c.made ? _ro(c.h) + ' 마지막 ' + c.aw + '. 쇼다운까지 가면 내가 이길 때가 많아.'
+        : _ro(c.h) + ' 마지막 ' + c.aw + '. 더 약한 손이 받아 주면 이득, 더 센 손이면 어쩔 수 없어.'; },
       function(c) { return '리버에서 ' + _j(c.h, '이라', '라') + ' 밸류 ' + c.aw + '. 빗나간 손은 접어도 페어들은 따라올 거야.'; }
     ],
     weakBet: [
@@ -358,6 +402,17 @@ var Thinking = (function() {
       function(c) { return '리버에서 ' + c.h + '. 레이즈로 겁주기보다 콜로 확실히 이기자.'; },
       function(c) { return _j(c.h, '이면', '면') + ' 이 벳은 받아야지. 콜로 쇼다운.'; }
     ],
+    // M7 TH-02: 강한 손으로 올인을 받는 콜. 더 받아낼 스트리트도, 숨기거나 레이즈할 선택도 없다(함정 문장 금지)
+    callAllin: [
+      function(c) { return '올인이다. ' + _j(c.h, '이면', '면') + ' 앞서 있을 때가 많아. 콜.'; },
+      function(c) { return _ro(c.h) + ' 올인을 받는다. 더 걸 칩이 없으니 이 콜이 곧 밸류야.'; },
+      function(c) { return c.h + '. 올인 콜, 이제는 카드가 정한다.'; }
+    ],
+    callAllinRiver: [
+      function(c) { return '리버 올인이다. ' + _j(c.h, '이면', '면') + ' 앞서 있을 때가 많아. 콜.'; },
+      function(c) { return _ro(c.h) + ' 올인을 받는다. 마지막 카드까지 왔으니 쇼다운이야.'; },
+      function(c) { return '올인이다. ' + c.h + ', 숨길 것도 없이 그냥 콜.'; }
+    ],
     // Fish 에어 콜: 모든 변형에 '궁금해서 콜'(기존 단언 tests/p8-thinking.test.js 유지)
     callFishAir: [
       '맞은 건 없지만 그냥 궁금해서 콜~',
@@ -374,15 +429,33 @@ var Thinking = (function() {
       '맞은 건 없어. 그래도 상대 이야기가 이상해. 한 번 잡아 본다.',
       '아무것도 없지만 상대 블러프만 이기면 돼. 콜.'
     ],
+    // M7 TH-04: 필요 승률이 다음 1장으로 맞힐 확률(c.hit, 레슨 아웃츠와 같은 정의)보다 높으면 '가격이 괜찮다'고 말하지 않는다.
+    //   그때는 맞으면 크게 받아낼 거라는 기대(임플라이드 오즈)로 콜한다고 쉬운 말로 풀어 준다.
     callDrawFlop: [
-      function(c) { return c.need ? c.h + ' 남았어. 필요 승률 ' + c.need + '%라 콜하고 다음 카드 보자.' : null; },
+      function(c) { return (c.need && c.hit != null && c.need <= c.hit) ? c.h + ' 남았어. 필요 승률 ' + c.need + '%라 콜하고 다음 카드 보자.' : null; },
       function(c) { return _ro(c.h) + ' 콜. 맞으면 크게 이길 수 있어.'; },
-      function(c) { return '아직 미완성 ' + c.h + '. 가격이 괜찮으니 따라간다.'; }
+      function(c) { return c.hit != null && c.need && c.need <= c.hit ? '아직 미완성 ' + c.h + '. 가격이 괜찮으니 따라간다.' : '아직 미완성 ' + c.h + '. 다음 카드에 맞으면 크게 받아낼 수 있으니 따라간다.'; },
+      function(c) { return (c.need && c.hit != null && c.need > c.hit) ? c.h + '. 필요 승률 ' + c.need + '%인데 바로 맞을 확률은 ' + c.hit + '%쯤이라 가격은 비싸. 맞으면 크게 받는다고 보고 콜.' : null; }
     ],
     callDrawTurn: [
-      function(c) { return c.need ? '리버 한 장 남았어. ' + _ro(c.h) + ' 필요 승률 ' + c.need + '%면 콜.' : null; },
-      function(c) { return c.h + ', 한 장에 맞혀야 해. 가격 보고 콜.'; },
-      function(c) { return '턴에서도 ' + c.h + '. 마지막 카드 하나 보자. 콜.'; }
+      function(c) { return (c.need && c.hit != null && c.need <= c.hit) ? '리버 한 장 남았어. ' + _ro(c.h) + ' 필요 승률 ' + c.need + '%면 콜.' : null; },
+      function(c) { return c.hit != null && c.need && c.need <= c.hit ? c.h + ', 한 장에 맞혀야 해. 가격 보고 콜.' : c.h + ', 한 장에 맞혀야 해. 맞으면 크게 받는다고 보고 콜.'; },
+      function(c) { return '턴에서도 ' + c.h + '. 마지막 카드 하나 보자. 콜.'; },
+      function(c) { return (c.need && c.hit != null && c.need > c.hit) ? '리버 한 장 남았어. ' + c.h + ', 필요 승률 ' + c.need + '%인데 맞힐 확률은 ' + c.hit + '%쯤이라 비싼 콜이야. 맞으면 크게 받는다고 보고 콜.' : null; }
+    ],
+    // M7 리뷰(TH-04 후속): 올인을 받는 드로우 콜. 더 받아낼 칩이 없어 '맞으면 크게 받는다'는 말이 성립하지 않는다.
+    //   레슨 s2-07처럼 올인이면 남은 카드 전부(플랍이면 턴과 리버 두 장)로 맞힐 확률 c.hit과 필요 승률 c.need만 견준다.
+    //   c.left는 '남은 두 장에'(플랍) 또는 '리버 한 장에'(턴). 가격이 맞으면(c.need <= c.hit) 이 풀, 아니면 callDrawAllinPricey
+    callDrawAllin: [
+      function(c) { return (c.need && c.hit != null) ? '올인이다. ' + c.h + ', ' + c.left + ' 맞힐 확률 ' + c.hit + '%쯤이라 필요 승률 ' + c.need + '%보다 높아. 콜.' : null; },
+      function(c) { return c.hit != null ? _ro(c.h) + ' 올인을 받는다. 더 받아낼 칩은 없지만 ' + c.left + ' 맞힐 확률 ' + c.hit + '%쯤이면 가격은 맞아.' : null; },
+      function(c) { return c.need ? '올인 콜. 이제 ' + _j(c.h, '이', '가') + ' 맞느냐에 달렸어. 필요 승률 ' + c.need + '%면 해 볼 만해.' : null; }
+    ],
+    // 올인을 받는데 가격이 안 맞는 드로우 콜: 팟 오즈로 정당화되는 콜이 아니라 찍어 보는 콜(의도 curious)
+    callDrawAllinPricey: [
+      function(c) { return (c.need && c.hit != null) ? '올인이다. ' + c.h + ', ' + c.left + ' 맞힐 확률은 ' + c.hit + '%쯤인데 필요 승률은 ' + c.need + '%. 비싸지만 한번 걸어 본다.' : null; },
+      function(c) { return _ro(c.h) + ' 올인을 받는다. 더 받아낼 칩도 없고 가격도 비싸지만 맞으면 이 팟을 가져온다.'; },
+      function(c) { return '가격은 안 맞아. 그래도 ' + c.h + '에 걸어 본다. 올인 콜.'; }
     ],
     callMid: [
       function(c) { return c.need ? _j(c.h, '이면', '면') + ' 블러프는 이긴다. 필요 승률 ' + c.need + '% 정도면 콜.' : null; },
@@ -441,6 +514,17 @@ var Thinking = (function() {
       function(c) { return '여기까지 조용히 숨겼어. 이제 ' + _ro(c.h) + ' ' + c.aw + '.'; },
       function(c) { return '숨겨 둔 ' + _j(c.h, '을', '를') + ' 꺼낼 때야. ' + c.aw + '.'; },
       function(c) { return '끝까지 약한 척했으니 상대는 모를 거야. ' + _ro(c.h) + ' ' + c.aw + '.'; }
+    ],
+    // M7 TH-06: 밸류 극대화 계획이 강한 손으로 벳을 맞고 레이즈 대신 콜하는 걸음(슬로플레이 함정 문장이 아니라 '더 받아내려고 지금은 콜')
+    callValueWait: [
+      function(c) { return _j(c.h, '이라', '라') + ' 이번엔 콜. 상대가 계속 쳐 주면 그게 더 큰 밸류야.'; },
+      function(c) { return _ro(c.h) + ' 콜. 레이즈는 다음 스트리트에 더 크게.'; },
+      function(c) { return '지금 올리면 접을 손도 한 번 더 치게 두자. ' + _ro(c.h) + ' 콜.'; }
+    ],
+    callValueWaitRiver: [
+      function(c) { return '리버, ' + _j(c.h, '이라', '라') + ' 콜. 레이즈하면 더 약한 손은 다 접을 거야.'; },
+      function(c) { return _ro(c.h) + ' 쇼다운까지 간다. 더 약한 손이 따라오게 두는 것도 밸류야.'; },
+      function(c) { return '마지막 카드까지 왔어. ' + _ro(c.h) + ' 받으면 충분히 이겨.'; }
     ],
     // 블러프캐치: 먼저 치지 않고 상대 벳을 받을 생각
     checkCatch: [
@@ -510,7 +594,9 @@ var Thinking = (function() {
     'vm-bet': { act: 'aggro', intent: 'value', pool: _valuePool },
     'vm-raise': { act: 'aggro', intent: 'value', pool: _valuePool },
     'vm-reraise': { act: 'aggro', intent: 'value', pool: _valuePool },
-    'vm-call': { act: 'call', gen: true, keep: { trap: true, 'call-odds': true } },
+    // M7 TH-06: 강한 손의 콜은 '밸류' 문장(함정 문장에 '밸류 극대화' 꼬리표가 붙던 모순 제거). 중간 손은 기존 규칙 그대로(pool이 null이면 gen으로)
+    'vm-call': { act: 'call', intent: 'value', pool: function(s, pst) { return (s === 'nut' || s === 'strong') ? _riv('callValueWait')(s, pst) : null; },
+      gen: true, keep: { trap: true, 'call-odds': true } },
     'bf-bet': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return _HAS_HAND[s] && s !== 'weak-pair' ? _valuePool(s, pst, x) : null; } },
     'bf-fold': { act: 'fold', intent: 'give-up', pool: function(s, pst, x) { return x.bet ? 'foldPlan' : null; } },
     'pc-small': { act: 'aggro', intent: 'pot-control', pool: function(s) { return _HAS_HAND[s] ? 'smallBet' : null; } },
@@ -537,9 +623,13 @@ var Thinking = (function() {
     var label = String(pl.kor || pl.key || '');
     if (!label) return null;
     if (d.tag) label += ' ' + d.tag;   // 계획 안의 멈춤(3배럴 블러프 멈춤)
-    if (d.gen) return d.keep && d.keep[gen.intent] ? { intent: gen.intent, pool: gen.pool, conf: gen.conf, label: label } : null;
-    var pool = typeof d.pool === 'function' ? d.pool(s, pst, x) : d.pool;
-    if (!pool || !PO[pool]) return null;
+    // pool과 gen이 함께 있으면(vm-call) pool이 이름을 주는 손에서는 pool, 아니면 기존 규칙(gen)
+    var pool = null;
+    if (d.pool) {
+      pool = typeof d.pool === 'function' ? d.pool(s, pst, x) : d.pool;
+      if ((!pool || !PO[pool]) && !d.gen) return null;
+    }
+    if (d.gen && !(pool && PO[pool])) return d.keep && d.keep[gen.intent] ? { intent: gen.intent, pool: gen.pool, conf: gen.conf, label: label } : null;
     var made = s === 'nut' || s === 'strong';
     return { intent: d.intent, pool: pool, conf: d.intent === 'give-up' ? 'mid' : (made ? 'high' : 'mid'), label: label };
   }
@@ -551,8 +641,18 @@ var Thinking = (function() {
     return '벳';
   }
 
-  // 프리플랍 상황 → { intent, pool, conf }
-  function _preflopCase(type, g, action) {
+  // 올인을 마주했는가(M7 TH-02): 이 콜이 곧 내 올인(콜 금액이 내 스택 이상)이거나, 마지막으로 벳/레이즈한 상대의 스택이 0.
+  //   state는 액션 직전 상태(극장 코어의 before, 게임의 액션 전 상태, 퍼즐 상태)라 stacks와 lastRaiser가 그 순간 값이다.
+  function _facingAllin(state, name, toCall) {
+    if (!(toCall > 0) || !state) return false;
+    var st = state.stacks || {}, mine = st[name], lr = state.lastRaiser;
+    if (typeof mine === 'number' && toCall >= mine - 1e-9) return true;
+    return !!(lr && lr !== name && typeof st[lr] === 'number' && st[lr] <= 1e-9);
+  }
+
+  // 프리플랍 상황 → { intent, pool, conf }. x { flat: 극장 AI의 슬로플레이 플랫 걸음, allin: 올인 직면 }
+  function _preflopCase(type, g, action, x) {
+    x = x || {};
     if (action === 'fold') return { intent: 'give-up', pool: (g === 'premium' || g === 'good') ? 'foldGood' : 'foldWeak', conf: 'mid' };
     if (_isAggro(action)) {
       if (g === 'premium' || g === 'good') return { intent: 'value', pool: 'raiseValue', conf: g === 'premium' ? 'high' : 'mid' };
@@ -560,7 +660,12 @@ var Thinking = (function() {
       return { intent: 'bluff', pool: 'raiseWeak', conf: 'low' };
     }
     if (action === 'call') {
-      if (g === 'premium') return { intent: 'trap', pool: 'callTrap', conf: 'high' };
+      // M7 TH-02, TH-03: 올인 직면 콜은 밸류, 프리미엄의 일반 콜은 팟컨트롤, 함정은 극장 AI가 일부러 슬로플레이 플랫을 한 걸음만
+      if (g === 'premium') {
+        if (x.allin) return { intent: 'value', pool: 'callAllin', conf: 'high' };
+        if (x.flat) return { intent: 'trap', pool: 'callTrap', conf: 'high' };
+        return { intent: 'pot-control', pool: 'callPremium', conf: 'mid' };
+      }
       if (type === 'Fish' && g === 'weak') return { intent: 'call-odds', pool: 'callFish', conf: 'low' };
       return { intent: 'call-odds', pool: 'call', conf: 'mid' };
     }
@@ -569,7 +674,8 @@ var Thinking = (function() {
   }
 
   // 포스트플랍 상황 → { intent, pool, conf }
-  function _postflopCase(type, s, action, pst, wet) {
+  function _postflopCase(type, s, action, pst, wet, x) {
+    x = x || {};
     var river = pst === 'river', turn = pst === 'turn';
     var made = s === 'nut' || s === 'strong';
     if (action === 'fold') return { intent: 'give-up', pool: river ? 'foldRiver' : 'fold', conf: 'mid' };
@@ -580,9 +686,14 @@ var Thinking = (function() {
       return { intent: 'bluff', pool: river ? 'bluffRiver' : turn ? 'bluffTurn' : 'bluffFlop', conf: 'low' };
     }
     if (action === 'call') {
+      // M7 TH-02: 올인을 받는 강한 손의 콜은 함정이 아니라 밸류(더 받아낼 스트리트도 레이즈할 선택도 없다)
+      if (made && x.allin) return { intent: 'value', pool: river ? 'callAllinRiver' : 'callAllin', conf: 'high' };
       if (made) return { intent: 'trap', pool: river ? 'callTrapRiver' : 'callTrap', conf: 'high' };
-      if (s === 'air' && type === 'Fish') return { intent: 'call-odds', pool: 'callFishAir', conf: 'low' };
-      if (s === 'air') return { intent: 'call-odds', pool: river ? 'callAirRiver' : 'callAir', conf: 'low' };
+      // M7 TH-05: 맞은 게 없는 콜은 '팟 오즈 콜'이 아니라 '찍어 보는 콜'(꼬리말 묶음은 기다림)
+      if (s === 'air' && type === 'Fish') return { intent: 'curious', pool: 'callFishAir', conf: 'low' };
+      if (s === 'air') return { intent: 'curious', pool: river ? 'callAirRiver' : 'callAir', conf: 'low' };
+      // M7 리뷰: 올인을 받는 드로우는 남은 카드 전부로 맞힐 확률과 필요 승률만 견준다(가격이 맞으면 팟 오즈 콜, 아니면 찍어 보는 콜)
+      if (s === 'draw' && x.allin) return x.priced ? { intent: 'call-odds', pool: 'callDrawAllin', conf: 'mid' } : { intent: 'curious', pool: 'callDrawAllinPricey', conf: 'low' };
       if (s === 'draw') return { intent: 'call-odds', pool: turn ? 'callDrawTurn' : 'callDrawFlop', conf: 'mid' };
       return { intent: 'call-odds', pool: river ? 'callMidRiver' : 'callMid', conf: 'mid' };
     }
@@ -627,12 +738,17 @@ var Thinking = (function() {
     var r, body;
     if (board.length < 3 || street === 'preflop') {
       var g = preflopGrade(hole);
-      r = _preflopCase(type, g, action);
+      r = _preflopCase(type, g, action, { allin: action === 'call' && _facingAllin(state, name, toCall),
+        flat: !!(opts.plan && typeof opts.plan === 'object' && opts.plan.step === 'pf-flat') });
       body = _fromPool(PF[r.pool], { gk: GRADE_ADJ[g], where: p.pos ? p.pos + '에서 ' : '', aw: aw }, pick);
     } else {
       var s = strength(hole, board);
       var wet = _isWet(board);
-      r = _postflopCase(type, s, action, pst, wet);
+      var allin = action === 'call' && _facingAllin(state, name, toCall);
+      var needPct = need > 0 ? Math.round(need * 100) : null;
+      // 드로우 콜의 적중률: 올인이 아니면 다음 1장(TH-04), 올인이면 남은 카드 전부(M7 리뷰, 레슨 s2-07 x4와 x2 구분)
+      var hit = (s === 'draw' && action === 'call' && pst !== 'river') ? _hitPct(hole, board, allin) : null;
+      r = _postflopCase(type, s, action, pst, wet, { allin: allin, priced: needPct != null && hit != null && needPct <= hit });
       // 극장 계획 걸음이면 계획에 맞는 풀과 꼬리표(opts.plan은 극장 코어만 넘긴다)
       var pl = (opts.plan && typeof opts.plan === 'object' && opts.plan.step) ? opts.plan : null;
       if (pl) {
@@ -642,7 +758,9 @@ var Thinking = (function() {
       var c = {
         h: _handTxt(hole, board, s),
         tex: pst === 'river' ? '' : (wet ? '보드에 드로우가 많아' : '보드가 드라이해서'),
-        aw: aw, need: need > 0 ? Math.round(need * 100) : null
+        aw: aw, need: needPct,
+        made: s === 'nut' || s === 'strong',
+        hit: hit, left: board.length === 3 ? '남은 두 장에' : '리버 한 장에'
       };
       body = _fromPool(PO[r.pool], c, pick);
     }
@@ -850,6 +968,9 @@ var Thinking = (function() {
   //   합쳐 유형 x 읽기 키 x 스트리트마다 실제 강도(truthGrade) 분포를 쟀다. 칸 표본이 15개 미만이면 유형을 합친 같은 키와 스트리트
   //   (NEUTRAL 줄과 같음)를 쓴다. 칸의 가장 흔한 등급을 읽기로 쓰고, 그 비율이 45% 미만이면 읽지 않는다(readOf가 null, 극장에서는
   //   읽기 줄과 배지가 없다). 결과: 은행 읽기 약 78%만 남고 그중 오독 약 30%(은행 밖 같은 점수대 시드로 검증하면 약 34%).
+  //   M7 재측정(2026-10-21, TH-01로 체크레이즈 함정이 탑페어와 오버페어에서 빠져 극장 AI가 바뀜): 같은 방법으로 새 은행 500편(읽기 3266건)과
+  //   은행 밖 100001~200000 중 점수 78 이상 477편(읽기 3131건)을 다시 쟀다. 예전 표를 새 AI에 그대로 쓰면 이 표본에서 오독 31.8%(은행 60편 표본은
+  //   35.5%로 한도 초과)였고, 새 표로는 읽는 비율 약 73%에 오독 약 27%다. 체크레이즈는 이제 강한 손이 대부분(플랍 S63~81)이라 읽기가 강함으로 모인다.
   //   유형, 액션, 크기, 스트리트, 같은 스트리트의 앞 액션까지 봐도 같은 장면에서 실제 손이 넓게 퍼져서(계획이 손을 숨긴다)
   //   모든 장면을 읽으면 오독이 36% 아래로 내려가지 않는다.
   // 읽기 키: allin, raise, betBig, betSmall, call(게임 표와 같은 뜻)에 같은 스트리트 앞 액션(opts.prev)으로 둘을 더 나눈다.
@@ -863,32 +984,32 @@ var Thinking = (function() {
   var THEATER_MIN_P = 45;
   var THEATER_READ_SRC = {
     TAG: {
-      allin: 'S63 S64 S86', checkraise: 'S53 S53 a92', raise: 's34 S80 S88', betBig: 'w43 S75 S96',
-      betSmall: 'W53 w38 M100', betcall: 'W66 S68 S60', call: 'M56 s40 S66'
+      allin: 'S67 S67 S91', checkraise: 'S79 S67 a90', raise: 's44 S81 S90', betBig: 'a35 S73 S96',
+      betSmall: 'w36 m34 M100', betcall: 'w44 S59 S64', call: 'M53 s44 S66'
     },
     LAG: {
-      allin: 'S63 S50 S60', checkraise: 'M61 S48 a100', raise: 's28 S80 S72', betBig: 'w40 w43 S83',
-      betSmall: 'A51 A48 M100', betcall: 'W71 W54 S68', call: 's42 S50 S57'
+      allin: 'S67 S67 S66', checkraise: 'S74 S70 a94', raise: 's31 S81 S77', betBig: 's35 w42 S84',
+      betSmall: 'A53 a44 M68', betcall: 'W62 W52 S75', call: 's33 S61 S49'
     },
     Fish: {
-      allin: 'S63 S60 S86', checkraise: 'M60 M51 a92', raise: 's35 S80 S95', betBig: 'W73 S60 S100',
-      betSmall: 'W69 S65 M70', betcall: 'W72 S66 S82', call: 'm38 s43 S64'
+      allin: 'S67 S67 S90', checkraise: 'S63 S58 a90', raise: 'S50 S81 S94', betBig: 'W63 S66 S100',
+      betSmall: 'W54 s44 M64', betcall: 'W58 S65 S83', call: 'm39 S45 S54'
     },
     Nit: {
-      allin: 'S63 S64 S89', checkraise: 'M59 S57 a92', raise: 's34 S80 S96', betBig: 'W62 S81 S100',
-      betSmall: 'M76 w38 M80', betcall: 'M45 S67 S81', call: 'S67 S57 S57'
+      allin: 'S67 S67 S96', checkraise: 'S81 S86 a90', raise: 's44 S81 S100', betBig: 'W52 S81 S100',
+      betSmall: 'M75 m34 M68', betcall: 'S53 S73 S88', call: 'S60 S79 S50'
     },
     Mixed: {
-      allin: 'S63 S64 S78', checkraise: 'M65 S45 a87', raise: 's34 S80 S88', betBig: 'W47 s44 S94',
-      betSmall: 'W50 W53 M53', betcall: 'W83 S52 S75', call: 'S50 S64 m44'
+      allin: 'S67 S67 S84', checkraise: 'S75 S71 a87', raise: 's44 S81 S90', betBig: 'w43 w41 S94',
+      betSmall: 'w44 m40 S65', betcall: 'W78 s43 S80', call: 'S46 S74 M53'
     },
     Station: {
-      allin: 'S63 S64 S93', checkraise: 'M52 M52 a92', raise: 'm41 S80 S96', betBig: 'W83 S69 S100',
-      betSmall: 'W82 w43 M84', betcall: 'W73 S53 S76', call: 'w39 s39 S49'
+      allin: 'S67 S67 S97', checkraise: 'S80 S65 a90', raise: 'w41 S81 S96', betBig: 'W77 S74 S100',
+      betSmall: 'W71 M49 M76', betcall: 'W71 S54 S82', call: 'w40 s41 s43'
     },
     NEUTRAL: {
-      allin: 'S63 S64 S81', checkraise: 'M57 S48 a92', raise: 's34 S80 S90', betBig: 'W62 S51 S95',
-      betSmall: 'W51 w38 M80', betcall: 'W71 S55 S75', call: 'm36 s44 S57'
+      allin: 'S67 S67 S86', checkraise: 'S74 S67 a90', raise: 's44 S81 S91', betBig: 'W52 S51 S95',
+      betSmall: 'w43 m34 M68', betcall: 'W61 S53 S79', call: 'm37 S48 S50'
     }
   };
   var THEATER_LETTER = { S: 'strong', M: 'medium', W: 'weak', A: 'air' };
@@ -1191,11 +1312,12 @@ var Thinking = (function() {
       }
       if (rg) examples = rangeExamples(rg.arr, { board: board, dead: hero, grades: grades, seed: exSeed });
       keys.hand = (s === 'nut' || s === 'strong') ? 'value' : (s === 'medium' || s === 'weak-pair') ? 'medium' : s === 'draw' ? 'draw' : 'air';
-      hand = '내 손: ' + _label('hand', keys.hand) + ' (' + (wet ? '웻보드' : '드라이보드') + ', 에쿼티 ' + eqPct + '%)';
+      hand = '내 손: ' + _label('hand', keys.hand) + ' (' + (wet ? '웨트 보드' : '드라이 보드') + ', 에쿼티 ' + eqPct + '%)';
       var gd = (typeof PostflopGuide !== 'undefined') ? PostflopGuide.guide(state) : null;
       var ga = gd ? gd.action : (keys.hand === 'value' ? 'bet' : toCall > 0 ? 'call' : 'check');
       if (ga === 'bet' || ga === 'raise') keys.plan = keys.hand === 'value' || keys.hand === 'medium' ? 'value' : 'bluff';
       else if (ga === 'fold') keys.plan = 'fold';
+      else if (gd && gd.alt === 'bet' && keys.hand === 'value') keys.plan = 'value';   // M7 CO-02: 주도권 없는 OOP 강한 패는 체크해서 받아내는 밸류 계획
       else keys.plan = 'control';
       var why = pst === 'river' ? _riverWhy(ga, s) : (gd ? _clean(gd.reason) : '');
       // 팟 오즈 판정: 벳을 마주했고 밸류 손이 아니면 에쿼티 vs 필요 승률로 결론

@@ -22,6 +22,8 @@
 //   문항 ok = 겹침 ≥ 기준(spec.overlap → q.data.overlap, 기본 0.7). 채점 뒤에는 늘 해설 오버레이(겹침 %, 맞게 칠함, 놓친 칸,
 //   넘친 칸 격자와 '이 앱 차트 기준'). start({type:'rangepaint', count})는 count를 10~20으로 늘리지 않고 그대로(1~20, 기본 3) 쓴다.
 //   r.paint = [{spot, overlap}](색칠 문항을 푼 차례, 없으면 []), r.results 항목에도 overlap, spot. 보스는 r.paint를 쌓아 판정한다.
+//   (M7, FLOW-03) 문항이 그려진 뒤 350ms 안의 보기, 채점 탭(_onClick)은 무시한다. (M7, FLOW-07) _end는 푼 문항이 있으면 Journey.noteActivity(now, 분)를 부른다
+//   (노드, 보스 드릴과 데일리 5는 분을 다른 곳에서 세므로 분 0 = 활동일만).
 //   API: grade() → info | null, paint(칸|[칸], on?) → 칠한 칸 수, paintRow(r), paintClear(), paintState() → {spot, cells, row, n} | null.
 //   Puzzles.pickType은 paint 유형을 기본으로 빼므로(opts.paint) 러시, 서바이벌, 데일리 5에는 색칠 문항이 섞이지 않는다.
 // 로드 시 DOM 접근 없음. 다른 모듈은 호출 시점에 전역에서 찾는다(typeof 가드, 병렬 구현 중 스텁이어도 화면이 깨지지 않음).
@@ -32,6 +34,8 @@ var PuzzleUI = (function() {
   var PAINT_DEFAULT = 3;    // 색칠 문항 세트 기본 문항 수
   var PAINT_GOAL = 0.7;     // 색칠 겹침 기준 기본값(gen-range PAINT_OVERLAP과 같은 값)
   var AUTO_MS = 700;        // 정답 표시 뒤 다음 문항까지
+  var TAP_GUARD_MS = 350;   // (M7, FLOW-03) 문항이 그려진 뒤 이 시간 안의 보기, 채점 탭은 무시(연타의 두 번째 탭이 방금 뜬 보기를 누르는 사고 방지). 키보드 answer, 러시 자동 다음과는 별개
+  var ACTIVITY_MIN_CAP = 20;   // (M7, FLOW-07) Journey.noteActivity에 넘기는 분(오래 켜 둔 화면이 목표 링을 채우지 않게)
   var FLASH_MS = 1300;      // 오답 플래시(러시) 표시 시간
   var TRIES = 4;            // 문항 1개를 만들 때 생성기 재시도 횟수
   var SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -45,10 +49,11 @@ var PuzzleUI = (function() {
     chart:  { icon: '▦', text: '이 앱 차트 기준', full: '이 앱의 차트 기준(입문용, 표준보다 UTG/HJ/CO가 2~8%p 타이트, SB RFI 32.1%와 vs3bet 표도 타이트)' },
     appdef: { icon: '◇', text: '이 앱의 분류 기준', full: '이 앱의 분류 기준. 레이팅과 데일리 5에는 넣지 않아요' },
     approx: { icon: '≈', text: '참고/근사', full: '공개 솔버 통념을 근사한 참고값. 레이팅과 승급에는 넣지 않아요' },
-    read:   { icon: '💭', text: '캐릭터 읽기', full: '이 캐릭터의 생각이고 정답이 아님' }
+    read:   { icon: '💭', text: '캐릭터 읽기', full: '이 캐릭터의 생각이고 정답이 아님' },
+    concept: { icon: '📖', text: '레슨 개념', full: '레슨에서 배운 개념 확인 문제. 레이팅에는 넣지 않아요' }   // M7 결정 27: calc 없는 레슨 질문
   };
   var LABEL_ALIAS = { engine: 'exact', check: 'exact', range: 'given', 'exact-range': 'given', 'given-range': 'given', app: 'appdef', 'app-def': 'appdef', appDef: 'appdef',
-    ref: 'approx', reference: 'approx', character: 'read', intent: 'read' };
+    ref: 'approx', reference: 'approx', character: 'read', intent: 'read', lesson: 'concept' };
 
   var S = null;             // 진행 중 세션(한 번에 1개)
   var _rootEl = null;       // .pz 루트(DOM이 없으면 null, 테스트는 S.html을 본다)
@@ -255,7 +260,7 @@ var PuzzleUI = (function() {
     if (key && LABEL_ALIAS[key]) key = LABEL_ALIAS[key];
     if (!key || !LABELS[key]) {
       if (!q) key = 'exact';
-      else if (q.type === 'lesson' && (q.labelKind === 'chart' || q.labelKind === 'appdef' || q.labelKind === 'approx')) key = q.labelKind;   // 계약 H12, '참고' 장면
+      else if (q.type === 'lesson' && (q.labelKind === 'chart' || q.labelKind === 'appdef' || q.labelKind === 'approx' || q.labelKind === 'concept')) key = q.labelKind;   // 계약 H12, '참고' 장면
       else if (q.type === 'intent') key = 'read';
       else if (q.confidence === 'approx') key = 'approx';
       else if (q.appDef) key = 'appdef';
@@ -778,6 +783,14 @@ var PuzzleUI = (function() {
       if (c && isFinite(c.delta)) S.ratingDelta = Number(c.delta);
       if (c && isFinite(c.r)) S.rating = { r: Number(c.r), rd: _num(c.rd, null) };
     }
+    // (M7, FLOW-07) 푼 문항이 있으면 오늘 학습 활동으로 센다(스트릭과 목표 링). API는 journey-core(flow 그룹), 없으면 건너뜀. 중간에 나가도 푼 만큼은 활동이다
+    //   노드, 보스 드릴 세트(hooks.node: Journey.recordDrillSet이 문항 수로 분을 셈)와 데일리 5(PuzzleModes가 첫 완주의 분을 셈)는
+    //   분을 다른 곳에서 이미 세므로 여기서는 활동일만(분 0) 넘긴다. 분이 두 번 더해져 목표 링이 두 배로 차지 않게
+    if (S.n > 0 && _can('Journey', 'noteActivity')) {
+      var actNow = _now(), elsewhere = !!S.hooks.node || S.mode === 'daily5';
+      var actMin = elsewhere ? 0 : Math.max(0, Math.min(ACTIVITY_MIN_CAP, Math.round((actNow - _num(S.startedAt, actNow)) / 60000)));
+      _call('Journey', 'noteActivity', actNow, actMin);
+    }
     var r = _result(aborted);
     if (typeof S.hooks.onEnd === 'function') { try { r = S.hooks.onEnd(r, S) || r; } catch (e) { _warn('onEnd', e); } }
     S.r = r;
@@ -1003,6 +1016,8 @@ var PuzzleUI = (function() {
     var el = _closest(e && e.target, '[data-pz]');
     if (!el) return;
     var a = el.getAttribute('data-pz'), id = el.getAttribute('data-id');
+    // (M7, FLOW-03) '▶ 시작', '다음 ▶'을 두 번 누르면 두 번째 탭이 방금 그려진 문항의 보기 자리에 떨어진다. 갓 그려진 문항의 보기, 채점 탭은 무시
+    if ((a === 'opt' || a === 'pgrade') && S && S.phase === 'q' && _now() - S.qAt < TAP_GUARD_MS) return;
     if (a === 'opt') answer(id);
     else if (a === 'next') next();
     else if (a === 'back') exit();
@@ -1102,7 +1117,10 @@ var PuzzleUI = (function() {
         var stage = _stage(), r = _rating(), dup = null, fails = 0;
         // 같은 세트 안에서 같은 문항(장면과 정답까지 같은 것) 반복 금지. 키만 같고 장면이 다르면(아웃츠 9장, 보드가 다름) 다른 문항이다.
         // 생성기가 낼 수 있는 문항이 적어 새 문항을 못 찾으면 세트를 줄이지 않고 반복을 허용한다(노드 통과에는 10문항 이상이 필요).
-        for (var t = 0; t < TRIES * 2; t++) {
+        // 고를 스팟이 적으면(노드 drill은 3스팟) 무작위 재시도 8번으로는 마지막 새 스팟을 놓칠 수 있어(약 4%) 스팟 수에 비례해 늘린다.
+        var maxT = TRIES * 2;
+        if (it.spots && it.spots.length) maxT = Math.max(maxT, it.spots.length * 8);
+        for (var t = 0; t < maxT; t++) {
           var go = { variant: it.variant, spots: it.spots, stage: stage, rating: r, window: ratingWindow(r), now: _now(), node: spec.node || null };
           if (spec.overlap != null) go.overlap = spec.overlap;   // 색칠 겹침 기준 → q.data.overlap(계약 H2)
           var q = _genNext(it.type, rnd, go);
@@ -1196,7 +1214,7 @@ var PuzzleUI = (function() {
     available: available, isRated: isRated, rng: rng, ratingWindow: ratingWindow, stage: _stage, rating: _rating,
     core: { clampCount: clampCount, clampPaint: clampPaint, planTypes: planTypes, tierOf: tierOf, xpFor: xpFor, labelOf: labelOf, optCols: optCols, qSig: qSig, questionScene: questionScene,
       sceneFallback: sceneFallback, miniGrid: miniGrid, cardHTML: cardHTML, breakdownHTML: breakdownHTML },
-    _onKey: _onKey, _action: _action, _setEnv: _setEnv, _reset: _reset
+    _onKey: _onKey, _onClick: _onClick, _action: _action, _setEnv: _setEnv, _reset: _reset
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

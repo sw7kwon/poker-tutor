@@ -29,7 +29,7 @@
         caption: 'BTN 오픈, BB 3벳, BTN 콜. 플랍 팟 {{potTotal}}bb, 남은 스택 {{stack}}bb로 SPR {{spr}}예요.' },
       { t: 'bar', kind: 'amount', rows: [{ label: '싱글 레이즈 팟(BTN 오픈, BB 콜)', bb: 5.5 }, { label: '3벳 팟(CO 오픈, BTN 3벳, CO 콜)', bb: 16.5, hl: true }],
         calc: { type: 'spr', stack: 92.5, potTotal: 16.5 },
-        caption: '시작 스택이 같아도 3벳 팟은 플랍 팟이 세 배예요. 팟 {{potTotal}}bb, 남은 {{stack}}bb로 SPR {{spr}}.' },
+        caption: '시작 스택이 같아도 3벳 팟은 플랍 팟이 약 세 배예요. 팟 {{potTotal}}bb, 남은 {{stack}}bb로 SPR {{spr}}.' },
       { t: 'bar', kind: 'pct',
         rows: [{ label: 'BTN 오픈', v: 'pct1' }, { label: 'BB 3벳(BTN 오픈에)', v: 'pct2', hl: true }, { label: 'BTN이 3벳 받고 계속', v: 'pct3', hl: true }],
         calc: { type: 's56Range', spots: ['rfi|BTN', '3bet|BB@BTN', 'cont3|BTN'] },

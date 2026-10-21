@@ -13,7 +13,7 @@
 //     프리플랍은 묻지 않는다(프리플랍 빌런 액션은 손 등급으로 거의 정해져 자명하다, 설계서 3.3절 시뮬).
 //     같은 시드 핸드를 다시 칠 때(연습, GTO 미러 2~3회차)는 묻지 않는다(답을 이미 봤다).
 //     보기 = Thinking intent 어휘 중 그 액션으로 나올 수 있는 것(벳/레이즈: 밸류, 블러프, 세미블러프(리버는 뺀다) /
-//     콜: 함정, 팟 오즈 콜 / 체크: 함정, 팟컨트롤, 포기) + 확신도(확신/애매). 실제 의도가 보기 밖이면 묻지 않는다(보기로 답이 새지 않게).
+//     콜: 함정, 팟 오즈 콜, 찍어 보는 콜 / 체크: 함정, 팟컨트롤, 포기) + 확신도(확신/애매). 실제 의도가 보기 밖이면 묻지 않는다(보기로 답이 새지 않게).
 //     공개 때 채점: JStats.record('intent', {ok, w}), w = 맞히면 1 - 1/보기 수(찍어서 맞힐 몫을 뺀 가중), 틀리면 0.
 //     확신했는데 틀리면 Drills.record('intent', '<유형>|<스트리트>|<의도>', false)로 box 0에 넣는다. 단 'intent'를 복습에서 낼
 //     경로(PuzzleUI가 낼 수 있는 Puzzles 'intent' 등록 또는 DrillUI 유형)가 있고 키 정책이 'srs'일 때만이다(_intentReviewable).
@@ -33,9 +33,9 @@ var ThinkingUI = (function() {
   var MODES = ['after', 'live', 'end'];
   var AGGRO = { bet: 1, raise: 1, '3bet': 1, allin: 1 };
   var ACT_KOR = { fold: '폴드', call: '콜', check: '체크', raise: '레이즈', '3bet': '3벳', allin: '올인', bet: '벳' };
-  var GUESS_SETS = { aggro: ['value', 'bluff', 'semibluff'], call: ['trap', 'call-odds'], check: ['trap', 'pot-control', 'give-up'] };
+  var GUESS_SETS = { aggro: ['value', 'bluff', 'semibluff'], call: ['trap', 'call-odds', 'curious'], check: ['trap', 'pot-control', 'give-up'] };
   var INTENT_FALLBACK = { value: '밸류', bluff: '블러프', semibluff: '세미블러프', 'pot-control': '팟컨트롤',
-    'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정' };
+    'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정', curious: '찍어 보는 콜' };
   var CONF_KOR = { sure: '확신', unsure: '애매' };
   var READ_LABEL = '캐릭터 읽기(정답 아님)';
   var SEEN_MAX = 200;

@@ -1,6 +1,10 @@
 // ui/backup-ui.js — 9차 A-4b: 기록 백업/복원 모달 (메뉴 "💾 기록 백업/복원" → BackupUI.open())
 // 모달은 open() 때 body에 동적 생성(index.html 마크업 없음). 로드 시 DOM 접근 금지 → node 러너 안전.
 // 순수 헬퍼(fileName, summarize, deviceLabel, formatDate)는 DOM 없이 테스트한다.
+// M7: 공유 성공도 내보내기와 같은 경로로 '월 백업'에 센다(결정 29). homeCard(state, now) → { html, emph? } | null (홈 카드 공급자, 계약 H11 a):
+//   저장 공간 사용량이 90% 이상이면 용량 경고 카드(emph), 아니면 이번 달 백업(내보내기 또는 공유)이 없을 때 월간 백업 카드.
+//   가져오기 미리보기는 방식마다 공간 경고를 미리 보이고 모자라면 적용하기를 막는다(Storage.planImport). 되돌리기 사본은 30일 뒤 지워지고
+//   되돌리기를 다시 되돌릴 수 있다(Storage.prevInfo().kind).
 var BackupUI = (function() {
   var MAX_FILE_BYTES = 8 * 1024 * 1024;   // 파일 크기 1차 차단(내용 검증은 Storage.validateBackup의 4MB 기준)
   var _root = null;        // #backup-modal
@@ -41,8 +45,9 @@ var BackupUI = (function() {
     hist.forEach(function(h) { if (_isObj(h)) see(h.date); });
     mis.forEach(function(m) { if (_isObj(m)) see(m.date); });
     Object.keys(items).forEach(function(k) { if (_isObj(items[k])) see(items[k].last); });
+    var b = (typeof Storage !== 'undefined' && Storage && typeof Storage.brief === 'function') ? Storage.brief(d) : { xp: 0, passed: 0, review: 0 };
     return { hands: hist.length, mistakes: mis.length, drills: Object.keys(items).length,
-      lastDate: isFinite(last) ? new Date(last).toISOString() : null };
+      lastDate: isFinite(last) ? new Date(last).toISOString() : null, xp: b.xp, passed: b.passed, review: b.review };
   }
 
   // device {ua, platform, standalone} → "Android, 삼성 인터넷 (설치 앱)"
@@ -73,6 +78,15 @@ var BackupUI = (function() {
   }
 
   function _countsText(c) { return '핸드 ' + c.hands + '건, 실수 ' + c.mistakes + '건, 드릴 ' + c.drills + '개'; }
+  // 여정 기록 한 줄(DATA-02: 병합이 여정 필드를 버려도 사용자가 알 수 없던 문제). 값이 없으면 빈 문자열
+  function _journeyText(c) {
+    var parts = [];
+    if (c && c.xp > 0) parts.push('여정 XP ' + c.xp);
+    if (c && c.passed > 0) parts.push('통과 노드 ' + c.passed + '개');
+    if (c && c.review > 0) parts.push('실수 복습 ' + c.review + '개');
+    return parts.join(', ');
+  }
+  function _kbText(kb) { return kb >= 1024 ? (Math.round(kb / 102.4) / 10) + ' MB' : kb + ' KB'; }
 
   // ── 환경 ──
   function _version() { return (typeof PWA !== 'undefined' && PWA && PWA.version) || 'dev'; }
@@ -131,7 +145,8 @@ var BackupUI = (function() {
         '<section class="bk-sec" id="bk-undo-sec" hidden>' +
           '<h3>↩ 되돌리기</h3>' +
           '<p class="bk-help" id="bk-undo-help"></p>' +
-          '<div class="bk-row"><button type="button" class="bk-btn" data-act="undo">↩ 가져오기 전 기록으로 되돌리기</button></div>' +
+          '<div class="bk-row"><button type="button" class="bk-btn" data-act="undo" id="bk-undo-btn">↩ 가져오기 전 기록으로 되돌리기</button>' +
+            '<button type="button" class="bk-btn" data-act="dropundo">🗑 사본 지우기</button></div>' +
         '</section>' +
       '</div>' +
       '<div class="bk-msg" id="bk-msg" role="status" aria-live="polite"></div>' +
@@ -147,6 +162,7 @@ var BackupUI = (function() {
     document.body.appendChild(_root);
     _root.addEventListener('pointerdown', function(e) { _downOnBackdrop = e.target === _root; });
     _root.addEventListener('click', _onClick);
+    _root.addEventListener('change', function(e) { if (e.target && e.target.name === 'bk-mode') _syncApply(); });
     _$('bk-file').addEventListener('change', _onFile);
   }
 
@@ -163,6 +179,7 @@ var BackupUI = (function() {
     else if (act === 'apply') _apply();
     else if (act === 'cancel') { _pending = null; _renderPreview(); _msg('', ''); _focusDialog(); }
     else if (act === 'undo') _undo();
+    else if (act === 'dropundo') _dropUndo();
   }
 
   // 닫힌 <details> 안(자기 summary 제외)은 크롬에서 레이아웃 박스가 남아 offsetParent가 있어도 Tab으로 못 감 → 제외
@@ -217,8 +234,12 @@ var BackupUI = (function() {
     var info = Storage.prevInfo ? Storage.prevInfo() : null;
     _$('bk-undo-sec').hidden = !info;
     if (info) {
-      _$('bk-undo-help').textContent = '마지막으로 가져오기 직전' + (info.savedAt ? '(' + formatDate(info.savedAt) + ')' : '') +
-        ' 상태로 돌아가요. 가져오기를 잘못했을 때 쓰세요.';
+      var undo = info.kind === 'undo';
+      _$('bk-undo-help').textContent = undo
+        ? '방금 되돌리기 직전' + (info.savedAt ? '(' + formatDate(info.savedAt) + ')' : '') + ' 상태로 다시 돌아갈 수 있어요. 되돌린 걸 취소하고 싶을 때 쓰세요. 사본은 30일 뒤 저절로 지워져요.'
+        : '마지막으로 가져오기 직전' + (info.savedAt ? '(' + formatDate(info.savedAt) + ')' : '') +
+          ' 상태로 돌아가요. 가져오기를 잘못했을 때 쓰세요. 사본은 30일 뒤 저절로 지워져요.';
+      _$('bk-undo-btn').textContent = undo ? '↪ 되돌리기 취소(되돌리기 직전 기록으로)' : '↩ 가져오기 전 기록으로 되돌리기';
     }
     var nav = _nav();
     var canShare = !!_shareFile('{}', 'probe.json');
@@ -249,8 +270,10 @@ var BackupUI = (function() {
     if (!_pending) { el.hidden = true; el.innerHTML = ''; el.className = 'bk-preview'; return; }
     var v = _pending.v, obj = _pending.obj;
     var fileSum = summarize(obj);
-    var merged = Storage.mergeData(Storage.exportAll().data, obj.data);
+    var plans = _pending.plans || {};
+    var merged = (plans.merge && plans.merge.next) || Storage.mergeData(Storage.exportAll().data, obj.data);
     var mergedSum = summarize({ data: merged });
+    var jf = _journeyText(fileSum), jm = _journeyText(mergedSum);
     el.hidden = false;
     el.className = 'bk-preview';
     el.innerHTML =
@@ -259,19 +282,57 @@ var BackupUI = (function() {
         '<dt>내보낸 날짜</dt><dd>' + _esc(formatDate(v.exportedAt) || '알 수 없음') + '</dd>' +
         '<dt>내보낸 기기</dt><dd>' + _esc(deviceLabel(v.device)) + '</dd>' +
         '<dt>담긴 기록</dt><dd>' + _esc(_countsText(fileSum)) + '</dd>' +
+        (jf ? '<dt>담긴 여정</dt><dd>' + _esc(jf) + '</dd>' : '') +
         (fileSum.lastDate ? '<dt>마지막 기록</dt><dd>' + _esc(formatDate(fileSum.lastDate)) + '</dd>' : '') +
       '</dl>' +
       '<fieldset class="bk-modes"><legend>어떻게 가져올까요?</legend>' +
         '<label class="bk-mode"><input type="radio" name="bk-mode" value="merge" checked>' +
           '<span><b>병합 (권장)</b><small>이 기기 기록과 파일 기록을 합쳐요. 같은 기록은 한 번만 남기고, 핸드와 실수는 최근 200건까지 보관해요. ' +
-          '코칭, 띵킹 설정은 이 기기 것을 그대로 써요.<br>합친 결과: ' + _esc(_countsText(mergedSum)) + '</small></span></label>' +
+          '코칭, 띵킹 설정은 이 기기 것을 그대로 써요.<br>합친 결과: ' + _esc(_countsText(mergedSum)) + (jm ? '<br>합친 여정: ' + _esc(jm) : '') +
+          _spaceNote(plans.merge) + '</small></span></label>' +
         '<label class="bk-mode"><input type="radio" name="bk-mode" value="replace">' +
-          '<span><b>덮어쓰기</b><small>이 기기 기록을 지우고 파일 내용으로 바꿔요.<br>바꾼 결과: ' + _esc(_countsText(fileSum)) + '</small></span></label>' +
+          '<span><b>덮어쓰기</b><small>이 기기 기록을 지우고 파일 내용으로 바꿔요.<br>바꾼 결과: ' + _esc(_countsText(fileSum)) + (jf ? '<br>바꾼 여정: ' + _esc(jf) : '') +
+          _spaceNote(plans.replace) + '</small></span></label>' +
       '</fieldset>' +
+      '<div class="bk-help bk-space" id="bk-space" role="status" aria-live="polite"></div>' +
       '<div class="bk-row">' +
         '<button type="button" class="bk-btn primary" data-act="apply">적용하기</button>' +
         '<button type="button" class="bk-btn" data-act="cancel">취소</button>' +
       '</div>';
+    _syncApply();
+  }
+
+  // 방식마다 가져온 뒤 필요한 공간(Storage.planImport). 계산이 안 되면 error만 담는다
+  function _plans(obj) {
+    var out = {};
+    ['merge', 'replace'].forEach(function(m) {
+      try { out[m] = Storage.planImport(obj, m); } catch (e) { out[m] = { error: (e && e.message) || String(e) }; }
+    });
+    return out;
+  }
+  function _spaceNote(plan) {
+    if (!plan || !plan.space || plan.space.ok) return '';
+    return '<br><span class="bk-warn" style="color:#f2cc60">⚠ 저장 공간이 부족해서 이 방식으로는 가져올 수 없어요(필요 ' +
+      _esc(_kbText(plan.space.needKB)) + ', 여유 ' + _esc(_kbText(plan.space.freeKB)) + ')</span>';
+  }
+  // 고른 방식의 공간이 모자라면 적용하기를 막고 이유를 보인다. 공간 판정(Storage.spaceCheck)은 이미 있는 되돌리기 사본을 빼고 센다
+  // (가져오기가 그 자리에 지금 기록의 사본을 새로 쓰므로). 그래서 사본을 지워도 이 판정은 바뀌지 않아 사본 지우기를 권하지 않는다
+  function _syncApply() {
+    if (!_root || !_pending) return;
+    var btn = _root.querySelector('[data-act="apply"]'), box = _$('bk-space');
+    if (!btn) return;
+    var sel = _root.querySelector('input[name="bk-mode"]:checked');
+    var plan = _pending.plans && _pending.plans[sel ? sel.value : 'merge'];
+    var low = !!(plan && plan.space && !plan.space.ok);
+    btn.disabled = low;
+    if (box) {
+      var other = _pending.plans && _pending.plans[(sel && sel.value === 'replace') ? 'merge' : 'replace'];
+      var otherOk = !!(other && other.space && other.space.ok);
+      box.textContent = low
+        ? '가져오기 전 기록을 되돌리기용으로 함께 보관해야 해서, 이 방식으로 가져오면 이 기기 저장 한도를 넘어요. ' +
+          (otherOk ? '다른 방식은 가져올 수 있어요.' : '지금 기록은 그대로 두었어요.')
+        : '';
+    }
   }
 
   function _handleText(text, name) {
@@ -283,7 +344,7 @@ var BackupUI = (function() {
     catch (e) { _renderPreview(['백업 파일 형식(JSON)이 아니에요. 포커 튜터에서 내보낸 파일인지 확인해 주세요']); return; }
     var v = Storage.validateBackup(obj);
     if (!v.ok) { _renderPreview(v.errors); return; }
-    _pending = { obj: obj, v: v, name: name || '백업 파일' };
+    _pending = { obj: obj, v: v, name: name || '백업 파일', plans: _plans(obj) };
     _renderPreview();
     _msg('', '');
     var pv = _$('bk-preview');
@@ -322,9 +383,17 @@ var BackupUI = (function() {
       a.click();
       setTimeout(function() { URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 2000);
       _msg('ok', '파일을 저장했어요: ' + name + '. 다운로드 폴더(브라우저 다운로드 목록)에서 찾을 수 있어요.');
-      if (typeof Badges !== 'undefined' && Badges && typeof Badges.note === 'function') { try { Badges.note('backup', { name: name }, Date.now()); } catch (e2) { /* 배지 기록 실패는 백업에 영향 없음(M6-COLLECT, 계약 H8) */ } }
+      _noteBackup(name);
     } catch (e) {
       _msg('err', '내보내기에 실패했어요. (' + (e && e.message) + ')');
+    }
+  }
+
+  // 백업이 끝났다고 알림(결정 29): 내보내기와 공유 성공이 같은 경로로 '월 백업 3회' 배지와 이번 달 백업 카드의 백업 1회로 센다.
+  // 공유를 취소하거나 실패하면 부르지 않는다. 배지 기록 실패는 백업에 영향 없음(M6-COLLECT, 계약 H8)
+  function _noteBackup(name) {
+    if (typeof Badges !== 'undefined' && Badges && typeof Badges.note === 'function') {
+      try { Badges.note('backup', { name: name }, Date.now()); } catch (e) { /* 무시 */ }
     }
   }
 
@@ -334,6 +403,7 @@ var BackupUI = (function() {
     if (!f) { _msg('err', '이 브라우저는 파일 공유를 지원하지 않아요. "파일로 내보내기"를 써 주세요.'); return; }
     _nav().share({ files: [f], title: '포커 튜터 기록 백업' }).then(function() {
       _msg('ok', '공유했어요: ' + f.name);
+      _noteBackup(f.name);
     }, function(err) {
       if (err && err.name === 'AbortError') return;   // 사용자가 취소
       _msg('err', '공유하지 못했어요. "파일로 내보내기"를 써 주세요.');
@@ -369,9 +439,26 @@ var BackupUI = (function() {
     _reload();
   }
 
+  // 사본으로 돌아갈 때 지금 기록에서 사라지는 것(지금이 사본보다 많은 항목)을 숫자로 알린다
+  function _undoQuestion(info) {
+    var undo = !!info && info.kind === 'undo';
+    var head = undo ? '되돌리기 직전 기록으로 다시 돌아갈까요?' : '가져오기 직전 기록으로 되돌릴까요?';
+    var when = (info && info.ageDays != null) ? (info.ageDays === 0 ? '오늘' : info.ageDays + '일 전') + ' 저장한 사본으로 돌아가요.' : '';
+    var lost = [];
+    if (info && info.current && info.prev) {
+      var c = info.current, p = info.prev;
+      if (c.xp > p.xp) lost.push('여정 XP ' + (c.xp - p.xp));
+      if (c.passed > p.passed) lost.push('통과 노드 ' + (c.passed - p.passed) + '개');
+      if (c.review > p.review) lost.push('실수 복습 ' + (c.review - p.review) + '개');
+      if (c.hands > p.hands) lost.push('핸드 ' + (c.hands - p.hands) + '건');
+    }
+    var body = lost.length ? '사본보다 지금 더 있는 기록이 사라져요: ' + lost.join(', ') + '.' : '지금 기록에서 사라지는 것은 거의 없어요.';
+    return head + '\n\n' + (when ? when + '\n' : '') + body + '\n\n되돌린 뒤에도 "되돌리기 취소"로 지금 기록으로 다시 올 수 있어요.';
+  }
   function _undo() {
     if (_gameActive()) { _msg('err', '게임 중에는 되돌릴 수 없어요. 메뉴에서 다시 열어 주세요.'); return; }
-    if (typeof confirm === 'function' && !confirm('가져오기 직전 기록으로 되돌릴까요?\n\n가져온 뒤에 새로 쌓인 기록은 사라져요.')) return;
+    var info = Storage.prevInfo ? Storage.prevInfo() : null;
+    if (typeof confirm === 'function' && !confirm(_undoQuestion(info))) return;
     var ok = false;
     try { ok = Storage.restorePrev(); } catch (e) { ok = false; }
     if (!ok) { _msg('err', '되돌릴 기록이 없어요.'); _renderNow(); return; }
@@ -379,8 +466,19 @@ var BackupUI = (function() {
     _reload();
   }
 
+  function _dropUndo() {
+    var info = Storage.prevInfo ? Storage.prevInfo() : null;
+    if (!info) { _renderNow(); return; }
+    if (typeof confirm === 'function' && !confirm('되돌리기용 사본을 지울까요?\n\n지우면 가져오기 전 기록으로 돌아갈 수 없어요. 저장 공간은 그만큼 늘어요.')) return;
+    var ok = false;
+    try { ok = Storage.dropPrev(); } catch (e) { ok = false; }
+    _msg(ok ? 'ok' : 'err', ok ? '되돌리기 사본을 지웠어요.' : '사본을 지우지 못했어요.');
+    _renderNow();
+  }
+
   function open() {
     if (typeof document === 'undefined' || typeof Storage === 'undefined' || !Storage.exportAll) return;
+    if (typeof Storage.expirePrev === 'function') { try { Storage.expirePrev(30); } catch (e) { /* 정리 실패는 열기에 영향 없음 */ } }
     if (!_root || !_root.parentNode) _build();
     _pending = null;
     _msg('', '');
@@ -407,6 +505,64 @@ var BackupUI = (function() {
 
   function isOpen() { return !!(_root && !_root.hidden); }
 
-  return { open: open, close: close, isOpen: isOpen,
-    fileName: fileName, summarize: summarize, deviceLabel: deviceLabel, formatDate: formatDate };
+  // ── 홈 카드(M7-P5, 계약 H11 a): { html, emph? } | null ──
+  // 1) 저장 공간 사용량이 90% 이상이면 용량 경고 카드(emph, 백업 권장). top: true라 홈의 지도 위(첫 화면)에 그린다(M7 통합 검증)
+  // 2) 아니면 이번 달 백업(내보내기 또는 공유, state.badgeMeta.backups의 달 키)이 없고 기록이 있으면(xp > 0) 월간 백업 카드
+  //    (M7 통합 검증) 여정을 시작한 지(state.createdAt) 7일이 안 됐으면 월간 카드는 보이지 않는다. 첫날부터 백업 안내가 뜨면
+  //    처음 쓰는 사람에게는 할 일만 늘고 뜻도 와닿지 않는다. createdAt이 없거나 읽을 수 없으면 오래 쓴 기록으로 본다.
+  // '나중에'는 기기에만 남기는 편의 기록(경고 1일, 월간 7일)이고 백업 파일에는 들어가지 않는다.
+  var SNOOZE_KEY = 'poker_backup_card';
+  var WARN_RATIO = 0.9;
+  var SNOOZE_DAYS = { space: 1, monthly: 7 };
+  var MONTHLY_MIN_AGE_DAYS = 7;
+  function _youngJourney(state, now) {
+    var c = _isObj(state) && typeof state.createdAt === 'string' ? Date.parse(state.createdAt) : NaN;
+    return isFinite(c) && now - c < MONTHLY_MIN_AGE_DAYS * 86400000;
+  }
+  function _monthKey(now) { var d = new Date(now); return d.getFullYear() + '-' + _pad(d.getMonth() + 1); }
+  function _snooze() {
+    try {
+      var o = JSON.parse(localStorage.getItem(SNOOZE_KEY));
+      return _isObj(o) ? o : {};
+    } catch (e) { return {}; }
+  }
+  function snooze(kind, now) {
+    if (!SNOOZE_DAYS[kind]) return false;
+    var t = (typeof now === 'number' && isFinite(now)) ? now : Date.now(), o = _snooze();
+    o[kind] = t + SNOOZE_DAYS[kind] * 86400000;
+    try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(o)); } catch (e) { return false; }
+    if (typeof JourneyUI !== 'undefined' && JourneyUI && typeof JourneyUI.render === 'function') { try { JourneyUI.render(); } catch (e2) { /* 무시 */ } }
+    return true;
+  }
+  function backedUpThisMonth(state, now) {
+    var m = _isObj(state) && _isObj(state.badgeMeta) && Array.isArray(state.badgeMeta.backups) ? state.badgeMeta.backups : [];
+    return m.indexOf(_monthKey(now)) >= 0;
+  }
+  function homeCard(state, now) {
+    now = (typeof now === 'number' && isFinite(now)) ? now : Date.now();
+    var sn = _snooze();
+    var u = (typeof Storage !== 'undefined' && Storage && typeof Storage.usage === 'function') ? Storage.usage() : null;
+    if (u && u.ratio >= WARN_RATIO && !(typeof sn.space === 'number' && sn.space > now)) {
+      var pct = Math.min(100, Math.round(u.ratio * 100));
+      var extra = u.prevKB >= 64 ? ' 가져오기 전 상태를 담은 되돌리기 사본이 ' + _kbText(u.prevKB) + '를 차지하고 있어요. 백업한 뒤 백업 창에서 지울 수 있어요.' : '';
+      return { emph: true, top: true, html: '<div class="j-card bk-home bk-home-warn" role="group" aria-label="저장 공간 안내" style="border-color:#f2cc60">' +
+        '<div class="j-card-t">⚠ 저장 공간이 거의 찼어요</div>' +
+        '<div class="j-card-d">이 기기 저장 공간을 ' + pct + '% 썼어요. 가득 차면 새 기록이 저장되지 않을 수 있어요. 지금 파일로 백업해 두세요.' + _esc(extra) + '</div>' +
+        '<div class="j-card-acts"><button type="button" class="j-btn j-primary" onclick="BackupUI.open()">💾 백업하기</button>' +
+        '<button type="button" class="j-btn j-ghost" onclick="BackupUI.snooze(\'space\')">나중에</button></div></div>' };
+    }
+    var xp = _isObj(state) && typeof state.xp === 'number' ? state.xp : 0;
+    if (xp > 0 && !backedUpThisMonth(state, now) && !_youngJourney(state, now) && !(typeof sn.monthly === 'number' && sn.monthly > now)) {
+      return { html: '<div class="j-card bk-home" role="group" aria-label="기록 백업 안내">' +
+        '<div class="j-card-t">💾 이번 달 기록 백업</div>' +
+        '<div class="j-card-d">기록은 이 기기에만 있어요. 한 달에 한 번 파일로 남겨 두면 안심이에요. 이번 달에는 아직 백업하지 않았어요.</div>' +
+        '<div class="j-card-acts"><button type="button" class="j-btn" onclick="BackupUI.open()">백업하기</button>' +
+        '<button type="button" class="j-btn j-ghost" onclick="BackupUI.snooze(\'monthly\')">나중에</button></div></div>' };
+    }
+    return null;
+  }
+
+  return { open: open, close: close, isOpen: isOpen, homeCard: homeCard, snooze: snooze, backedUpThisMonth: backedUpThisMonth,
+    fileName: fileName, summarize: summarize, deviceLabel: deviceLabel, formatDate: formatDate,
+    _doShare: _doShare, _undoQuestion: _undoQuestion };
 })();

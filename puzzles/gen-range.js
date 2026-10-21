@@ -817,7 +817,7 @@
       };
       return {
         type: 'rangehit', key: null, concept: 'range', difficulty: 1750 + 50 * (k - 1),
-        confidence: 'exact', appDef: false, rated: false, srs: 'once', variant: 'steps',
+        confidence: 'exact', appDef: true, rated: false, srs: 'once', variant: 'steps',   // 이 앱의 지우기 규칙이라 앱 정의(M7 PZ-01)
         prompt: _stepPrompt(ss, k),
         scene: {
           hero: hero.slice(), board: board.slice(),

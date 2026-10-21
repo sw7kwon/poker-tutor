@@ -55,7 +55,10 @@ var Coach = (function() {
   // 전략 가이드 문구를 초보자 말로
   function _plain(reason) {
     var s = String(reason || '');
+    // 긴 합성어를 먼저 바꾼다(M7 CO-04: '폴드에쿼티'가 '폴드승률', '레인지 우위로'가 '...가진 쪽로'로 깨지던 것)
     var MAP = [
+      ['폴드에쿼티', '상대가 접을 가능성'], ['폴드 에쿼티', '상대가 접을 가능성'], ['에쿼티 거부', '드로우에 비싼 값 물리기'],
+      ['레인지 우위로', '강한 패를 더 많이 가진 쪽이라'],
       ['이니셔티브', '주도권'], ['c-bet', 'c-벳(프리플랍 레이저의 플랍 벳)'], ['도네벳', '선제 벳'],
       ['역임플라이드', '더 큰 손해 위험'], ['레인지 우위', '강한 패를 더 많이 가진 쪽'],
       ['블러프캐처', '상대 블러프만 이기는 패'], ['에쿼티', '승률']
@@ -238,6 +241,23 @@ var Coach = (function() {
     return '3벳 이상을 맞으면 훨씬 강한 패만 계속해요 → ' + lbl;
   }
 
+  // M7 CO-01: 벳을 맞았을 때 밸류 레이즈도 정답인 손. 셋 이상(strong)과, 내 카드 두 장이 모두 만든 투페어와 트립스(medium).
+  //   탑페어와 오버페어(보드 페어에 얹힌 투페어 포함)는 콜이 기본이라 넣지 않는다. 승률 70% 이상일 때만(리버 얇은 밸류 제외)
+  var VALUE_RAISE_EQ = 0.7;
+  function _valueRaiseHand(V, state) {
+    if (V.strength === 'nut' || V.strength === 'strong') return true;
+    if (V.strength !== 'medium' || typeof HandEval === 'undefined' || !HandEval || !HandEval.evaluate) return false;
+    var h = state && state.heroCards, b = state && state.board;
+    if (!h || h.length !== 2 || !b || b.length < 3) return false;
+    var t = HandEval.evaluate(h.concat(b)).type;
+    // medium의 트립스(보드 페어 + 내 카드 1장)는 레이즈도 정답. 4장 플러시 보드의 낮은 플러시(medium, type 5)는 더 높은 플러시만
+    //   따라오므로 넣지 않는다(M7 리뷰: 5하이 플러시 레이즈가 초록이던 것)
+    if (t === 7) return true;
+    if (t !== 8 || h[0].rank === h[1].rank) return false;
+    var br = b.map(function(c) { return c.rank; });
+    return br.indexOf(h[0].rank) >= 0 && br.indexOf(h[1].rank) >= 0;
+  }
+
   function verdict(state, ev, eq, heroPos, opts) {
     var V = _base(state, ev, eq, heroPos);
     var pos = _heroPos(state, heroPos);
@@ -302,12 +322,18 @@ var Coach = (function() {
         } else {
           V.action = 'call'; V.evKey = 'call';
           V.why = pre + '필요 승률 ' + po + '%' + extra + ' < 내 승률 ' + eqp + '% → 콜 (10번 중 ' + (V.eqUsed * 10).toFixed(1) + '번)';
+          // M7 CO-01: 셋, 스트레이트, 플러시와 내 카드로 만든 투페어 이상은 밸류 레이즈도 정답(콜이 기본, 레이즈도 초록)
+          if (V.eqUsed >= VALUE_RAISE_EQ && _valueRaiseHand(V, state)) {
+            V.alt = 'raise';
+            V.why = pre + '필요 승률 ' + po + '%' + extra + ' < 내 승률 ' + eqp + '% → 콜, 강한 패라 레이즈도 좋아요';
+          }
         }
       } else {
         V.action = 'fold'; V.evKey = 'fold';
         V.why = pre + '필요 승률 ' + po + '%' + extra + ' > 내 승률 ' + eqp + '% → 폴드';
       }
       V.label = _label(V.action, toCall, state.street);
+      if (V.alt) V.label += ' 또는 ' + _label(V.alt, toCall, state.street);   // 둘 다 정답('콜 또는 레이즈')
       V.why = _clip(V.why, 70);
       return V;
     }
@@ -323,6 +349,8 @@ var Coach = (function() {
     }
     if (g.action === 'bet' || g.action === 'raise') { V.action = 'raise'; V.evKey = 'raise_half'; }
     else { V.action = 'check'; V.evKey = 'call'; }
+    // M7 CO-02, CO-05: 가이드가 두 액션을 다 인정하는 자리(주도권 없는 OOP 콜러의 강한 패, 멀티웨이 드로우)는 alt를 받는다
+    if (g.alt && category(g.alt) !== category(V.action)) V.alt = g.alt;
     V.source = 'guide';
     V.why = _plain(g.reason);
     var aggr = (typeof PostflopGuide !== 'undefined' && PostflopGuide.heroIsAggressor) ? PostflopGuide.heroIsAggressor(state) : false;
@@ -330,6 +358,7 @@ var Coach = (function() {
       : V.action === 'raise' ? 'value_bluff'
       : state.street === 'flop' ? 'board_texture' : 'turn_river';
     V.label = _label(V.action, 0, state.street);
+    if (V.alt) V.label += ' 또는 ' + _label(category(V.alt) === 'raise' ? 'raise' : V.alt, 0, state.street);   // '체크 또는 벳'
     return V;
   }
 
@@ -350,6 +379,9 @@ var Coach = (function() {
   }
 
   function _fixed(r) { r.estimated = true; return r; }
+
+  // M7 CO-03: 이 앱 3벳 표(data gto.js)에서 가끔 섞는 블러프 3벳(4벳) 손. 표를 바꾸면 함께 바꾼다(A5s-A4s, A5s-A3s, 76s, 65s)
+  var BLUFF3 = { A5s: true, A4s: true, A3s: true, '76s': true, '65s': true };
 
   // 림퍼 뒤 '아주 강한 패'(Gto.GTO_RANGES.vsLimpBB, BB가 체크 대신 레이즈해야 하는 손과 같은 표)인지. hand = 'AA', 'AKo' 등 클래스 라벨
   var _premiumSet = null;
@@ -410,6 +442,10 @@ var Coach = (function() {
         }
         red = !btnRaise;
       }
+      // M7 CO-03: 차트의 3벳(또는 4벳) 칸이어도 가끔 섞는 블러프 손(A5s~A3s, 76s, 65s)은 폴드해도 손해가 작다(큰 실수가 아니라 작은 실수, 패턴 없음)
+      if (V.action === 'raise' && cat === 'fold' && !iso && BLUFF3[V.hand] && (V.spot === 'vs_open' || V.spot === 'vs_3bet')) {
+        return _res('yellow', -0.5, null, action, '차트는 ' + V.label + '이지만 가끔 섞는 블러프 손이라 폴드해도 손해는 작아요');
+      }
       if (V.action === 'raise' && cat === 'fold' && !iso) red = true;
       // M4-P9 리뷰: 림퍼 뒤 아주 강한 패(vsLimpBB: TT+, AQ+)를 폴드하면 큰 실수. 림퍼가 넣은 칩까지 걸린 팟을 버리므로
       // 아무도 안 들어온 팟에서 같은 손을 폴드한 것(위 줄, 큰 실수)보다 손해가 작지 않다.
@@ -419,6 +455,8 @@ var Coach = (function() {
     }
 
     if (V.source === 'potodds') {
+      // M7 CO-01: 콜이 기본인 강한 패(V.alt 'raise')의 밸류 레이즈는 초록(고정 벌점 없음)
+      if (V.alt && category(V.alt) === cat) return _res('green', 0, null, action, '강한 패라 레이즈도 좋아요: 콜과 레이즈 둘 다 정답');
       if (V.marginal) {
         if (cat === 'raise') return _fixed(_res('yellow', -0.3, null, action, '아슬아슬한 스팟이라 콜이나 폴드로 충분해요'));
         var r = _res('green', 0, null, action,
@@ -442,6 +480,8 @@ var Coach = (function() {
     }
 
     if (V.source === 'guide') {
+      // M7 CO-02, CO-05: 체크가 기본이고 벳도 정답인 자리의 벳은 초록(고정 벌점 없음)
+      if (V.alt && category(V.alt) === cat) return _res('green', 0, null, action, '체크도 벳도 괜찮은 자리예요');
       if (vcat === 'raise' && cat === 'call') {
         if (V.strength === 'nut' || V.strength === 'strong') {
           return _res('yellow', -0.3, 'missed_value', action, '강한 패는 벳해서 칩을 받아내요(밸류벳)');

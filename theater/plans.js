@@ -9,6 +9,8 @@
 //   keep { flop, turn, river }: 플랍 뒤 실제 강도(Thinking.strength)가 이 목록에 있으면 계획을 이어 간다.
 //     벗어나면 핸드당 1회 계획을 바꾸고 '계획 변경' 자막을 낸다(설계서 부록 E 후보 필터 문단).
 //     needs보다 넓을 수 있다(예: 3배럴 블러프에 드로우가 생겨도 블러프는 그대로 이어 감).
+//     예외(M7 TH-01): trap_cr의 keep에 든 medium은 내 카드로 만든 투페어 이상일 때만 이어 간다(theater/cast-ai.js context의 two).
+//     탑페어와 오버페어(medium)로 '걸렸다! 체크레이즈'를 하면 승률 47%짜리 레이즈가 성공담이 되므로 계획을 바꾼다.
 //   steps { flop, turn, river }: 스트리트별 행동 요약(화면과 레슨 설명용 문장).
 //   foreshadow: 핸드 시작 예고 문장 변형(3개 이상). lines { flop, turn, river, ... }: 스트리트별 예고(각 3개).
 //     lines.cbet(포기, 블러프캐치): 프리플랍 레이저가 플랍 첫 행동에서 엔진 c벳 빈도로 실제 벳했을 때의 대사.

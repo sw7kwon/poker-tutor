@@ -39,6 +39,9 @@
 .pz-label--appdef { color: #79c0ff; border-color: #388bfd; border-style: dashed; }
 .pz-label--approx { color: #b1bac4; border-color: #6e7681; }
 .pz-label--read { color: #d2a8ff; border-color: #a371f7; }
+/* 결정 27(M7-P2): 레슨에서 배운 개념 확인 문제('레슨 개념'). 엔진 계산 초록, 차트와 분류 기준 파랑, 참고 회색, 읽기 보라와 겹치지 않는 호박색.
+   글자 #e3b341 대 칩 배경 #11161d 대비 9.3:1, 테두리 #9e6a03 대비 3.9:1(비텍스트 3:1 이상). 색 하나에 기대지 않고 글자 + 아이콘도 함께 표시된다. */
+.pz-label--concept { color: #e3b341; border-color: #9e6a03; }
 .pz-scene { min-width: 0; max-width: 100%; overflow-x: hidden; padding: 10px; border-radius: 12px; background: #0f1e15; border: 1px solid #23462f; }
 .pz-scene:empty { display: none; }
 .pz-prompt { font-size: 1.06rem; line-height: 1.5; font-weight: 600; }
@@ -163,10 +166,12 @@ html.four-color .pz-card[data-suit=c] { color: #17803d; }
   background: #0d1117; color: var(--text); border: 1px solid var(--hud-border); }
 .pz-share-box[hidden] { display: none; }
 
-/* 데스크톱: 하단 고정 대신 내용 아래 */
+/* 데스크톱: 하단 고정 대신 내용 아래. 세로 560px 미만의 폰 가로(915x412)는 보기 줄을 하단 고정으로 둔다(M7-P2) */
+@media (min-width: 761px) and (orientation: landscape) and (min-height: 560px), (min-width: 1024px) {
+  .pz-opts { position: static; background: none; padding-top: 6px; }
+}
 @media (min-width: 761px) and (orientation: landscape), (min-width: 1024px) {
   .pz { min-height: 0; }
-  .pz-opts { position: static; background: none; padding-top: 6px; }
   .pz-ov { align-items: center; }
   .pz-ov-card { border-radius: 18px; border-bottom: 1px solid var(--hud-border); }
 }

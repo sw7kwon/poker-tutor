@@ -9,14 +9,25 @@ var MathDrill = (function() {
   ];
 
   function _pick(arr, rnd) { return arr[Math.floor(rnd() * arr.length) % arr.length]; }
+  // (M7, CO-16) 벳 B는 0.5bb 단위로 반올림되므로 P x f가 0.5의 배수가 아닌 조합(P 4와 1/3, P 15와 1/4 등)은 실제 B/P가 f와 달라진다.
+  //   결과 화면의 스팟 라벨('벳 전 팟의 1/3 크기 벳')이 거짓이 되므로 그 조합은 같은 난수 하나로 맞는 비율을 다시 고른다.
+  //   (난수 소비 횟수와 맞는 조합의 출제는 그대로, 12/72 조합만 바뀐다. 배치 고사의 시드 출제도 대부분 불변)
+  function _fracOk(P, f) { var h = P * f.v * 2; return Math.abs(h - Math.round(h)) < 1e-9; }
+  function _pickFrac(P, rnd) {
+    var r = rnd();
+    var F = FRACS[Math.floor(r * FRACS.length) % FRACS.length];
+    if (_fracOk(P, F)) return F;
+    var ok = FRACS.filter(function(f) { return _fracOk(P, f); });
+    return ok[Math.floor(r * ok.length) % ok.length];
+  }
   function _num1(x) { var v = Math.round(x * 10) / 10; return (v % 1 === 0) ? String(v) : v.toFixed(1); }
   function optLabel(p) { return _num1(1 / p) + '번에 1번 (' + Math.round(p * 100) + '%)'; }
 
   function next(rnd, opts) {
     rnd = rnd || Math.random;
     var P = _pick(POTS, rnd);
-    var F = _pick(FRACS, rnd);
-    var B = Math.round(P * F.v * 2) / 2;
+    var F = _pickFrac(P, rnd);
+    var B = Math.round(P * F.v * 2) / 2;   // _pickFrac 덕에 P x F.v와 같다(CO-16)
     if (B <= 0) B = 0.5;
     var correct = B / (P + 2 * B);
     var cands = [B / (P + B), Math.min(B / P, 0.9), correct + 0.08, correct - 0.08, correct + 0.12, correct - 0.04, correct + 0.16, correct + 0.04];
@@ -64,7 +75,7 @@ var MathDrill = (function() {
 
   var gen = { title: '🧮 팟 오즈 암산', next: next, explain: explain };
   if (typeof Drills !== 'undefined') Drills.register('potodds', gen);
-  var api = { next: next, explain: explain, optLabel: optLabel };
+  var api = { next: next, explain: explain, optLabel: optLabel, _fracOk: _fracOk };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

@@ -27,7 +27,9 @@
 //     LessonCore.calcDef(type).chip이 'chart'면 'chart'(이 앱 차트 기준), chip이 'appdef'면 'appdef'(이 앱의 분류 기준), 나머지는
 //     채우지 않는다(= 엔진 계산). 레슨 플레이어 칩(lesson-player.js _chips)과 같은 규칙이고 appdef가 chart보다 먼저다.
 //     Puzzles.label은 유형 'lesson'에서만 이 값을 따른다. confidence('exact')와 레이팅 제외는 그대로. verify도 같은 값인지 본다.
-//     커리큘럼 선택지 문항(calc 없음)은 채우지 않는다.
+//     (M7, 결정 27, S1-06) calc가 없는 개념 질문(레슨 장면과 커리큘럼 선택지 문항)은 'concept'(레슨 개념, 레슨에서 배운 개념 확인 문제)이다.
+//       엔진이 검산한 값이 아닌데 복습 카드에서만 '엔진 계산'으로 보이던 것을 바로잡는다. 레슨 플레이어는 이 장면에 칩을 달지 않는다.
+//     (M7, S6-10) 장면 appdef: true(calc 없는 이 앱 규칙 질문)는 'appdef'(이 앱의 분류 기준). 레슨 플레이어 칩과 같다.
 //     (리뷰 보강, 설계서 8.2절 4번) 질문 장면의 label이 '참고'면 calc와 상관없이 'approx'(참고/근사)가 가장 먼저다.
 //     labelKind(calc, 장면?)의 두 번째 인자가 그 장면이다(없으면 calc만 본다).
 //   GenLesson._use(src) 테스트 전용 데이터 주입 {lessons, curriculum, curriculumMap, nodes, stages, precalc}, null이면 전역으로.
@@ -239,9 +241,11 @@ var GenLesson = (function() {
   // 계약 H12: calc → 'chart' | 'appdef' | null(엔진 계산). 등록 유형의 chip이 appdef면 그것이 먼저(플레이어 칩과 같음)
   // (M6-PAINT 리뷰) 장면 label이 '참고'면 calc와 상관없이 'approx'가 먼저다. 레슨 플레이어는 이 장면에 '참고' 칩을 달므로
   //   복습 카드가 '엔진 계산'이나 '이 앱의 분류 기준'만 보이면 통념 문항을 검산된 정답처럼 보이게 한다(설계서 8.2절 4번).
+  //   (M7 결정 27, S6-10) 그다음 장면 appdef: true면 'appdef', calc가 없으면 'concept'(레슨 개념). 등록 유형이 아닌 calc는 null(엔진 계산).
   function labelKind(c, sc) {
     if (sc && typeof sc === 'object' && sc.label === '참고') return 'approx';
-    if (!c || typeof c !== 'object' || typeof c.type !== 'string') return null;
+    if (sc && typeof sc === 'object' && sc.appdef === true) return 'appdef';
+    if (!c || typeof c !== 'object' || typeof c.type !== 'string') return 'concept';
     var LC = _lc(), def = null;
     if (LC && typeof LC.calcDef === 'function') { try { def = LC.calcDef(c.type); } catch (e) { def = null; } }
     if (def && def.chip === 'appdef') return 'appdef';
@@ -432,7 +436,7 @@ var GenLesson = (function() {
     var line = (w.ok && w.text.trim()) ? w.text.trim() : '정답은 ' + label + '이에요.';
     var scs = _scenes(src);
     var nd = _nodes().filter(function(x) { return x && x.id === k.node; })[0];
-    var lk = tsc ? labelKind(tsc.calc, tsc) : null;
+    var lk = tsc ? labelKind(tsc.calc, tsc) : 'concept';   // 커리큘럼 선택지 문항은 calc가 없다(결정 27)
     var q = {
       type: 'lesson', key: k.node + '|' + k.qid, concept: 'lesson', difficulty: _difficulty(k.node),
       confidence: 'exact', appDef: false, rated: false, srs: 'srs',
@@ -459,7 +463,7 @@ var GenLesson = (function() {
       if (!o || o.id !== String(i) || o.label !== labels[i]) return false;
     }
     if (q.answer !== String(src.answer)) return false;
-    if ((q.labelKind || null) !== (tsc ? labelKind(tsc.calc, tsc) : null)) return false;   // 라벨도 원본 장면과 같아야 한다(H12)
+    if ((q.labelKind || null) !== (tsc ? labelKind(tsc.calc, tsc) : 'concept')) return false;   // 라벨도 원본 장면과 같아야 한다(H12)
     if (tsc && tsc.calc) return answerOk(tsc, labels);
     return true;
   }

@@ -6,13 +6,14 @@
 //   model(rq, now)     순수 모델. rq = ReviewQueue 모양 객체(테스트는 가짜 주입). 아래 '모델' 주석.
 //   html(model)        순수 문자열.
 //   cardInfo(rq, now)  홈 카드 정보 { show, emph, title, desc, week } | null(리포트 내용이 없으면 null). 월요일이고 이번 주에
-//                      아직 리포트를 안 봤으면 emph(지난주 리포트 강조). 카드 HTML은 JourneyUI 카드 영역(weeklyCard)이 그린다.
+//                      아직 리포트를 안 봤으면 emph(지난주 리포트 강조, M7: 월요일을 건너뛴 주는 그 주 첫 방문). 카드 HTML은 JourneyUI 카드 영역(weeklyCard)이 그린다.
 //   🔁 다시 풀기 = ReviewQueue.practice([item], {onDone, tag:'weekly'}), 🧩 이 패턴 n핸드 연습 = practice(patternItems(pattern, 5), {onDone, tag}).
 //   onDone(res{done, n, ok, aborted})이 오면 리포트로 돌아와(JourneyUI.view('weekly')) 결과 한 줄을 한 번 보인다.
 // (M6-L6B, 로드맵 결정 15와 계약 H10) 리포트 범위 2가지(scope):
 //   'recent' = 지금까지의 최근 7일(그 앞 7일과 비교, M5 그대로), 'last' = 지난 ISO 주 월~일(그 앞 주와 비교, ReviewQueue.weekly(now,
 //   { lastWeek:true })). 월요일에는 지난주 리포트에 내용이 있으면 홈 카드(cardInfo)와 리포트(open) 모두 'last'라서 카드 제목
 //   '지난주 리포트'와 리포트 제목, 범위('지난주 월~일(10월 12일 ~ 10월 18일)')가 같다. 다른 날, 또는 지난주가 비어 있으면 'recent'.
+//   (M7 TIME-08) 월요일에 앱을 안 연 주는 그 주 첫 방문(이번 주 리포트를 아직 안 봄)에 지난주 리포트를 한 번 보여 주고 강조한다.
 //   리포트 안의 버튼(_scope)으로 두 범위를 바꿔 볼 수 있고 고른 범위는 그날만 기억한다. viewed(강조 해제)와 markReportView는 범위와
 //   상관없이 지금의 ISO 주(F4 views, M6 보스 weeks 조건 그대로).
 //   ReviewQueue가 lastWeek를 모르면(결과에 lastWeek:true가 없으면) 제목과 범위가 어긋나지 않게 'recent'로 그린다.
@@ -177,21 +178,25 @@ var WeeklyView = (function() {
     return m;
   }
 
-  // 기본 범위: 월요일이고 지난주 리포트에 내용이 있으면 'last', 아니면 'recent'(카드와 리포트가 같은 규칙)
+  // 기본 범위(카드와 리포트가 같은 규칙): 지난주 리포트에 내용이 있고, 월요일이거나 이번 주 리포트를 아직 안 봤으면 'last', 아니면 'recent'.
+  // (M7 TIME-08) 월요일에 앱을 안 연 주도 그 주 첫 방문에는 지난주 리포트를 한 번 보여 준다. 월요일은 본 뒤에도 지난주 그대로(강조만 해제).
   function autoScope(rq, now) {
     now = _num(now, Date.now());
-    if (new Date(now).getDay() !== 1) return 'recent';
+    if (new Date(now).getDay() !== 1 && rq && typeof rq.reportWeeks === 'function') {
+      var wk = _try(function() { return rq.reportWeeks(); }, []);
+      if (Array.isArray(wk) && wk.indexOf(weekKey(now)) >= 0) return 'recent';   // 월요일이 아니고 이번 주에 이미 봄: 지난주 내용을 묻지 않는다
+    }
     var mL = model(rq, now, { scope: 'last' });
     return (mL.ok && mL.hasContent && mL.scope === 'last') ? 'last' : 'recent';
   }
-  // 홈 카드 정보. 리포트 내용이 없으면 null(홈 출력이 그대로). 월요일 지난주 리포트를 이번 주에 아직 안 봤으면 강조
+  // 홈 카드 정보. 리포트 내용이 없으면 null(홈 출력이 그대로). 지난주 리포트를 이번 주에 아직 안 봤으면 강조(M7 TIME-08: 월요일만이 아니라 그 주 첫 방문)
   function cardInfo(rq, now) {
     now = _num(now, Date.now());
     _sweep(rq);
     var m = model(rq, now, { scope: _scopeFor(null, rq, now) });   // 리포트를 열 때와 같은 범위(오늘 고른 범위 > 기본)
     if (!m.ok || !m.hasContent) return null;
     var last = m.scope === 'last';
-    var emph = last && m.monday && !m.viewed;
+    var emph = last && !m.viewed;
     var bits = [];
     if (m.top.length) bits.push('비싼 실수 ' + m.top.length + '개');
     if (m.fixed) bits.push('고친 실수 ' + m.fixed + '개');
@@ -310,7 +315,7 @@ var WeeklyView = (function() {
         '<div class="j-card-d">6인 실전에서 결정이 쌓이면 여기에 최근 7일의 비싼 실수 3개, 다시 풀기, 개념별 정확도가 모여요. 오늘의 5분이나 자유 게임으로 시작해 봐요.</div>' +
         _homeBtn(true) + '</div></div>';
     }
-    out += (m.monday && m.scope === 'last' ? '<div class="j-wk-banner">🌅 새 주가 시작됐어요. 지난주(월~일)를 돌아보고 이번 주를 시작해요.</div>' : '') +
+    out += ((m.monday || !m.viewed) && m.scope === 'last' ? '<div class="j-wk-banner">🌅 새 주가 시작됐어요. 지난주(월~일)를 돌아보고 이번 주를 시작해요.</div>' : '') +
       '<p class="j-wk-range">' + _esc(nm.range) + '</p>' + _scopeBtn(m, false) +
       '<div class="j-wk-stats" role="list">' +
         '<div class="j-wk-stat" role="listitem"><b>' + m.added + '</b><span>새로 들어온 실수</span></div>' +

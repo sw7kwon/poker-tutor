@@ -29,7 +29,8 @@
 //     (같은 카드를 10분 안에 다시 그린 것은 세지 않는다. 화면을 다시 그릴 때 열람 수가 부풀지 않게),
 //   luckViews(fromMs) → fromMs 이후 열람 수(생략하면 전체). Boss custom 'luckMeterViews'가 쓴다.
 //   luckCardModel(card) → 화면 문구(정보형: '결정 좋음, 이번엔 28%가 왔음'. 결정 평가는 그 결정의 코치 신호등, 결과는 운).
-//   luckSummary(cards) → { n, expect(승률 합), actual(실제 몫 합), diff, text }
+//   luckSummary(cards) → { n, expect(승률 합), actual(실제 몫 합), diff, text }. 운이 좋았던/나빴던 편 판정 임계는 max(0.5승, 이항 표준편차
+//     sqrt(합 eq(1-eq))), 올인 5번 미만이면 '아직 표본이 적어요'를 덧붙인다(M7 CO-18).
 // 화면 조각(문자열): mirrorHTML(m, {compact}), luckCardHTML(card), sessionHTML(o). 클래스는 css/dashboard.css의 hs- 접두.
 // renderSession(el, opts{sessionId, hands, now}): app.js _renderSessionSummary가 1줄로 부른다. 최근 30일 거울 HUD 칩과
 //   이번 세션 운 미터 카드(최대 3장)를 붙이고, 카드가 화면에 보이면 markLuckView로 열람 기록(watchLuckViews).
@@ -527,7 +528,12 @@ var HeroStats = (function() {
     var text;
     if (!list.length) text = '아직 올인 쇼다운 기록이 없어요';
     else {
-      var tone = diff >= 0.5 ? '운이 좋았던 편' : diff <= -0.5 ? '운이 나빴던 편' : '거의 승률만큼';
+      // CO-18: 표본이 작을수록 승수 차이는 우연으로도 크게 벌어진다. 이항 표준편차(합 eq(1-eq)의 제곱근)보다 작은 차이는 '거의 승률만큼'으로 읽고,
+      // 올인 5번 미만이면 표본이 적다는 말을 덧붙인다(초보가 결과를 운으로 과대 귀속하지 않게, 설계서 4.7절 정보형 문구).
+      var sd = Math.sqrt(list.reduce(function(a, c) { var e = Math.max(0, Math.min(1, Number(c.eq))); return a + e * (1 - e); }, 0));
+      var thr = Math.max(0.5, sd);
+      var tone = diff >= thr ? '운이 좋았던 편' : diff <= -thr ? '운이 나빴던 편' : '거의 승률만큼';
+      if (list.length < 5) tone += ', 아직 표본이 적어요';
       text = '올인 쇼다운 ' + list.length + '번: 승률대로면 ' + _r1(expect) + '번 이길 판에서 실제 ' + _r1(actual) + '번 이김(' + tone + ')';
     }
     return { n: list.length, expect: _r1(expect), actual: _r1(actual), diff: diff, text: text };

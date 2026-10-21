@@ -2,6 +2,8 @@
 // 여정 집계(poker_journey_stats, 설계서 6.1): 일별 집계, 90일 지난 날은 ISO 주 합계로 롤업,
 // 최근 300결정 링 버퍼(미션/보스 롤링 판정), 캐스트 좌석 누적(castObs), 단계 진입 기록.
 // 저장은 localStorage(try/catch), 실패하면 메모리에만 유지한다. 로드 시 DOM/타이머 접근 없음.
+// M7: 롤업은 멱등(주 기록 keys, DATA-06). 다른 창이 저장하면(storage 이벤트), 뒤로가기 캐시에서 돌아오면(pageshow), 앱을 다시 보면
+//   (visibilitychange) 캐시를 버리고 저장소에서 다시 읽는다(DATA-01, invalidate). 창 load 때 롤업을 한 번 돈다.
 // M3-P4a: 핸드 순번 hseq(집계한 'handEnd' 수)와 링 결정의 h(그 결정이 나온 핸드 순번 = 기록 당시 hseq)를 더했다.
 //   미션/보스의 "최근 n핸드" 창은 h ≥ hseq - n 인 결정이다(진행 중 핸드는 h === hseq). h가 없는 예전 결정은 핸드 창에서 빠진다.
 // M5-BOSS(계약 F2): 'dec' 링 항목에 mw(boolean), oop(boolean, 프리플랍은 기록 안 함), pt('limp'|'srp'|'3bet'|'4bet')를 보존한다.
@@ -128,6 +130,9 @@ var JStats = (function() {
     var ls = _store();
     if (ls) { try { ls.setItem(KEY, raw); } catch (e) {} }
   }
+  // 다른 창이 저장한 뒤 이 창의 낡은 캐시가 덮어쓰지 않게(M7 DATA-01): 캐시만 버리고 다음 load()에서 저장소를 다시 읽는다.
+  // 메모리 폴백(_mem)과 진행 중인 batch는 건드리지 않는다.
+  function invalidate() { _st = null; }
   function reset() {
     _st = null; _mem = null; _dirty = false;
     var ls = _store();
@@ -433,6 +438,8 @@ var JStats = (function() {
     }
   }
 
+  // 멱등(M7 DATA-06): 주 기록 w.keys에 롤업한 날 키를 남겨(한 주 최대 7개), 이미 든 날은 더하지 않고 days에서만 지운다.
+  // 병합 가져오기가 예전 백업의 days를 되살려도 다음 로드의 롤업이 같은 날을 한 번 더 더하지 않는다(storage.js _dropRolledDays와 짝).
   function _rollup(st, now) {
     var today = _dayIndex(dayKey(now));
     var moved = 0;
@@ -441,8 +448,12 @@ var JStats = (function() {
       if (i == null || today - i <= ROLLUP_DAYS) return;
       var wk = weekKey(k);
       var w = _isObj(st.weeks[wk]) ? st.weeks[wk] : (st.weeks[wk] = { days: 0 });
-      _sumInto(w, st.days[k]);
-      w.days = (w.days || 0) + 1;
+      if (!Array.isArray(w.keys)) w.keys = [];
+      if (w.keys.indexOf(k) < 0) {
+        _sumInto(w, st.days[k]);
+        w.days = (w.days || 0) + 1;
+        w.keys.push(k);
+      }
       delete st.days[k];
       moved++;
     });
@@ -467,12 +478,32 @@ var JStats = (function() {
     return o;
   }
 
+  // ── 창 사이 동기화와 시작 롤업(M7 DATA-01, P5) ──
+  // storage 이벤트는 다른 창이 쓸 때만 온다(key === null은 clear). pageshow는 뒤로가기 캐시(bfcache)에서 돌아올 때, visibilitychange는
+  // 앱을 다시 볼 때. 로드 시 DOM, 저장소 접근 없음(리스너 등록만).
+  function _onStorage(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) invalidate(); }
+  function _onPageShow(e) { if (e && e.persisted) invalidate(); }
+  function _onLoad() {
+    var go = function() { try { rollup(Date.now()); } catch (e) { /* 롤업 실패는 앱에 영향 없음 */ } };
+    if (typeof setTimeout === 'function') setTimeout(go, 0); else go();
+  }
+  function _onVisibility() { if (typeof document === 'undefined' || !document || document.visibilityState !== 'hidden') invalidate(); }
+  if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', _onStorage);
+    window.addEventListener('pageshow', _onPageShow);
+    // 앱을 열 때 90일 지난 날을 한 번 롤업한다(load()도 첫 접근에서 하지만 홈이 통계를 늦게 읽는 경우가 있어 시작 직후 한 번 더). 멱등
+    window.addEventListener('load', _onLoad);
+  }
+  if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', _onVisibility);
+  }
+
   var api = {
     KEY: KEY, V: V, RECENT_MAX: RECENT_MAX, ROLLUP_DAYS: ROLLUP_DAYS,
-    load: load, save: save, reset: reset, batch: batch, defaults: defaults,
+    load: load, save: save, reset: reset, invalidate: invalidate, batch: batch, defaults: defaults,
     record: record, day: day, range: range, accuracy: accuracy, lights: lights, recent: recent,
     heroTotals: heroTotals, trend: trend, markStageEnter: markStageEnter, rollup: rollup, castObs: castObs, handSeq: handSeq,
-    dayKey: dayKey, weekKey: weekKey, _setStorage: _setStorage
+    dayKey: dayKey, weekKey: weekKey, _setStorage: _setStorage, _onVisibility: _onVisibility, _onLoad: _onLoad
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

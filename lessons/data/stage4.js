@@ -59,13 +59,14 @@ LESSONS.push({
 
 // ── s4-02 용의자 명단(커리큘럼 세션 19 핸드 리딩, 부록 A 32번) ──
 // 예시: BTN(나) A♥J♦ 오픈, BB 콜. 플랍 J♠7♣3♦ BB 체크 콜, 턴 2♥ BB 체크 콜, 리버 Q♠ BB 벳.
-// 명단은 리버에서 거꾸로 읽는다(보이는 카드 전부, 보드 5장과 내 손을 처음부터 뺀다. 계약 F10 '시작').
+// 명단은 끝난 손을 리버에서 돌아보며 만든다(보이는 카드 전부, 보드 5장과 내 손을 처음부터 뺀다. 계약 F10 '시작').
+//   지우기는 플랍, 턴, 리버 순서다(M7 감사: '리버에서 거꾸로 읽으며'가 장면 2 '처음부터 읽어요', 규칙 1~3 순서와 어긋나던 것).
 // 숫자는 suspects calc(이 앱의 지우기 규칙 v1). 같은 손을 단계만 늘려 가며 부른다.
 LESSONS.push({
   id: 's4-02', node: 's4-02', title: '용의자 명단', est: 3,
   source: '이 앱의 지우기 규칙 v1(로드맵 계약 F10)과 이 앱 차트(Gto.GTO_RANGES vsRfiBB_LP) 열거',
   scenes: [
-    { t: 'say', text: '용의자 명단은 상대가 들 수 있는 손 목록이에요. 액션마다 이 앱의 지우기 규칙으로 지워요.' },
+    { t: 'say', text: '용의자 명단은 상대가 들 수 있는 손 목록이에요. 끝난 손을 돌아보며 플랍부터 액션마다 이 앱의 지우기 규칙으로 지워요.' },
     { t: 'table', heroPos: 'BTN', hero: ['Ah', 'Jd'], board: ['Js', '7c', '3d', '2h', 'Qs'],
       seats: [
         { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
@@ -74,14 +75,14 @@ LESSONS.push({
       caption: 'BTN 오픈에 BB 콜, 플랍과 턴은 BB가 체크 콜, 리버에 BB가 벳. 이 손을 처음부터 읽어요.' },
     { t: 'grid', pos: 'BB', facing: true, opener: 'BTN',
       calc: { type: 'suspects', spot: 'call|BB@BTN', hero: ['Ah', 'Jd'], board: ['Js', '7c', '3d', '2h', 'Qs'], steps: [] },
-      caption: '처음 명단은 이 앱 차트에서 BB가 콜하는 칸. 보이는 카드를 빼면 {{n0}}콤보예요.' },
+      caption: '처음 명단은 이 앱 차트에서 BB가 콜하는 칸. 리버까지 보인 카드 7장을 처음부터 빼면 {{n0}}콤보예요.' },
     { t: 'table', heroPos: 'BTN', hero: ['Ah', 'Jd'], board: ['Js', '7c', '3d'],
       seats: [
         { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
         { pos: 'BTN', action: 'c벳' }, { pos: 'SB', folded: true }, { pos: 'BB', name: '상대', action: '체크 후 콜', active: true }
       ],
       calc: { type: 'suspects', spot: 'call|BB@BTN', hero: ['Ah', 'Jd'], board: ['Js', '7c', '3d', '2h', 'Qs'], steps: ['flop'] },
-      caption: '규칙 1, 플랍에서 계속하면 에어이면서 드로우(플러시, 양방향)도 없는 손을 지워요. {{n0}}에서 {{n1}}콤보로.' },
+      caption: '규칙 1, 플랍에서 계속하면 에어이면서 드로우(같은 무늬 4장, 연속 4장)도 없는 손을 지워요. {{n0}}에서 {{n1}}콤보로.' },
     { t: 'table', heroPos: 'BTN', hero: ['Ah', 'Jd'], board: ['Js', '7c', '3d', '2h'],
       seats: [
         { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
@@ -118,7 +119,7 @@ LESSONS.push({
         { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
         { pos: 'BTN', name: '상대', action: '오픈' }, { pos: 'SB', folded: true }, { pos: 'BB', action: '콜', active: true }
       ],
-      caption: 'BTN 오픈에 BB인 내가 8♠7♠로 콜. 플랍 Q♠7♥2♦에서 내 손은 세컨드 페어예요.' },
+      caption: 'BTN 오픈에 BB인 내가 8♠7♠로 콜. 플랍 Q♠7♥2♦에서 내 손은 7과 맞은 페어(세컨드 페어)예요.' },
     { t: 'ask', id: 'q1', q: 'BTN 오픈 레인지, 플랍 Q♠ 7♥ 2♦. 내 손 8♠7♠는 적중 막대의 어느 줄일까?',
       choices: ['셋 이상', '중간(탑페어, 오버페어 등)', '약한 페어', '에어(드로우 포함)'], answer: 2,
       pick: ['strong', 'medium', 'weak', 'air'],
@@ -183,7 +184,7 @@ LESSONS.push({
     { t: 'ask', id: 'q2', q: 'BTN이 플랍을 체크로 넘겼어요. 턴에 BB가 먼저 벳하는 것을 뭐라고 할까?',
       choices: ['프로브', '3벳', '체크레이즈'], answer: 0,
       why: '플랍에서 공격하지 않은 상대에게 턴에 먼저 거는 벳을 프로브라고 해요.' },
-    { t: 'sum', text: '턴 카드가 누구 레인지에 유리한지 보고 배럴을 정하고, 상대가 플랍을 넘기면 프로브를 생각한다.' }
+    { t: 'sum', text: '턴 카드가 누구 레인지에 유리한지 보고 배럴을 정하고, 상대가 플랍을 넘기면 프로브를 생각한다(참고).' }
   ]
 });
 

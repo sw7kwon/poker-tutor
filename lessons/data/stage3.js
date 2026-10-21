@@ -52,7 +52,7 @@ LESSONS.push({
 // GTO_RANGES.vsRfi.SB는 콜 칸이 비어 있다(3벳 TT+, AJs+, KQs, A5s-A4s, AQo+). BB가 뒤에 남는 그림과 플랍 말하는 순서로 이유를 보인다.
 LESSONS.push({
   id: 's3-02', node: 's3-02', title: 'SB는 3벳 아니면 폴드', est: 2,
-  source: '이 앱 차트(Gto.GTO_RANGES vsRfi.SB, 콜 칸 없음)와 Coach.rangePct, 엔진 계산(콜 금액, 말하는 순서)',
+  source: '이 앱 차트(Gto.GTO_RANGES vsRfi.SB, 콜 칸 없음)와 Coach.rangePct, 엔진 계산(콜 금액, 말하는 순서), 참고: 공개 솔버 통념은 SB 3벳이 이 표보다 넓음',
   scenes: [
     { t: 'say', text: 'BTN이 오픈했고 나는 SB예요. 이 앱 차트의 SB는 콜 칸이 비어 있어요. 3벳 아니면 폴드, 이유를 볼게요.' },
     { t: 'table', heroPos: 'SB', hero: ['Kh', '9c'], board: [], potTotal: 4, toCall: 2, focus: 'BB',
@@ -75,7 +75,7 @@ LESSONS.push({
     { t: 'grid', pos: 'SB', facing: true, opener: 'BTN', highlight: ['TT', 'A5s', 'A4s'], claim: { hand: 'A5s', action: 'raise' },
       caption: '3벳은 TT 이상, AJs 이상, AQo 이상, KQs와 블러프 A5s, A4s. 모두 접으면 바로 팟을 가져와요.' },
     { t: 'say', label: '참고',
-      text: '실전 솔버는 SB 콜을 조금 섞기도 해요. 그래도 3벳 아니면 폴드가 단순하고 손해가 작아서 입문 차트로 써요.' },
+      text: '실전 솔버는 SB 3벳을 이 표보다 넓게 하고 콜도 조금 섞어요. 그래도 좁은 3벳 아니면 폴드가 단순하고 손해가 작아서 입문 차트로 써요.' },
     { t: 'ask', id: 'q1', q: 'BTN 오픈, 나는 SB에서 AQo. 이 앱 차트로는?', choices: ['3벳', '콜', '폴드'], answer: 0,
       pick: ['raise', 'call', 'fold'], calc: { type: 'chart', pos: 'SB', facing: true, opener: 'BTN', hand: 'AQo' },
       why: 'AQo는 센 손이라 3벳해요. 콜로 BB를 불러들이지 않고 주도권을 잡아요.' },
@@ -136,7 +136,7 @@ LESSONS.push({
     { t: 'grid', pos: 'BTN', facing: 'vs3bet', highlight: ['99', 'AKo', 'A5s'], claim: { hand: 'A5s', action: 'raise' },
       caption: '4벳은 99 이상, ATs 이상, AKo, KQs 같은 센 손과 블러프 A5s, A4s예요.' },
     { t: 'grid', pos: 'BTN', facing: 'vs3bet', highlight: ['77', 'KJs', 'JTs'], claim: { hand: 'JTs', action: 'call' },
-      caption: '콜은 77, 88 같은 페어, KJs, JTs 같은 수딧 손, ATo 이상 오프 에이스. BTN은 마지막에 말해서(IP) 따라가기 좋아요.' },
+      caption: '콜은 77, 88 같은 페어, KJs, JTs 같은 수딧 손, ATo, AJo, AQo(AKo는 4벳). BTN은 IP라 따라가기 좋아요.' },
     { t: 'say', calc: { type: 'betsize', kind: '4bet', facing: 9 },
       text: '4벳 크기는 상대 3벳의 {{mult}}배예요. {{facing}}bb 3벳이면 {{size}}bb, 이 앱 AI도 같은 배수를 써요.' },
     { t: 'ask', id: 'q1', q: 'BTN에서 오픈했다가 BB의 3벳을 맞았어요. 내 손 QJs, 이 앱 차트로는?', choices: ['4벳', '콜', '폴드'], answer: 1,
@@ -156,7 +156,7 @@ LESSONS.push({
   id: 's3-05', node: 's3-05', title: '콜드 3벳과 4벳', est: 2,
   source: '이 앱 차트(Gto.GTO_RANGES vsCold3bet, vs4bet)와 Coach.rangePct, 이 앱 AI 사이즈(ai/villain.js)',
   scenes: [
-    { t: 'say', text: '콜드 3벳 직면은 내가 아직 아무 액션도 안 했는데 앞에서 오픈과 3벳이 이미 나온 상황이에요.' },
+    { t: 'say', text: '콜드 3벳 직면은 내가 아직 아무 액션도 안 했는데 앞에서 오픈과 3벳이 이미 나온 상황이에요. 자주 오지 않는 드문 장면이에요.' },
     { t: 'table', heroPos: 'BTN', hero: ['Ad', 'Qc'], board: [], potTotal: 13.5, toCall: 9,
       seats: [
         { pos: 'UTG', action: '오픈', bet: 3 }, { pos: 'HJ', action: '3벳', bet: 9 },
@@ -164,7 +164,7 @@ LESSONS.push({
         { pos: 'SB', bet: 0.5 }, { pos: 'BB', bet: 1 }
       ],
       calc: { type: 'betsize', kind: '3bet', facing: 3, oop: false },
-      caption: 'UTG가 {{facing}}bb로 오픈, HJ가 {{ai}}bb로 3벳. 내 BTN 차례인데 앞의 두 사람 모두 센 손을 보여 줬어요.' },
+      caption: 'UTG가 {{facing}}bb로 오픈, HJ가 {{ai}}bb로 3벳. 내 BTN 차례인데 앞의 두 사람 모두 센 손이라고 알린 셈이에요.' },
     { t: 'grid', pos: 'BTN', facing: 'cold3bet', highlight: ['AQo', '99', 'KQs'], claim: { hand: 'AQo', action: 'fold' },
       caption: '콜드 3벳엔 전체 손의 약 {{pct}}%만 계속해요. AQo, 99, KQs처럼 괜찮아 보이는 손도 폴드예요.' },
     { t: 'grid', pos: 'BTN', facing: 'cold3bet', highlight: ['QQ', 'AKo', 'JJ', 'AQs'], claim: { hand: 'JJ', action: 'call' },

@@ -12,6 +12,8 @@
 //     엔진 빌런을 이 규칙으로 맞히는 비율이 25% 안팎이었다(LAG, Station 0%대). 지금 값은 그 실측에 맞춘 이 앱의 기준이고
 //     (100핸드 관찰 좌석 정답 82~91%, 5좌석 중 4곳 이상 83~95%), tests/p8-reads-flow.test.js가 엔진 시뮬레이션으로 지킨다.
 //   유형 가림(state.hideTypes)일 때 style 칩을 빼는 것은 표시 쪽(ui/table.js _hudHTML)이 맡는다(M4-P5).
+// M7-B(로드맵 결정 30): AF 표기 함수 afText(aggr, calls)를 한 곳에 둔다. 콜 0이고 벳, 레이즈가 있으면 '콜 없음', 둘 다 0이면 '-',
+//   아니면 소수 첫째 자리 반올림 숫자('0.5', '2'). 트래커 HUD short 줄과 맞히기 화면(journey/boss.js _afTxt)이 같이 쓴다.
 var VillainTracker = (function() {
   var _sid = null;
   var _data = {}; // name -> { hands:{handKey:{vpip,pfr,tb}}, aggr, calls, folds, facing }
@@ -78,6 +80,15 @@ var VillainTracker = (function() {
 
   function _round(v, d) { var m = Math.pow(10, d || 0); return Math.round(v * m) / m; }
 
+  // AF 표기(결정 30): (벳+레이즈) 횟수와 콜 횟수로. 콜 0이면 나눌 수 없어 '콜 없음'(공격은 있음) 또는 '-'(관찰 없음)
+  function afText(aggr, calls) {
+    var a = Number(aggr), c = Number(calls);
+    if (!isFinite(a) || a < 0) a = 0;
+    if (!isFinite(c) || c < 0) c = 0;
+    if (!c) return a > 0 ? '콜 없음' : '-';
+    return String(_round(a / c, 1));
+  }
+
   function stats(name) {
     var r = _data[name];
     if (!r) return null;
@@ -92,8 +103,8 @@ var VillainTracker = (function() {
     var foldToBet = r.facing ? r.folds / r.facing : null;
     // 표시값(정수 %)으로 분류한다: 화면 숫자와 칩이 같은 규칙으로 맞물리게(hudread 퍼즐과 같은 기준)
     var cls = classify({ vpip: vpip, pfr: pfr, n: n });
-    return { n: n, vpip: vpip, pfr: pfr, threeBet: _round(t * 100 / n), af: af, foldToBet: foldToBet,
-      cls: cls, style: cls ? CLASS_LABEL[cls] : null };
+    return { n: n, vpip: vpip, pfr: pfr, threeBet: _round(t * 100 / n), af: af, aggr: r.aggr, calls: r.calls, afText: afText(r.aggr, r.calls),
+      foldToBet: foldToBet, cls: cls, style: cls ? CLASS_LABEL[cls] : null };
   }
 
   var TITLE = 'VPIP: 자발적으로 팟에 돈을 넣은 비율(높을수록 많이 참여) | PFR: 프리플랍 레이즈 비율 | AF: 벳, 레이즈 ÷ 콜(높을수록 공격적) | 벳폴드: 포스트플랍 벳을 맞고 접은 비율';
@@ -104,13 +115,13 @@ var VillainTracker = (function() {
     if (!s || n < 5) return { short: '관찰 중 (n=' + n + ')', title: TITLE, style: null };
     var ftb = s.foldToBet == null ? '-' : Math.round(s.foldToBet * 100) + '%';
     return {
-      short: 'VPIP ' + s.vpip + ' | PFR ' + s.pfr + '<br>AF ' + s.af + ' | 벳폴드 ' + ftb + '<br>' + n + '핸드',
+      short: 'VPIP ' + s.vpip + ' | PFR ' + s.pfr + '<br>AF ' + s.afText + ' | 벳폴드 ' + ftb + '<br>' + n + '핸드',
       title: TITLE,
       style: s.style
     };
   }
 
-  api = { reset: reset, observe: observe, stats: stats, hudText: hudText,
+  api = { reset: reset, observe: observe, stats: stats, hudText: hudText, afText: afText,
     classify: classify, labelOf: labelOf, RULE: RULE0, CLASSES: CLASSES, CLASS_LABEL: CLASS_LABEL, CLASS_OF_TYPE: CLASS_OF_TYPE,
     _rule: _rule };
   if (typeof module !== 'undefined') module.exports = api;

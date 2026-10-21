@@ -61,12 +61,12 @@
   rowsL[0].hl = true; rowsL[3].hl = true;   // 654: 탑페어 이상은 UTG, 셋 이상은 BB
   LESSONS.push({
     id: 's5-01', node: 's5-01', title: '레인지 vs 넛 어드밴티지', est: 3,
-    source: '엔진 계산(이 앱 차트 Gto.GTO_RANGES 레인지 콤보 열거, Villain._handStrength 범주), GTO Wizard 블로그(레인지와 넛 어드밴티지, 참고)',
+    source: '엔진 계산(이 앱 차트 Gto.GTO_RANGES 레인지 콤보 열거, Villain._handStrength 범주), GTO Wizard 블로그(레인지와 넛 어드밴티지, 참고), 레인지/넛 어드밴티지는 손 범주 콤보 비율로 어림(에쿼티 우위의 근사)',
     scenes: [
       { t: 'say', text: '플랍이 깔리면 두 레인지를 견줘요. 누가 더 많이 맞았나(레인지 어드밴티지), 누가 센 손을 더 많이 쥐었나(넛 어드밴티지).' },
       { t: 'table', heroPos: 'BB', board: BK,
         seats: seats({ UTG: { pos: 'UTG', name: '상대', action: '오픈' }, BB: { pos: 'BB', action: '콜', active: true } }),
-        caption: 'UTG 오픈, BB 콜, 플랍 ' + cardsText(BK) + '. 탑페어 이상(오버페어 포함)과 셋 이상(스트레이트, 플러시 포함)을 세어요.' },
+        caption: 'UTG 오픈, BB 콜, 플랍 ' + cardsText(BK) + '. 이 앱은 탑페어 이상(오버페어 포함)과 셋 이상(스트레이트, 플러시 포함) 비율로 어림해요.' },
       { t: 'bar', kind: 'pct', rows: rowsK, calc: ADV_K,
         caption: 'KQ4는 UTG가 둘 다 앞서요. 탑페어 이상 {{aTop}}% 대 {{bTop}}%, 셋 이상 {{aNut}}% 대 {{bNut}}%.' },
       { t: 'bar', kind: 'pct', rows: rowsL, calc: ADV_L,
@@ -101,11 +101,11 @@
         why: 'IP는 상대를 보고 공짜 카드를 받을지, 팟을 키울지 고를 수 있어요.' },
       { t: 'bar', kind: 'equity', rows: [{ label: 'KJo', precalc: 'eq:KhJd::random' }, { label: 'T9s', precalc: 'eq:Ts9s::random' }],
         caption: '아무 손 상대 프리플랍 승률(끝까지 간다면)은 KJo가 {{eq}}%로 T9s보다 높아요.' },
-      { t: 'say', label: '참고', text: '그래도 T9s는 스트레이트, 플러시로 큰 팟을 이기기 쉽고 KJo는 페어가 돼도 킥커에 밀리곤 해요. 이런 차이가 플레이어빌리티.' },
+      { t: 'say', label: '참고', text: '그래도 T9s는 스트레이트, 플러시로 큰 팟을 이기기 쉽고 KJo는 페어가 돼도 킥커에 밀려요. 이런 다루기 쉬움이 플레이어빌리티예요.' },
       { t: 'ask', id: 'q2', label: '참고', q: 'KJo와 T9s 중 승률에 비해 에쿼티 실현이 더 잘 되는 손은?',
         choices: ['T9s', 'KJo'], answer: 0,
         why: '수딧 커넥터는 센 드로우와 넛을 자주 만들어 끝까지 가기 쉽고, 맞으면 크게 이겨요.' },
-      { t: 'say', label: '참고', text: '그래서 포지션 없이(OOP) 콜하는 손은 줄여요. 이 앱 차트의 SB가 콜 없이 3벳 아니면 폴드인 이유 중 하나예요.' },
+      { t: 'say', label: '참고', text: '그래서 OOP 콜은 줄여요(블라인드를 이미 낸 BB는 예외). 이 앱 차트의 SB가 3벳 아니면 폴드인 이유 중 하나예요.' },
       { t: 'sum', label: '참고', text: '에쿼티를 늘 다 가져가진 못한다. 포지션(IP)과 다루기 쉬운 손이 실현을 높인다.' }
     ]
   });
@@ -151,7 +151,7 @@
     id: 's5-04', node: 's5-04', title: '3장 토이 게임', est: 3,
     source: '엔진 계산(무차별 식: 블러프 몫 = 벳 ÷ (팟+2벳), 콜 = 팟 ÷ (팟+벳), 팟은 벳 전), AKQ 게임(Chen과 Ankenman, The Mathematics of Poker)',
     scenes: [
-      { t: 'say', text: '카드가 A, K, Q 3장뿐인 게임이에요. 나는 A 아니면 Q를 반반 확률로 받고, 상대는 늘 K를 받아요.' },
+      { t: 'say', text: '카드가 A, K, Q 3장뿐인 리버 게임이에요. 나는 A 아니면 Q를 반반 확률로 받고, 상대는 늘 K를 받아요.' },
       { t: 'cards', rows: [
           { label: '내 밸류', cards: ['Ah'] },
           { label: '상대 K', cards: ['Ks'], hl: true },
@@ -172,7 +172,7 @@
       { t: 'ask', id: 'q2', q: '토이 게임, 벳 전 팟 12bb에 6bb(팟의 절반) 벳. 상대 K를 무차별하게 만드는 벳 중 블러프 몫은?',
         choices: ['20%', '25%', '33%', '50%'], answer: 1, calc: TOY2,
         why: '벳 ÷ (팟+2벳) = {{bet}} ÷ ({{potBefore}}+2x{{bet}}) = {{bluff}}%. 작게 걸면 블러프도 줄어요.' },
-      { t: 'sum', text: '균형 잡힌 벳은 블러프 몫을 벳 ÷ (팟+2벳)에 맞춰 상대 블러프캐처를 콜과 폴드 사이에서 무차별하게 만든다.' }
+      { t: 'sum', text: '리버의 균형 잡힌 벳은 블러프 몫을 벳 ÷ (팟+2벳)에 맞춰 상대 블러프캐처를 콜과 폴드 사이에서 무차별하게 만든다.' }
     ]
   });
 
@@ -203,7 +203,8 @@
       { t: 'bar', kind: 'pct', rows: [{ label: '내 승률', v: 'eq', hl: true }, { label: '필요 승률', v: 'need' }], calc: MIX_SHOW,
         caption: '{{n}}콤보 중 {{win}}개를 이겨 승률 {{eqd}}%, 필요 {{needd}}%. 차이가 {{gap}}%p뿐이에요.' },
       { t: 'say', calc: MIX_SHOW,
-        text: '콜이 조금 낫지만 차이가 작아요. {{band}}%p 미만은 둘 다 OK, {{clear}}%p 이상은 분명한 답, 그 사이는 퍼즐로 안 내요.' },
+        text: '콜이 조금 낫지만 차이가 작아요. {{band}}%p 미만은 둘 다 OK, {{clear}}%p 이상은 분명한 답, 그 사이는 퍼즐로 안 내요.',
+        caption: '{{band}}%p와 {{clear}}%p는 이 앱 코치와 퍼즐 출제가 쓰는 기준값이에요.' },
       { t: 'ask', id: 'q1', q: SPOT5 + '팟 25bb(상대 벳 10bb 포함), 콜 10bb. 상대가 ' + combosText(R5) + '면?',
         choices: ['콜', '폴드', '둘 다 OK'], pick: ['call', 'fold', 'both'], answer: 2, calc: MIX_Q1,
         why: '{{n}}콤보 중 {{win}}개를 이겨 {{eqd}}%, 필요 {{needd}}%. {{gap}}%p 차이라 둘 다 OK(코치도 초록)예요.' },
@@ -227,11 +228,12 @@
   }
   LESSONS.push({
     id: 's5-06', node: 's5-06', title: '기하 사이즈와 오버벳', est: 3,
-    source: '엔진 계산(기하 사이즈 = ((1 + 2 x 스택 ÷ 팟)의 n제곱근 - 1) ÷ 2, gen-math geoSize와 같은 식), 커리큘럼 세션 18(오버벳 조건, 참고)',
+    source: '엔진 계산(기하 사이즈 = ((1 + 2 x 스택 ÷ 팟)의 n제곱근 - 1) ÷ 2, gen-math geoSize와 같은 식), GTO Wizard 블로그와 Upswing(오버벳 조건: 넛 어드밴티지와 폴라 레인지, 참고), 커리큘럼 세션 18과 같은 말',
     scenes: [
       { t: 'say', text: '센 손으로 리버까지 스택을 다 넣고 싶을 때, 스트리트마다 팟의 같은 비율로 치는 크기를 기하 사이즈라고 해요.' },
       { t: 'bar', kind: 'amount', rows: geoRows(GEO_SRP), calc: GEO_SRP,
-        caption: 'BTN 오픈, BB 콜. 팟 {{potBefore}}bb, 유효 스택 {{stack}}bb를 3번에 넣으려면 매번 팟의 약 {{pct}}%예요.' },
+        caption: 'BTN 오픈, BB 콜. 팟 {{potBefore}}bb, 스택 {{stack}}bb를 3번에 다 넣기로 하면 팟의 약 {{pct}}%씩이에요.' },
+      { t: 'say', label: '참고', text: '싱글 레이즈 팟에서 3번 다 넣을 손은 드물어요. 보통 플랍 벳은 더 작아요. 이 크기는 다 넣기로 정했을 때의 계산이에요.' },
       { t: 'say', text: '벳과 콜이 오갈 때마다 팟이 (1 + 2 x 비율)배로 커져요. 그래서 같은 비율이어도 뒤로 갈수록 벳 금액이 커져요.' },
       { t: 'ask', id: 'q1', q: '턴, 팟 20bb, 유효 스택 40bb. 턴과 리버 2번에 같은 비율로 쳐서 올인하려면 팟의 약 몇 %?',
         choices: ['약 62%', '약 73%', '약 100%'], answer: 0, calc: GEO_TURN,
@@ -242,7 +244,7 @@
       { t: 'ask', id: 'q2', label: '참고', q: '오버벳이 가장 잘 어울리는 상황은?',
         choices: ['내 레인지에 넛이 더 많고 상대는 캡드', '두 레인지가 비슷하게 맞은 보드', '세 명 이상 남은 멀티웨이 팟'], answer: 0,
         why: '상대가 버틸 센 손이 적고 내 센 손이 많을 때 큰 벳이 가장 많이 벌어요. 멀티웨이는 큰 벳이 드물어요.' },
-      { t: 'sum', text: '여러 스트리트에 스택을 나눠 넣을 땐 매번 같은 팟 비율(기하 사이즈)로 치고, 그 비율이 팟보다 크면 오버벳이다.' }
+      { t: 'sum', text: '스택을 여러 스트리트에 다 넣기로 했다면 기준값은 매번 같은 팟 비율(기하 사이즈)이고, 그 비율이 팟보다 크면 오버벳이다.' }
     ]
   });
 })();

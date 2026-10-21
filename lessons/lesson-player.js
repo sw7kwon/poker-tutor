@@ -34,6 +34,7 @@ var LessonPlayer = (function() {
   var SWIPE_MIN = 56;          // 이만큼(px) 가로로 밀면 넘기기
   var SWIPE_MS = 900;
   var TAP_GUARD_MS = 400;      // 스와이프 직후 클릭 무시
+  var PICK_GUARD_MS = 350;     // (M7, FLOW-03) 장면이 그려진 뒤 이 시간 안의 보기 탭은 무시(연타의 두 번째 탭이 방금 뜬 보기를 누르는 사고 방지). 키보드 1~4는 별개
   var LABELS = {
     ref: { cls: 'approx', icon: '≈', text: '참고', full: '공개 솔버 통념을 근사한 참고값이에요. 레이팅과 승급에는 넣지 않아요' },
     exact: { cls: 'exact', icon: '✔', text: '엔진 계산', full: '이 장면의 숫자는 엔진으로 다시 계산한 값이에요' },
@@ -152,7 +153,10 @@ var LessonPlayer = (function() {
     var C = _core(), def = (_isObj(sc.calc) && C && typeof C.calcDef === 'function') ? C.calcDef(sc.calc.type) : null;
     if (def && def.chip === 'chart') chartCalc = true;
     var appCalc = !!(def && def.chip === 'appdef');
-    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag) out.push(_chip(appCalc ? LABELS.appdef : (chartCalc ? LABELS.chart : LABELS.exact)));
+    // (M7, S6-10) 장면 appdef: true(calc 없는 이 앱 규칙 질문)는 '이 앱의 분류 기준' 칩. 복습 카드(GenLesson.labelKind)와 같은 표기, 칩은 한 번만
+    var appFlag = sc.appdef === true;
+    if (appFlag) out.push(_chip(LABELS.appdef));
+    if (_isObj(sc.calc) && sc.t !== 'grid' && !ownTag && !appFlag) out.push(_chip(appCalc ? LABELS.appdef : (chartCalc ? LABELS.chart : LABELS.exact)));
     return out.length ? '<div class="lp-meta">' + out.join('') + '</div>' : '';
   }
   // 받침이 있으면 '은', 없으면 '는'(한글이 아니면 '은')
@@ -320,6 +324,7 @@ var LessonPlayer = (function() {
   function _render() {
     if (!S) return;
     var st = S.core.state();
+    if (S.shownIdx !== st.idx) { S.shownIdx = st.idx; S.shownAt = _now(); }   // 장면이 바뀐 시각(FLOW-03 보기 탭 보호)
     var html = view(st, { title: S.lesson.title, sel: S.sel, kbdHint: st.idx === 0 && !S.wasDone });
     S.html = html;
     if (!_rootEl) return;
@@ -473,7 +478,11 @@ var LessonPlayer = (function() {
     if (act === 'flag') { flag(); return; }
     if (act === 'prev') { prev(); return; }
     if (act === 'next') { next(); return; }
-    if (act === 'pick') { answer(Number(a.getAttribute('data-i'))); return; }
+    if (act === 'pick') {
+      if (S.shownAt != null && _now() - S.shownAt < PICK_GUARD_MS) return;   // FLOW-03: 방금 그려진 장면의 보기 탭 무시
+      answer(Number(a.getAttribute('data-i')));
+      return;
+    }
     if (act === 'term') { _termTip(a); return; }
     if (act === 'tap') {
       if (_now() - _swipeAt < TAP_GUARD_MS) return;

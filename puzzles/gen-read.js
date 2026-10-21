@@ -373,7 +373,7 @@
 
   // ═══════════════════ 3. intent(캐릭터 읽기) ═══════════════════
   var INTENTS = ['value', 'bluff', 'semibluff', 'pot-control', 'call-odds', 'give-up', 'trap'];
-  var INTENT_FALLBACK = { value: '밸류', bluff: '블러프', semibluff: '세미블러프', 'pot-control': '팟컨트롤', 'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정' };
+  var INTENT_FALLBACK = { value: '밸류', bluff: '블러프', semibluff: '세미블러프', 'pot-control': '팟컨트롤', 'call-odds': '팟 오즈 콜', 'give-up': '포기', trap: '함정', curious: '찍어 보는 콜' };
   var INTENT_TYPES = ['TAG', 'LAG', 'Fish', 'Nit', 'Mixed', 'Station'];
   var POS6 = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
   var STREETS = [['preflop', 0.2], ['flop', 0.35], ['turn', 0.25], ['river', 0.2]];

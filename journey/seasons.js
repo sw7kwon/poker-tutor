@@ -27,7 +27,7 @@
 //   item = { kind, ok, have, need, frac(0~1), short, text, value, n?, g?, pct?, judged? }.
 // sync(now) → { weekly, season }(각 { key, def, pr, state, items, done, justDone, xp, prev })
 //   여정 상태(Journey.load()) poker_journey.weekly와 season을 갱신한다. 모양은 설계서 6.1절 + doneAt + hist[{ key, done, n }](최근 12)
-//   + seen(소개를 본 주/달 키) + params.start(이 기기에서 처음 연 주/달만, 그 시각 ms). progress[i]는 그 칸의 진행(0~1)이고 기간 안에서 줄지 않는다(한 번 채운 칸은 그 주 동안 ✓).
+//   + seen(소개를 본 주/달 키) + params.start(그 주/달을 이 기기에서 처음 연 시각 ms, M7 TIME-05부터 쉬었다 돌아온 기간에도 남김). progress[i]는 그 칸의 진행(0~1)이고 기간 안에서 줄지 않는다(한 번 채운 칸은 그 주 동안 ✓).
 //   칸이 모두 1이 되면 done, doneAt, hist에 기록하고 Journey.addXp('weekly'|'season')를 한 번만 부른다(XP 60, 50).
 //   주나 달이 바뀌면 지난 기간을 그 기간 전체 집계로 한 번 더 판정하고(미처 sync하지 못한 완료도 XP 1번), hist에 남긴 뒤 새로 연다.
 // view(state, now): sync와 같은 결과를 계산만 한다(상태를 쓰지 않고 XP도 주지 않음).
@@ -431,7 +431,6 @@ var Seasons = (function() {
     var hist = (cur && Array.isArray(cur.hist)) ? cur.hist.filter(function(h) { return h && _validKey(kind, h.key); }) : [];
     var res = { kind: kind, key: key, justDone: false, xp: 0, prev: null };
     var base = _sinceOf(st, kind);
-    var first = !cur && !hist.length;      // 이 기기에서 처음 여는 주(달): 시작 시각을 남겨 활동일 조건을 남은 날로 자른다
     if (cur && cur.key !== key) {
       if (_validKey(kind, cur.key) && cur.key < key) {
         var pSince = (cur.params && _validKey(kind, cur.params.since)) ? cur.params.since : base;
@@ -449,7 +448,9 @@ var Seasons = (function() {
     if (!cur) {
       var d0 = _defOf(kind, key, base);
       cur = { key: key, theme: d0.theme, params: { since: base }, progress: [0, 0, 0], done: false, doneAt: null, hist: hist, seen: null };
-      if (first) cur.params.start = now;
+      // 새로 여는 기간: 시작 시각을 남겨 활동일 조건을 남은 날로 자른다(M7 TIME-05: 첫 기간뿐 아니라 쉬었다가 기간 중간에 돌아온 경우도.
+      // 레벨은 쉬는 동안에도 올라 조건이 커지므로, 자르지 않으면 처음부터 채울 수 없는 조건이 보인다)
+      cur.params.start = now;
     }
     if (!_isObj(cur.params)) cur.params = {};
     if (!_validKey(kind, cur.params.since)) cur.params.since = base;
@@ -542,11 +543,11 @@ var Seasons = (function() {
     return Math.max(1, b - a + 1);
   }
   function _monthName(key) { return Number(key.slice(5, 7)) + '월'; }
+  // 강조: 이번 주 소개나 이번 달 시즌 소개를 아직 안 봤을 때(ack로 해제). M7 TIME-08: 월요일, 1일에 앱을 안 연 주와 달도 그 주, 그 달 첫 방문에 켜진다
   function _emph(r, now, state) {
-    var d = new Date(now);
     var w = r.weekly && r.weekly.state, s = r.season && r.season.state;
-    if (d.getDay() === 1 && !(w && w.seen === r.weekly.key)) return true;
-    if (d.getDate() === 1 && !(s && s.seen === r.season.key)) return true;
+    if (!(w && w.seen === r.weekly.key)) return true;
+    if (!(s && s.seen === r.season.key)) return true;
     return false;
   }
   function cardHTML(r, now, emph) {
@@ -562,8 +563,8 @@ var Seasons = (function() {
       '<div style="margin-top:8px">' + condsHTML(w.items, '이번 주 조건') + '</div>';
     if (s && s.def) {
       var sd = s.def;
-      // 1일에 새 시즌을 아직 안 봤으면 펼친 채로(강조 이유가 새 시즌일 때 내용이 접혀 있지 않게). 요약 줄 끝 ▾는 펼칠 수 있다는 표시
-      var sOpen = emph && new Date(now).getDate() === 1 && !(s.state && s.state.seen === s.key);
+      // 이번 달 시즌을 아직 안 봤으면(보통 1일, 건너뛴 달은 첫 방문) 펼친 채로(강조 이유가 새 시즌일 때 내용이 접혀 있지 않게). 요약 줄 끝 ▾는 펼칠 수 있다는 표시
+      var sOpen = emph && !(s.state && s.state.seen === s.key);
       html += '<details class="j-sz-season"' + (sOpen ? ' open' : '') + '><summary class="j-card-d" style="min-height:44px;display:flex;align-items:center;gap:8px;cursor:pointer">' +
         '<span>' + _esc('🗓 ' + _monthName(s.key) + ' 시즌: ' + sd.icon + ' ' + sd.title + ', 퀘스트 ' + s.count + '/' + s.items.length + (s.done ? ' 완료' : '')) + '</span>' +
         '<span aria-hidden="true" style="margin-left:auto">▾</span></summary>' +

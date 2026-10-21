@@ -13,6 +13,7 @@
 //      새 계획은 지금 맞는 계획 중 plan_weights로 다시 뽑고(OOP 중간 이상이면 함정 가중 보너스, 드로우만 세미블러프 압박), 맞는 게 없으면 강도 기준 고정 대상(에어 → 포기,
 //      중간과 약한 페어 → 팟컨트롤, 강함 → 밸류 극대화)이다. 기회 전환 1가지: 밸류 극대화가 플랍에서 OOP이고 프리플랍
 //      레이저가 뒤에 있으면 주사위 0.65로 체크레이즈 함정으로 바꾼다. 바꾼 노드에서 switched와 '계획 변경' 자막(caption)을 낸다.
+//      체크레이즈 함정(trap_cr)은 medium 중 내 카드로 만든 투페어 이상(ctx.two)만 keep이다. 탑페어와 오버페어는 why 'strength'로 바꾼다(M7 TH-01).
 //      이미 한 번 바꿨는데 또 안 맞거나, 올인을 마주했으면 Villain.getAction으로 폴백한다(fallback:true, 대사 line은 OFF_LINES). 레이저의 플랍 c벳
 //      자리에서 계획이 포기면 엔진 c벳 빈도로 폴백한다(c벳 한 번 뒤 포기).
 //   4. decide(프리플랍): 엔진 정책(폴백) + 계획 예외 3가지. 프리미엄이 레이즈를 맞으면 슬로플레이(또는 slowplay_freq)는 콜,
@@ -144,7 +145,10 @@ var TheaterAI = (function() {
     var bets = (state && state.playerBets) || {};
     var facing = ((state && state.currentBet) || 0) > (bets[name] || 0);
     var checkedTo = !behind && !facing;
-    return { oop: behind, ip: !behind, facing: facing, isPfa: pfa === name, aggr: pfa === name || !pfa || !!folded[pfa] || checkedTo };
+    // two: 내 카드가 만든 투페어 이상(보드 페어에 얹힌 원페어 제외). 체크레이즈 함정의 medium keep 조건(M7 TH-01)
+    var hole = (state && state.holeCards && state.holeCards[name]) || me.holeCards || null, board = (state && state.board) || [];
+    var two = !!(hole && hole.length >= 2 && board.length >= 3 && _twoPlus(classOf(hole, board), hole, board));
+    return { oop: behind, ip: !behind, facing: facing, isPfa: pfa === name, aggr: pfa === name || !pfa || !!folded[pfa] || checkedTo, two: two };
   }
   function _seatOk(P, pos) {
     var need = P.needs && P.needs.position;
@@ -172,6 +176,10 @@ var TheaterAI = (function() {
     var keep = (P.keep && P.keep[street]) || (P.needs && P.needs.strength) || [];
     if (keep.indexOf(cls) < 0) return 'strength';
     ctx = ctx || {};
+    // M7 TH-01: 체크레이즈 함정은 강한 손(strong, nut)이 되었거나 내 카드로 만든 투페어 이상일 때만 이어 간다.
+    //   탑페어와 오버페어(medium)로 '걸렸다! 체크레이즈'를 하면 평균 승률 47%의 성공담이 돼 초보가 잘못 배운다(설계 부록 E는 needs strong|nut).
+    //   ctx.two가 없으면(손으로 만든 ctx) 예전처럼 keep만 본다.
+    if (P.key === 'trap_cr' && cls === 'medium' && ctx.two === false) return 'strength';
     var need = P.needs || {};
     if (need.position === 'oop' && !ctx.oop) return 'position';
     if (need.position === 'ip' && !ctx.ip) return 'position';

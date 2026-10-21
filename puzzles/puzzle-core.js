@@ -62,13 +62,16 @@
 //   TYPE_META[type] = {confidence, appDef, rated, srs, stage, group, base, concept, ui?}: 부록 C 27유형의 정본.
 //     stage = 그 유형이 처음 나오는 노드의 단계(부록 A). group은 데일리 5 구성용('preflop'|'math'|'other').
 //     approx와 앱 정의(appDef) 유형은 rated:false. cbet2, intent, prescribe와 once 유형은 srs:'once'.
+//     (M7, PZ-01) 유형 정본이 appDef false여도 문항이 appDef: true + rated: false로 나오면(minraise opensize 이 앱 표준 사이즈,
+//     rangehit steps 이 앱의 지우기 규칙) 그 문항은 앱 정의다: q.appDef를 유지하고 label은 'appdef'(이 앱의 분류 기준). 레이팅 대상 문항에는 영향 없음.
 //   register(type, gen, meta): TYPE_META를 정본으로 병합한다. 생성기가 넘긴 값과 다르면 TYPE_META를 따르고 console.warn.
 //     그리고 Drills.keyPolicy(type, 'once'|'srs')를 맞춘다. 부록 C에 없는 유형(테스트용 '_t' 접두)은 넘긴 meta를 쓴다.
 //   next(type, rnd, opts) -> q|null: gen.next를 부르고 confidence가 TYPE_META와 다르면 폐기, verify 실패면 재생성(최대 20회).
 //   verify(q) -> bool: 형식 검사(보기, 정답, key) + gen.verify(q)(독립 재계산).
 //   fromKey(type, key, rnd, opts) -> q|null(q.review = true: 복습이라 Rating.record가 레이팅에서 뺀다), available(type), isRated(q), explain(q) -> {line, scene?}
-//   label(q) -> {kind:'engine'|'given-range'|'chart'|'appdef'|'approx'|'character', text}: 설계서 8.2절 문구 그대로.
+//   label(q) -> {kind:'engine'|'given-range'|'chart'|'appdef'|'approx'|'character'|'concept', text}: 설계서 8.2절 문구 그대로.
 //     (M6-PAINT, 계약 H12) 유형 'lesson'(레슨 복습)만 q.labelKind('chart' | 'appdef' | 'approx'(레슨 장면 label '참고'), gen-lesson fromKey가 채움)를 따른다.
+//     (M7, 결정 27) 'concept'(레슨 개념): calc 없는 레슨 개념 질문. 엔진이 검산한 값이 아니라 레슨에서 배운 개념 확인 문제다.
 //     다른 유형은 q.labelKind가 있어도 무시한다(라벨은 유형 정본 TYPE_META가 정한다).
 //   dailySeed(dayKey) -> uint32: 결정론 해시('YYYY-MM-DD', 'YYYYMMDD', 타임스탬프 모두 같은 날이면 같은 값).
 //   daily5(dayKey, stage) -> q 5개: 단계+1 이하, 레이팅 대상 exact/chart만, opts.noReview:true로 생성.
@@ -94,10 +97,11 @@ var Puzzles = (function() {
     chart: '이 앱의 차트 기준(입문용, 표준보다 UTG/HJ/CO가 2~8%p 타이트, SB RFI 32.1%와 vs3bet 표도 타이트)',
     appdef: '이 앱의 분류 기준',
     approx: '공개 솔버 통념을 근사한 참고값',
-    character: '이 캐릭터의 생각이고 정답이 아님'
+    character: '이 캐릭터의 생각이고 정답이 아님',
+    concept: '레슨 개념'   // M7 결정 27: 설명은 '레슨에서 배운 개념 확인 문제'(puzzle-ui LABELS.concept.full)
   };
   var LABEL_KIND = { 'facingbet-river': 'given-range', intent: 'character' };
-  var LESSON_LABEL = { chart: 'chart', appdef: 'appdef', approx: 'approx' };   // 계약 H12(+ '참고' 장면은 approx): 레슨 복습 문항이 따를 수 있는 라벨
+  var LESSON_LABEL = { chart: 'chart', appdef: 'appdef', approx: 'approx', concept: 'concept' };   // 계약 H12(+ '참고' 장면은 approx): 레슨 복습 문항이 따를 수 있는 라벨
 
   function _m(confidence, rated, srs, stage, group, base, concept, extra) {
     var o = { confidence: confidence, appDef: false, rated: rated, srs: srs, stage: stage, group: group, base: base, concept: concept };
@@ -242,7 +246,7 @@ var Puzzles = (function() {
     if (q.type == null) q.type = type;
     if (q.type !== type) return null;
     if (q.confidence !== m.confidence) return null;
-    q.appDef = !!m.appDef;
+    q.appDef = !!m.appDef || (q.appDef === true && q.rated === false);   // M7 PZ-01: 문항 단위 앱 정의(레이팅 제외)만 허용
     q.srs = m.srs;
     if (m.srs === 'once') q.key = null;
     q.rated = !!m.rated && q.rated !== false;
@@ -326,6 +330,7 @@ var Puzzles = (function() {
   function label(q) {
     var t = q && q.type, m = t ? _metaOf(t) : null;
     var conf = m ? m.confidence : (q && q.confidence), appDef = m ? !!m.appDef : !!(q && q.appDef);
+    if (q && q.appDef === true && q.rated === false) appDef = true;   // M7 PZ-01: 문항 단위 앱 정의(opensize, steps)
     var kind;
     if (conf === 'approx' || CONFIDENCES.indexOf(conf) < 0) kind = LABEL_KIND[t] === 'character' ? 'character' : 'approx';
     else if (appDef) kind = 'appdef';

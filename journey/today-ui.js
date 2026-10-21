@@ -46,6 +46,7 @@ var TodayUI = (function() {
 
   var _active = false;      // 오늘의 5분 진행 중(셸 표시 또는 외부 블록 실행 중)
   var _pending = null;      // 외부 화면에서 실행 중인 블록 { idx, kind, startedAt, xpStart, ... }
+  var _runDay = null;       // 진행 중인 계획을 시작한 날 키(자정을 넘겨도 그 날의 계획을 계속 읽는다, M7 TIME-02)
   var _last = null;         // 직전 블록 결과 { idx, line, retry }
   var _streak = null;       // 마지막 touchDay 결과
   var _cache = null;        // 홈 미리보기용 계획 { day, goal, at, plan }
@@ -121,9 +122,14 @@ var TodayUI = (function() {
     if (!r && create) r = s.daily[day] = { blocks: [], doneBlocks: 0, minutes: 0, xp: 0, daily5: null, plan: null };
     return r || null;
   }
-  function plan() {
-    var r = _dayRec(_state(), false);
+  function _planOf(day) {
+    var r = _dayRec(_state(), false, day);
     return (r && r.plan && Array.isArray(r.plan.blocks)) ? r.plan : null;
+  }
+  // 진행 중(_active 또는 _pending)이면 시작한 날의 계획, 아니면 오늘의 계획. 23:5x에 시작해 자정 뒤에 블록을 끝내도 결과가 버려지지 않는다.
+  function plan() {
+    if ((_active || _pending) && _runDay) { var rp = _planOf(_runDay); if (rp) return rp; }
+    return _planOf(_day());
   }
   function _savePlan(p) {
     var s = _state();
@@ -220,7 +226,7 @@ var TodayUI = (function() {
     p.xp = _num(p.xp, 0); p.minutes = _num(p.minutes, 0);
     return p;
   }
-  // 표시용 추정(초): 복습 10초, 레슨 장면 20초(커리큘럼 페이지는 약 2분), 게임 1핸드 60초, 극장 90초
+  // 표시용 추정(초): 복습 10초, 레슨 장면 20초(커리큘럼 페이지는 약 2분), 게임 1핸드 60초, 극장 90초, 미니시즌 1편 180초(Today.SEC.mini)
   function _estSec(b) {
     if (b.id === 'review') {
       var rp = _reviewPlan(b);
@@ -233,10 +239,10 @@ var TodayUI = (function() {
     if (b.kind === 'drill') { var n = _node(b.node); return (_num(b.count, 0) || (n && n.drill ? _num(n.drill.count, 10) : 10)) * 25; }
     if (b.kind === 'rush') return 180;
     if (b.id === 'fun' && b.fallback === 'free') return FREE_HANDS * 60;
-    if (b.kind === 'theater') return 90 * _num(b.episodes, 1);
+    if (b.kind === 'theater') return b.mini ? 180 : 90 * _num(b.episodes, 1);   // (M7 통합 검증) 미니시즌 편 블록이 설명은 '약 3분', 추정 줄은 '약 2분'이던 것
     if (b.kind === 'highlight') return 90;
     if (b.kind === 'weeklyIntro' && b.follow && typeof b.follow === 'object') return _estSec(b.follow);
-    if (b.kind === 'mission') return 5 * 60;
+    if (b.kind === 'mission') return _num(b.hands, 5) * 60;
     return _num(b.hands, b.id === 'fun' ? 3 : 5) * 60;
   }
   function _estTxt(b) { var m = Math.max(1, Math.round(_estSec(b) / 60)); return '약 ' + m + '분'; }
@@ -271,14 +277,31 @@ var TodayUI = (function() {
       case 'drill': return '드릴 ' + t;
       case 'mission': return '미션 ' + t;
       case 'gto': return 'GTO 미러 ' + _num(b.hands, 5) + '핸드';
+      case 'boss': return (t || '승급 시험') + ' 도전';
+      case 'endgame': return '엔드게임 실전 ' + _num(b.hands, 5) + '핸드';
       case 'theater': return b.mini ? '미니시즌 ' + _miniNo(b) + '편' : '극장 ' + _num(b.episodes, 1) + '편';
       case 'highlight': return '오늘의 명장면';
       case 'rush': return '퍼즐 러시';
-      case 'weeklyIntro': return (b.follow && typeof b.follow === 'object' && b.follow.kind) ? '주간 챌린지, ' + label({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands }) : '주간 챌린지';
+      case 'weeklyIntro': return (b.follow && typeof b.follow === 'object' && b.follow.kind) ? '주간 챌린지, ' + label(_funFollow(b.follow)) : '주간 챌린지';
       default: return '자유 게임 ' + _num(b.hands, 3) + '핸드';
     }
   }
 
+  // 드릴 블록 설명(M7 통합 검증): 드릴 통과는 한 세트의 정답률(Journey.recordDrillSet의 best)이라 세트끼리 쌓이지 않는다.
+  // '결과가 통과 기준에 쌓여요'로 읽혀 20문항 노드(10문항씩 이틀)를 이어 모으면 되는 줄 알던 것을, 이 세트에서 몇 개를 맞히면 되는지로
+  function _drillDesc(b) {
+    var nd = _node(b.node), dr = nd && nd.drill, c = dr ? _num(dr.count, 0) : 0, p = dr ? _num(dr.pass, c) : 0;
+    var n = _num(b.count, 0) || Math.min(10, c);
+    if (!(c > 0 && p > 0 && n > 0)) return '노드 드릴을 풀어요. 한 세트의 정답률이 통과 기준을 넘으면 드릴 통과예요';
+    var k = Math.min(n, Math.ceil(n * Math.min(1, p / c) - 1e-9));
+    return '노드 드릴 ' + n + '문항. 이번 세트에서 ' + k + '개 이상 맞히면 드릴 통과예요' + (n !== c ? '(통과 기준 ' + c + '문항 중 ' + p + '개와 같은 비율)' : '');
+  }
+  // 주간 소개 뒤에 이어 붙인 원래 재미 블록을 재미 블록처럼(미니시즌 편 표시 mini, episode까지 그대로, M7 통합 검증)
+  function _funFollow(f) {
+    var o = { id: 'fun' };
+    for (var k in f) if (Object.prototype.hasOwnProperty.call(f, k) && k !== 'id') o[k] = f[k];
+    return o;
+  }
   // 미니시즌 편 번호 'n/전체'(Today가 실은 b.episode = poker_journey.theater.mini 사본, M6 통합 검증)
   function _miniNo(b) {
     var m = (b && b.episode && typeof b.episode === 'object') ? b.episode : {};
@@ -287,7 +310,7 @@ var TodayUI = (function() {
 
   // 홈 버튼과 칩: { state:'new'|'progress'|'done', left, estMin, chips }
   function preview() {
-    var s = _state(), day = _day(), p = plan();
+    var s = _state(), day = _day(), p = _planOf(day);
     var rec = _dayRec(s, false, day);
     if (p && p.day === day && p.finishedAt) return { state: 'done', completed: !!(rec && rec.todayDoneAt), left: 0, estMin: p.estMin, chips: _chips(p), plan: p };
     if (p && p.day === day && p.startedAt) return { state: 'progress', left: _left(p), estMin: p.estMin, chips: _chips(p), plan: p };
@@ -303,7 +326,7 @@ var TodayUI = (function() {
   // ── 진행 ──────────────────────────────────────────────
   function start(p) {
     if (_pending) { resume(); return; }
-    var day = _day(), cur = plan();
+    var day = _day(), cur = _planOf(day);
     if (!p) {
       if (cur && cur.day === day && !cur.finishedAt) p = cur;
       else if (cur && cur.day === day && cur.finishedAt) { p = build({ prevPlan: cur }); p.round = _num(cur.round, 1) + 1; }
@@ -312,14 +335,15 @@ var TodayUI = (function() {
     _cache = null;
     p.startedAt = p.startedAt || _iso(_now());
     p.stoppedAt = null;
+    _runDay = p.day || day;
     _savePlan(p);
     _active = true;
     _last = null;
     _next(p);
   }
   function again() {
-    var cur = plan();
-    var p = build({ prevPlan: cur || null });
+    var cur = _planOf(_day());
+    var p = build({ prevPlan: cur || null, more: true });   // '더 하기': 첫 라운드가 시간 예산 때문에 뺀 데일리 5도 이번에는 넣는다(M7 결정 32)
     p.round = _num(cur && cur.round, 1) + 1;
     p.startedAt = null;
     start(p);
@@ -335,6 +359,7 @@ var TodayUI = (function() {
     if (!p || !p.blocks[i]) { show(); return; }
     var b = p.blocks[i];
     _active = true;
+    if (p.day) _runDay = p.day;
     _last = null;
     p.cur = i;
     _savePlan(p);
@@ -656,16 +681,38 @@ var TodayUI = (function() {
       var mn = _node(b.node);
       if (!mn || !_can('App', 'selectVillains')) return false;
       _setPending(_base(i, 'game', { node: mn.id, mission: true }));
-      _call('Journey', 'startSession', { kind: 'mission', node: mn.id, chunk: 5 });
+      _call('Journey', 'startSession', { kind: 'mission', node: mn.id, chunk: _num(b.hands, 5) });
       _call('App', 'selectVillains', _can('JourneyUI', 'missionConfig') ? JourneyUI.missionConfig(mn) : 'sixmax');
       return true;
     }
-    // gto(기본): GTO 미러 5핸드(세션 핸드 수로 끊음)
+    // 승급 시험(M7 FLOW-05): 단계 학습 노드를 다 끝내고 시험만 남았을 때. 시험 카드를 열고(Boss.start), 시험 화면에서 드릴과 실전 핸드를 이어서 한다.
+    // 여정 홈으로 돌아오면 resume이 시작 뒤 시험 기록(시도 시작, 드릴, 핸드, 결과)이 달라졌는지로 블록 완료를 정한다.
+    if (b.kind === 'boss') {
+      if (!_node(b.node) || !_can('Boss', 'start')) return false;
+      // 드릴 미달 뒤 24시간 재도전 대기 중이면 시험을 열 수 없으니 이 블록은 시험 전과 같은 GTO 미러 실전으로 바꿔 진행한다
+      if (_num(_call('Boss', 'retryWait', b.node, _now()), 0) > 0) {
+        b.kind = 'gto'; b.node = null; b.hands = 5; b.waited = true;
+        return _learn(b, i);
+      }
+      // 48시간이 지난 시도는 지문을 뜨기 전에 정리한다. Boss.start 안의 expire가 정리하면 시험을 하지 않고 돌아와도 지문이 달라져 완료로 보인다
+      _call('Boss', 'expire', _now());
+      var bp = _base(i, 'boss', { inJourney: true, node: b.node, sig: _bossSig(b.node) });
+      _setPending(bp);
+      if (_call('Boss', 'start', b.node, _now()) === false) { _setPending(null); return false; }
+      return true;
+    }
+    // gto(기본): GTO 미러 5핸드, endgame: 6인 캐스트 5핸드(모든 노드를 통과한 뒤, M7 FLOW-05). 세션 핸드 수로 끊음
     if (!_can('App', 'selectVillains')) return false;
     _setPending(_base(i, 'game', { node: b.node || null }));
     _call('Journey', 'startSession', { kind: 'free', node: null, chunk: _num(b.hands, 5) });
-    _call('App', 'selectVillains', 'gto-mirror');
+    _call('App', 'selectVillains', b.kind === 'endgame' ? 'sixmax-cast' : 'gto-mirror');
     return true;
+  }
+  // 승급 시험 기록의 지문: 시도 시작/핸드/드릴 진행/결과/통과가 바뀌면 달라진다(블록을 여는 동안 시험이 진행됐는지 판정)
+  function _bossSig(node) {
+    var s = _state(), b = s.boss || {}, a = (b.active && b.active.node === node) ? b.active : null, rec = (s.nodes || {})[node] || {};
+    var dr = a && a.drill ? [a.drill.passed ? 1 : 0, Array.isArray(a.drill.parts) ? a.drill.parts.length : 0] : null;
+    return JSON.stringify([(b.last || {})[node] || null, a ? [a.startedAt, a.hands, dr] : null, rec.status || null]);
   }
   function _plan_cs() { var p = plan(); return p && p.curriculumSession; }
 
@@ -964,7 +1011,7 @@ var TodayUI = (function() {
     return o;
   }
   function running() { return _active || !!_pending; }
-  function leave() { if (!_pending) { _active = false; _syncRunning(); } }
+  function leave() { if (!_pending) { _active = false; _runDay = null; _syncRunning(); } }
 
   function _handsSince(t) {
     var h = _call('Storage', 'getHandHistory');
@@ -1005,6 +1052,12 @@ var TodayUI = (function() {
       // 카드 보기를 onDone 없이 닫음: 카드는 이미 봤으니 완료
       _finish(p, _highlightRes(p));
       return;
+    } else if (p.kind === 'boss') {
+      // 승급 시험 카드에서 돌아옴(M7 FLOW-05): 시험 기록이 시작 때와 달라졌으면(시도 시작, 드릴, 실전 핸드, 결과) 완료
+      var passedNow = (((_state().nodes || {})[p.node] || {}).status) === 'passed';
+      r.done = _bossSig(p.node) !== p.sig;
+      r.stats = r.done ? { boss: 1 } : null;
+      r.line = passedNow ? _nodeTitle(p.node) + ' 통과!' : (r.done ? _nodeTitle(p.node) + ' 시험을 진행했어요(기록은 이어져요)' : '승급 시험을 아직 시작하지 않았어요');
     } else if (p.kind === 'curriculum') {
       if (p.node) {
         _call('Journey', 'completeLesson', p.node, 0, true, now);   // 첫 완료 레슨 XP는 Journey가 준다(중복 지급 금지)
@@ -1081,7 +1134,7 @@ var TodayUI = (function() {
       if (_num(result.ratingDelta, 0)) b.ratingDelta = Math.round(Number(result.ratingDelta) * 10) / 10;
       p.xp = _num(p.xp, 0) + b.xp;
       p.minutes = Math.round((_num(p.minutes, 0) + b.minutes) * 10) / 10;
-      _markBlock(b.id, b.minutes, b.xp, now);
+      _markBlock(b.id, b.minutes, b.xp, now, p.day);
     } else if (result.skipped) {
       b.status = 'skipped';
     }
@@ -1092,9 +1145,10 @@ var TodayUI = (function() {
 
   // Journey.markBlock은 안에서 touchDay(36h 스트릭)까지 한다. 같은 날 두 번째 touchDay는 변화 없음 결과라
   // 프리즈 사용/지급 표시가 지워지므로 다시 부르지 않고 lastTouch를 쓴다. 변화 있는 결과만 마무리 카드용으로 남긴다.
-  function _markBlock(name, minutes, xp, now) {
+  // day: 계획을 시작한 날 키. 자정을 넘겨 끝낸 블록은 그 날의 기록(doneBlocks, 분)에 붙고 스트릭은 실제 시각으로 센다(M7 TIME-02).
+  function _markBlock(name, minutes, xp, now, day) {
     var st;
-    if (_can('Journey', 'markBlock')) { _call('Journey', 'markBlock', name, minutes, xp, now); st = _call('Journey', 'lastTouch'); }
+    if (_can('Journey', 'markBlock')) { _call('Journey', 'markBlock', name, minutes, xp, now, day ? { day: day } : undefined); st = _call('Journey', 'lastTouch'); }
     else st = _call('Journey', 'touchDay', now);
     if (st && (st.changed || !_streak)) _streak = st;
   }
@@ -1114,6 +1168,7 @@ var TodayUI = (function() {
     var p = plan();
     if (p && !p.finishedAt) { p.stoppedAt = _iso(_now()); _savePlan(p); }
     _active = false;
+    _runDay = null;
     _last = null;
     _syncRunning();
     if (_can('JourneyUI', 'open')) JourneyUI.open();
@@ -1162,9 +1217,12 @@ var TodayUI = (function() {
         if (Array.isArray(C)) { var it = C.filter(function(x) { return x && x.session === n; })[0]; if (it) topic = _clean(it.topic); }
         return '커리큘럼 세션 ' + n + (topic ? ' "' + topic + '"' : '') + '을 읽고 돌아와요';
       }
-      case 'drill': return '노드 드릴을 풀어요. 결과가 통과 기준에 쌓여요';
-      case 'mission': return '6인 테이블 5핸드. 결정 기록이 미션 진행에 쌓여요';
-      case 'gto': return '같은 카드를 3번 치며 정답과 비교해요(5핸드)';
+      case 'drill': return _drillDesc(b);
+      // 핸드 수는 계획 값(시간 예산으로 4, 3핸드로 줄 수 있음, M7 결정 32). 칩 이름, 세션 분량과 같게
+      case 'mission': return '6인 테이블 ' + _num(b.hands, 5) + '핸드. 결정 기록이 미션 진행에 쌓여요';
+      case 'gto': return '같은 카드를 3번 치며 정답과 비교해요(' + _num(b.hands, 5) + '핸드)';
+      case 'boss': return '단계의 마지막 관문이에요. 시험 카드에서 드릴이나 실전 핸드를 이어서 해요. 벌점은 없고 기록은 이어져요';
+      case 'endgame': return '모든 단계를 통과했어요. 6인 캐스트 테이블에서 ' + _num(b.hands, 5) + '핸드로 감각을 유지해요';
       case 'rush': return '3분 동안 퍼즐을 연달아 풀어요. 연속으로 맞히면 시간이 늘고 틀리면 10초 줄어요(레이팅에는 반영 안 돼요)';
       case 'theater':
         if (b.mini) return '🏆 극장 미니시즌 ' + _miniNo(b) + '편: 캐릭터들의 탈락전 6~8핸드(약 3분)예요. 결정적인 순간에 멈추니 다음 행동과 계획을 맞혀 봐요';
@@ -1172,7 +1230,7 @@ var TodayUI = (function() {
       case 'highlight': return '극장에서 모은 명장면 카드 중 오늘의 한 장을 다시 봐요';
       case 'weeklyIntro':
         if (b.follow && typeof b.follow === 'object' && b.follow.kind) {
-          var fd = _desc({ id: 'fun', kind: b.follow.kind, episodes: b.follow.episodes, hands: b.follow.hands });
+          var fd = _desc(_funFollow(b.follow));
           return (b.introDone || !_can('Seasons', 'sync') || _introSeen(_now())) ? fd : '이번 주 챌린지(조건 3개)를 먼저 보고 이어서 해요. ' + fd;
         }
         break;
@@ -1226,7 +1284,7 @@ var TodayUI = (function() {
     var xp0 = _xpNow();
     if (all) {
       if (!rec.todayDoneAt) { rec.todayDoneAt = _iso(now); _save(s); }
-      if (_can('Journey', 'markBlock')) _markBlock('wrap', 0.5, 0, now);
+      if (_can('Journey', 'markBlock')) _markBlock('wrap', 0.5, 0, now, p.day);
     }
     var gained = Math.max(0, _xpNow() - xp0);
     p = plan() || p;
@@ -1247,9 +1305,10 @@ var TodayUI = (function() {
     var name = CONCEPT_LABEL[concept] || concept;
     if (a7 && a14 && _num(a7.n, 0) >= 5 && _num(a14.n, 0) - _num(a7.n, 0) >= 5) {
       var pn = a14.n - a7.n, pg = a14.g - a7.g;
-      return name + ' 판단 지난주 ' + Math.round(pg / pn * 100) + '% → 이번주 ' + Math.round(a7.g / a7.n * 100) + '%';
+      // JStats는 오늘을 포함한 최근 7일과 그 앞 7일이다. ISO 주(월~일)인 '이번 주 챌린지', 주간 리포트의 '지난주'와 헷갈리지 않게 '그 전 7일', '최근 7일'로 쓴다(M7 TIME-09)
+      return name + ' 판단 그 전 7일 ' + Math.round(pg / pn * 100) + '% → 최근 7일 ' + Math.round(a7.g / a7.n * 100) + '%';
     }
-    if (a7 && _num(a7.n, 0) > 0) return '이번 주 ' + name + ' 판단 ' + a7.n + '번 중 초록 ' + _num(a7.g, 0) + '번';
+    if (a7 && _num(a7.n, 0) > 0) return '최근 7일 ' + name + ' 판단 ' + a7.n + '번 중 초록 ' + _num(a7.g, 0) + '번';
     // 집계가 아직 없으면 오늘 계획의 블록 결과로(게임 중 차트 판정 기록과 섞지 않음)
     var q = { n: 0, ok: 0 }, hands = 0, lessons = 0, eps = 0, mks = 0;
     p.blocks.forEach(function(b) {
@@ -1282,7 +1341,11 @@ var TodayUI = (function() {
   function _nextLine() {
     var sm = _can('JourneyUI', 'summary') ? JourneyUI.summary() : {};
     var nn = sm.nextNode;
-    if (!nn || !nn.id) return '';
+    if (!nn || !nn.id) {
+      // 모든 노드를 통과한 뒤(M7 FLOW-05): 빈 줄 대신 엔드게임 안내
+      var cx = _call('Journey', 'todayCtx', _now());
+      return (cx && cx.endgame) ? '모든 단계를 통과했어요. 이제 주간 리포트의 비싼 실수 다시 풀기, 주간 챌린지, 시즌 퀘스트로 실력을 다져요' : '';
+    }
     var step = { lesson: '레슨', drill: '드릴', mission: '실전', boss: '승급 시험' }[nn.step] || '';
     // 할 수 있는 다음 단계가 이번 버전에 없으면(JourneyUI.nextDoable도 대안을 못 찾음) 막다른 안내 대신 사유와 대안
     if (step && _can('JourneyUI', 'canDo') && !JourneyUI.canDo(nn.step, _node(nn.id))) {
@@ -1322,13 +1385,15 @@ var TodayUI = (function() {
         (nl ? '<div class="j-wrap-next">🧭 ' + _esc(nl) + '</div>' : '') +
         (zl ? '<div class="j-wrap-next j-wrap-season">' + _esc(zl) + '</div>' : '') +
       '</div>' +
-      '<div class="j-today-acts"><button type="button" class="j-btn j-primary j-big" onclick="TodayUI.finish()">여정 홈으로</button></div></div>';
+      '<div class="j-today-acts"><button type="button" class="j-btn j-primary j-big" onclick="TodayUI.finish()">여정 홈으로</button>' +
+        '<button type="button" class="j-btn j-big" onclick="TodayUI.again()">➕ 더 하기</button></div></div>';
     if (_can('JourneyUI', 'mountView')) JourneyUI.mountView('today', html);
   }
   function finish() {
     var p = plan();
     if (p) _complete(p);
     _active = false;
+    _runDay = null;
     _last = null;
     _syncRunning();
     if (_can('JourneyUI', 'open')) JourneyUI.open();
@@ -1337,7 +1402,7 @@ var TodayUI = (function() {
   var api = {
     start: start, again: again, runBlock: runBlock, stopHere: stopHere, finish: finish, onBlockDone: onBlockDone, skip: skip,
     resume: resume, show: show, leave: leave, running: running, hasPending: hasPending, pendingInfo: pendingInfo,
-    preview: preview, plan: plan, build: build, ctx: ctx, label: label, desc: _desc,
+    preview: preview, plan: plan, build: build, ctx: ctx, label: label, desc: _desc, estSec: _estSec,
     // M2-P7 연결(순수 판정: 테스트, 하네스용)
     puzzleTypes: puzzleTypes, reviewPlan: _reviewPlan, ratingLine: ratingLine, blockReady: _blockReady,
     // M4-P8 재미 블록(극장, 명장면) 결과 줄

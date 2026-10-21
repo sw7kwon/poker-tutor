@@ -791,10 +791,21 @@ var App = (function() {
   // ── 같은 핸드 반복 연습 모드 ──
 
   function startPractice(record) {
-    if (_practice) return; // 연습 중 재진입 시 resume 스냅샷 유실 방지
+    // 연습 중 재진입(게임 화면이 보이는 중)은 resume 스냅샷 유실 방지를 위해 거절한다.
+    // 단, 연습 핸드에는 화면을 나가는 버튼이 없어 안드로이드 뒤로 등으로 떠나면 _practice가 지워지지 않는다(M7 FLOW-02).
+    // 게임 화면이 아닌데 남아 있는 연습은 낡은 것이므로 원래 세션 스냅샷(resume)만 이어받아 새 연습을 연다.
     if (!record || record.seed == null) return;
+    var inherited;
+    if (_practice) {
+      var gameScr = document.getElementById('screen-game');
+      if (gameScr && gameScr.classList && gameScr.classList.contains('active')) return;
+      inherited = _practice.resume;
+      _practice = null;
+      if (typeof HUD !== 'undefined' && HUD.updatePracticeTrend) HUD.updatePracticeTrend([]);
+    }
     var resume = null;
-    if (_state) {
+    if (inherited !== undefined) resume = inherited;
+    else if (_state) {
       resume = {
         state: _state, villainConfig: _villainConfig, gtoMode: _gtoMode, gtoRound: _gtoRound,
         baseSeed: _baseSeed, seed: _seed, heroPos: _heroPos,
@@ -1130,6 +1141,8 @@ var App = (function() {
     _practiceAttempt: _practiceAttempt,
     _handGoalText: _handGoalText,
     _curriculumSpotKey: _curriculumSpotKey,
-    _villainOpts: _villainOpts
+    _villainOpts: _villainOpts,
+    // 테스트용: 실제 핸드를 시작한 시험이 뒤 테스트에 게임 상태를 남기지 않도록 비운다(M7 FLOW-02 시험)
+    _resetForTest: function() { _state = null; _practice = null; _gtoMode = false; }
   };
 })();

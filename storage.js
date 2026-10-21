@@ -65,6 +65,8 @@ var Storage = (function() {
   var MAX_CHARS = 4 * 1024 * 1024;
   var CAP = 200;
   var SPACE_LIMIT = 4.5 * 1024 * 1024;   // 바이트(문자 수 x 2로 추정)
+  var PREV_DAYS = 30;                    // 되돌리기 사본 보관 기간(일)
+  var DAY_MS = 86400000;
   var CARD_CAP = 100;                    // 여정 명장면 카드 상한
 
   function _has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
@@ -320,23 +322,301 @@ var Storage = (function() {
     if (_isObj(out.mission) && _isObj(other.mission)) _put(out.mission, 'hands', _max(out.mission.hands, other.mission.hands));
     return out;
   }
-  // 주간 챌린지와 시즌: 같은 key면 진행 칸별 max, done은 어느 쪽이든 true면 true. key가 다르면 로컬
-  function _mergePeriod(l, r) {
-    if (!_isObj(l) || !_isObj(r) || l.key !== r.key) return _clone(_isObj(l) ? l : r);
-    var out = _overlay(l, r);
-    if (Array.isArray(l.progress) && Array.isArray(r.progress)) {
-      var len = Math.max(l.progress.length, r.progress.length);
-      out.progress = [];
-      for (var i = 0; i < len; i++) out.progress.push(_max(l.progress[i], r.progress[i]));
-    }
-    out.done = l.done === true || r.done === true;
+  // ── 여정 병합 확장(M7 결정 28, DATA-02~05, DATA-07, TIME-10, TIME-11) ──
+  // 규칙 요약: id 집합과 열람 목록은 합집합(상한 유지), 횟수는 큰 값, 단일 타임스탬프는 최신 우선, 기기 설정과 닿는 필드는 로컬.
+  var REVIEW_CAP = 200, REVIEW_VIEWS_MAX = 260;                 // review-queue.js CAP, VIEWS_MAX
+  var LUCK_CARD_CAP = 50, LUCK_VIEW_CAP = 100;                  // hero-stats.js LUCK_CAP, VIEW_CAP
+  var SHORT_CAP = 20, MINI_HIST_CAP = 20;                       // journey-core.js SHORT_CAP, theater-ui.js MINI_HIST
+  var BACKUP_MONTHS_CAP = 36, PERIOD_HIST_MAX = 12;             // badges.js BACKUP_MONTHS_MAX, seasons.js HIST_MAX
+  var FROZEN_MAX = 60, GRAD_BOX = 4;
+  var _PERIOD_KEY = /^\d{4}-(?:W\d{2}|\d{2})$/;
+
+  // 시간 오름차순(동률은 입력 순서) 정렬 뒤 뒤쪽 cap개
+  function _sortTail(list, timeFn, cap) {
+    var arr = list.map(function(x, i) { return { x: x, i: i, t: timeFn(x) }; });
+    arr.sort(function(a, b) { return a.t < b.t ? -1 : a.t > b.t ? 1 : a.i - b.i; });
+    var out = arr.map(function(o) { return o.x; });
+    return out.length > cap ? out.slice(-cap) : out;
+  }
+  // 문자열 목록 합집합(오름차순, 뒤쪽 cap개). 양쪽 다 배열이 아니면 undefined
+  function _unionStrings(la, ra, cap) {
+    if (!Array.isArray(la) && !Array.isArray(ra)) return undefined;
+    var seen = Object.create(null), out = [];
+    (Array.isArray(la) ? la : []).concat(Array.isArray(ra) ? ra : []).forEach(function(s) {
+      if (typeof s !== 'string' || seen[s]) return;
+      seen[s] = 1; out.push(s);
+    });
+    out.sort();
+    return out.length > cap ? out.slice(-cap) : out;
+  }
+  function _idKey(x) { return x.id != null ? String(x.id) : JSON.stringify(x); }
+  function _clone2(v) { return (v !== null && typeof v === 'object') ? _clone(v) : v; }
+  function _dayIdxOfKey(k) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(k));
+    return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY_MS) : null;
+  }
+  // ISO 8601 주 키(JStats.weekKey와 같은 식, 저장 모듈이 통계 모듈보다 먼저 올라와서 복사)
+  function _isoWeekKey(dayKey) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey));
+    if (!m) return null;
+    var t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    var dow = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - dow);
+    var y = t.getUTCFullYear();
+    var wk = Math.ceil(((t.getTime() - Date.UTC(y, 0, 1)) / DAY_MS + 1) / 7);
+    return y + '-W' + (wk < 10 ? '0' : '') + wk;
+  }
+
+  // 실수 복습(review-queue.js). 항목은 키별로 마지막 사건(at, lastAt 중 늦은 쪽)이 더 새로운 쪽이 이기고(실수가 다시 들어와
+  // at이 새로워진 항목이나 틀려서 상자가 0이 된 항목을 옛 상자로 되돌리지 않는다), 같으면 더 진행된 상자, 그다음 늦은 기한.
+  // 횟수 n, ok는 큰 값. 열람 주(views)는 합집합, coach(연습 연쇄 중 코칭 스냅샷)는 기기 설정이라 로컬.
+  function _reviewPick(a, b) {
+    var ta = Math.max(_time(a.at), _time(a.lastAt)), tb = Math.max(_time(b.at), _time(b.lastAt));
+    if (ta !== tb) return tb > ta ? b : a;
+    var ba = _num(a.box) || 0, bb = _num(b.box) || 0;
+    if (ba !== bb) return bb > ba ? b : a;
+    return (_num(b.due) || 0) > (_num(a.due) || 0) ? b : a;
+  }
+  // 200개를 넘으면 졸업 항목(오래된 순)부터, 그다음 오래된 항목부터 지운다(ReviewQueue._prune과 같은 순서)
+  function _reviewPrune(items) {
+    var keys = Object.keys(items);
+    if (keys.length <= REVIEW_CAP) return items;
+    var cand = keys.map(function(k) {
+      var it = items[k], grad = (_num(it.box) || 0) >= GRAD_BOX ? 0 : 1;
+      var t = _time(grad === 0 ? (it.lastAt || it.at) : it.at);
+      return { k: k, g: grad, t: isFinite(t) ? t : 0 };
+    }).sort(function(a, b) { return (a.g - b.g) || (a.t - b.t) || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0); });
+    var drop = {};
+    for (var i = 0; i < keys.length - REVIEW_CAP; i++) drop[cand[i].k] = 1;
+    var out = {};
+    keys.forEach(function(k) { if (!drop[k]) out[k] = items[k]; });
     return out;
   }
+  function _mergeReview(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo && !ro) return undefined;
+    if (!lo) { var c = _clone(r); delete c.coach; return c; }
+    if (!ro) return _clone(l);
+    var out = _overlay(l, r);
+    var li = _isObj(l.items) ? l.items : {}, ri = _isObj(r.items) ? r.items : {}, items = {};
+    Object.keys(li).concat(Object.keys(ri)).forEach(function(k) {
+      if (_has(items, k)) return;
+      var a = _isObj(li[k]) ? li[k] : null, b = _isObj(ri[k]) ? ri[k] : null;
+      if (!a || !b) { items[k] = _clone(a || b); return; }
+      var win = _clone(_reviewPick(a, b));
+      ['n', 'ok'].forEach(function(f) { var m = _max(a[f], b[f]); if (_num(m) !== null) win[f] = m; });
+      items[k] = win;
+    });
+    out.items = _reviewPrune(items);
+    out.views = _unionStrings(l.views, r.views, REVIEW_VIEWS_MAX) || [];
+    if (_has(l, 'coach')) out.coach = _clone2(l.coach); else delete out.coach;
+    return out;
+  }
+
+  // 운 미터(hero-stats.js): 카드는 id 합집합 최근 50장, 열람은 (at, id) 합집합 최근 100개
+  function _mergeLuck(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo && !ro) return undefined;
+    if (!lo) return _clone(r);
+    if (!ro) return _clone(l);
+    var out = _overlay(l, r);
+    var cards = _unionList(l.cards, r.cards, _idKey);
+    if (cards) out.cards = _sortTail(cards, function(c) { return _time(c.at); }, LUCK_CARD_CAP);
+    var views = _unionList(l.views, r.views, function(v) { return String(v.at) + '|' + String(v.id); });
+    if (views) out.views = _sortTail(views, function(v) { return _time(v.at); }, LUCK_VIEW_CAP);
+    return out;
+  }
+
+  // 배지 이벤트 기록(badges.js badgeMeta): 횟수와 최고 기록은 큰 값, 현재 연속(cur)은 로컬, 백업 달은 합집합 최근 36개,
+  // 맞히기 최고는 맞힌 수가 큰 쪽(같으면 전체 수가 작은 쪽). L3 유지 시작(l3Since)은 단일 타임스탬프라 늦은 쪽(더 보수적인 쪽, 코칭 레벨은 기기 설정이라
+  // 이 기기가 L3가 아니면 Badges.check가 다음에 비운다), 아직 알리지 않은 배지(unseen)는 로컬.
+  function _mergeBadgeMeta(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo && !ro) return undefined;
+    var L = lo ? l : {}, R = ro ? r : {};
+    var out = _overlay(L, R);
+    if (_isObj(L.run) || _isObj(R.run)) {
+      var lr = _isObj(L.run) ? L.run : {}, rr = _isObj(R.run) ? R.run : {}, run = {};
+      Object.keys(lr).concat(Object.keys(rr)).forEach(function(k) {
+        if (_has(run, k)) return;
+        var a = _isObj(lr[k]) ? lr[k] : null, b = _isObj(rr[k]) ? rr[k] : null;
+        if (a && b) {
+          var o = _overlay(a, b);
+          o.best = _max(_max(a.best, b.best), a.cur);
+          run[k] = o;
+        } else run[k] = _clone(a || b);
+      });
+      out.run = run;
+    }
+    ['river', 'cone', 'mini', 'paint'].forEach(function(f) { _put(out, f, _max(L[f], R[f])); });
+    var li = _isObj(L.identify) ? L.identify : null, ri = _isObj(R.identify) ? R.identify : null;
+    if (li || ri) {
+      out.identify = _clone(_pickBy(li, ri, function(b, a) {
+        var cb = _num(b.correct) || 0, ca = _num(a.correct) || 0;
+        return cb > ca || (cb === ca && (_num(b.total) || 0) < (_num(a.total) || 0));
+      }));
+    }
+    var bk = _unionStrings(L.backups, R.backups, BACKUP_MONTHS_CAP);
+    if (bk) out.backups = bk;
+    var t3a = _time(L.l3Since), t3b = _time(R.l3Since);
+    out.l3Since = (isFinite(t3a) || isFinite(t3b)) ? (t3b > t3a ? R.l3Since : L.l3Since) : null;
+    out.unseen = (lo && Array.isArray(L.unseen)) ? _clone(L.unseen) : [];
+    return out;
+  }
+
+  // 외형(badges.js cosmetic): 칸마다 로컬이 자동(null)이면 파일에서 고른 값을 가져온다
+  function _mergeCosmetic(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo && !ro) return undefined;
+    var out = {};
+    Object.keys(lo ? l : {}).concat(Object.keys(ro ? r : {})).forEach(function(k) {
+      if (_has(out, k)) return;
+      var lv = lo ? l[k] : undefined, rv = ro ? r[k] : undefined;
+      out[k] = _clone2(lv != null ? lv : (rv != null ? rv : null));
+    });
+    return out;
+  }
+
+  // 보스 상태(boss.js, journey-core.js): 진행 중 시도와 코칭 고정은 기기 상태라 로컬(파일의 것은 가져오지 않음).
+  // last, sets는 노드마다 시각이 늦은 쪽, hidden(은닉 좌석 배정)은 관찰 핸드 hands가 큰 쪽(같으면 at이 늦은 쪽),
+  // identify(맞히기 제출)는 고른 배정과 key가 같은 기록만 남기고 노드마다 at이 늦은 쪽, hiddenLast는 로컬 우선.
+  function _bossTime(x) { return Math.max(_time(x.endedAt), _time(x.startedAt), _time(x.at)); }
+  function _mergeBoss(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo && !ro) return undefined;
+    if (!lo) { var c = _clone(r); c.active = null; c.coachLock = null; return c; }
+    if (!ro) return _clone(l);
+    var out = _overlay(l, r);
+    out.active = _isObj(l.active) ? _clone(l.active) : null;
+    out.coachLock = _has(l, 'coachLock') ? _clone2(l.coachLock) : null;
+    var later = function(b, a) { return _bossTime(b) > _bossTime(a); };
+    _put(out, 'last', _mergeMap(l.last, r.last, later));
+    _put(out, 'sets', _mergeMap(l.sets, r.sets, later));
+    _put(out, 'hidden', _mergeMap(l.hidden, r.hidden, function(b, a) {
+      var hb = _num(b.hands) || 0, ha = _num(a.hands) || 0;
+      return hb > ha || (hb === ha && _time(b.at) > _time(a.at));
+    }));
+    if (_isObj(l.identify) || _isObj(r.identify)) {
+      var li = _isObj(l.identify) ? l.identify : {}, ri = _isObj(r.identify) ? r.identify : {}, ident = {};
+      Object.keys(li).concat(Object.keys(ri)).forEach(function(id) {
+        if (_has(ident, id)) return;
+        var hk = (_isObj(out.hidden) && _isObj(out.hidden[id])) ? out.hidden[id].key : null;
+        var ok = function(x) { return _isObj(x) && (hk == null || x.key == null || x.key === hk); };
+        var pick = _pickBy(ok(li[id]) ? li[id] : null, ok(ri[id]) ? ri[id] : null, function(b, a) { return _time(b.at) > _time(a.at); });
+        if (pick) ident[id] = _clone(pick);
+      });
+      out.identify = ident;
+    }
+    var hl = l.hiddenLast != null ? l.hiddenLast : r.hiddenLast;
+    if (hl != null) out.hiddenLast = hl; else delete out.hiddenLast;
+    return out;
+  }
+
+  // 미니시즌(theater-ui.js theater.mini): 로컬이 없으면 파일, 끝난 시즌(로컬 done)과 안 끝난 시즌(파일)이면 파일,
+  // 같은 id면 편(episode)이 더 진행된 쪽(같으면 끝난 쪽), 서로 다른 진행 중 시즌이면 로컬
+  function _mergeMini(a, b) {
+    var ao = _isObj(a), bo = _isObj(b);
+    if (!ao && !bo) return (a === null || b === null) ? null : undefined;
+    if (!ao) return _clone(b);
+    if (!bo) return _clone(a);
+    var ad = a.done === true, bd = b.done === true;
+    if (a.id != null && a.id === b.id) {
+      var ea = _num(a.episode) || 0, eb = _num(b.episode) || 0;
+      if (ea !== eb) return _clone(eb > ea ? b : a);
+      return _clone(bd && !ad ? b : a);
+    }
+    return _clone(ad && !bd ? b : a);
+  }
+
+  // 스트릭(journey-core.js touchDay): 마지막 활동이 늦은 쪽(L)이 바탕이고 freezes, lastActiveAt, lastDay도 L의 것이다.
+  // 두 기기의 연속 구간이 날짜로 이어지거나 겹치면 합친 구간 길이를 cur로 한다(구간 = 마지막 날 - cur + 1 ~ 마지막 날).
+  // 구간 사이가 떨어져 있으면 L의 cur. best는 셋 중 최댓값, frozenDays는 합집합 최근 60개.
+  function _streakDay(s) {
+    var d = _dayIdxOfKey(s.lastDay);
+    if (d !== null) return d;
+    var t = _time(s.lastActiveAt);
+    if (!isFinite(t)) return null;
+    var x = new Date(t);
+    return Math.round(Date.UTC(x.getFullYear(), x.getMonth(), x.getDate()) / DAY_MS);
+  }
+  function _mergeStreak(ls, rs) {
+    var lo = _isObj(ls), ro = _isObj(rs);
+    if (!lo && !ro) return undefined;
+    if (!lo || !ro) {
+      var s0 = _clone(lo ? ls : rs);
+      _put(s0, 'best', _max(s0.best, s0.cur));
+      return s0;
+    }
+    var L = _time(rs.lastActiveAt) > _time(ls.lastActiveAt) ? rs : ls, E = L === rs ? ls : rs;
+    var out = _clone(L), cur = _num(L.cur) || 0, cE = _num(E.cur) || 0;
+    var eL = _streakDay(L), eE = _streakDay(E);
+    if (cur > 0 && cE > 0 && eL !== null && eE !== null && eE <= eL) {
+      var sL = eL - cur + 1, sE = eE - cE + 1;
+      if (eE >= sL - 1) cur = eL - Math.min(sL, sE) + 1;
+    }
+    out.cur = cur;
+    out.best = _max(_max(_max(ls.best, rs.best), cur), 0);
+    var fz = _unionStrings(ls.frozenDays, rs.frozenDays, FROZEN_MAX);
+    if (fz) out.frozenDays = fz;
+    return out;
+  }
+
+  // 주간 챌린지와 시즌(seasons.js): key가 같으면 칸별 max, done은 OR. key가 다르면 늦은 key 쪽이 현재 기간이고(그 진행, done, seen을
+  // 그대로 쓴다) 이른 쪽 기간은 hist 요약으로 남긴다. hist(지난 기간 { key, done, n })는 양쪽 합집합(done OR, n max) 최근 12개.
+  // params.since(레벨 기준 주)는 이른 쪽. 이 기기에서 지난주 백업을 합쳐도 연속 주 기록이 0부터 시작하지 않는다.
+  function _pkey(p) { return (_isObj(p) && typeof p.key === 'string' && _PERIOD_KEY.test(p.key)) ? p.key : null; }
+  function _periodN(p) {
+    var pr = Array.isArray(p.progress) ? p.progress : [];
+    if (p.done === true) return pr.length;
+    return pr.filter(function(x) { return _num(x) !== null && x >= 1; }).length;
+  }
+  function _mergePeriod(l, r) {
+    var lo = _isObj(l), ro = _isObj(r);
+    if (!lo || !ro) return _clone(lo ? l : r);
+    var kl = _pkey(l), kr = _pkey(r), out, dropped = null;
+    if (kl !== null && kl === kr) {
+      out = _overlay(l, r);
+      if (Array.isArray(l.progress) && Array.isArray(r.progress)) {
+        var len = Math.max(l.progress.length, r.progress.length);
+        out.progress = [];
+        for (var i = 0; i < len; i++) out.progress.push(_max(l.progress[i], r.progress[i]));
+      }
+      out.done = l.done === true || r.done === true;
+      if (out.done) out.doneAt = (l.done === true && l.doneAt != null) ? l.doneAt : (r.done === true && r.doneAt != null ? r.doneAt : (_has(l, 'doneAt') ? l.doneAt : null));
+      var sl = typeof l.seen === 'string' ? l.seen : null, sr = typeof r.seen === 'string' ? r.seen : null;
+      if (sl || sr) out.seen = (sl && sr) ? (sr > sl ? sr : sl) : (sl || sr);
+    } else {
+      var useR = kr !== null && (kl === null || kr > kl);
+      var base = useR ? r : l, other = useR ? l : r;
+      out = _clone(base);
+      if (_pkey(other) !== null) dropped = { key: other.key, done: other.done === true, n: _periodN(other) };
+    }
+    var pa = _isObj(l.params) ? l.params.since : null, pb = _isObj(r.params) ? r.params.since : null;
+    if (typeof pa === 'string' && typeof pb === 'string' && _PERIOD_KEY.test(pa) && _PERIOD_KEY.test(pb) && _isObj(out.params)) {
+      out.params.since = pa < pb ? pa : pb;
+    }
+    var byKey = Object.create(null), keys = [];
+    (Array.isArray(l.hist) ? l.hist : []).concat(Array.isArray(r.hist) ? r.hist : []).concat(dropped ? [dropped] : []).forEach(function(h) {
+      if (!_isObj(h) || typeof h.key !== 'string' || !_PERIOD_KEY.test(h.key)) return;
+      var e = byKey[h.key];
+      if (!e) { e = byKey[h.key] = { key: h.key, done: false, n: 0 }; keys.push(h.key); }
+      if (h.done === true) e.done = true;
+      var n = _num(h.n);
+      if (n !== null && n > e.n) e.n = n;
+    });
+    keys.sort();
+    if (keys.length > PERIOD_HIST_MAX) keys = keys.slice(-PERIOD_HIST_MAX);
+    out.hist = keys.map(function(k) { return byKey[k]; });
+    return out;
+  }
+
   function _mergeJourney(l, r) {
     if (!_isObj(l)) return _clone(_isObj(r) ? r : null);
     if (!_isObj(r)) return _clone(l);
     var out = _overlay(l, r);
     _put(out, 'v', _max(l.v, r.v));
+    var c1 = _time(l.createdAt), c2 = _time(r.createdAt);                       // 시작일은 이른 쪽(주간 챌린지 주차와 임계 상승의 기준)
+    if (isFinite(c2) && (!isFinite(c1) || c2 < c1)) out.createdAt = r.createdAt;
     _put(out, 'stage', _max(l.stage, r.stage));
     if (_isObj(l.nodes) || _isObj(r.nodes)) {
       var ln = _isObj(l.nodes) ? l.nodes : {}, rn = _isObj(r.nodes) ? r.nodes : {}, nodes = {};
@@ -355,13 +635,7 @@ var Storage = (function() {
         .forEach(function(u) { if (un.indexOf(u) < 0) un.push(u); });
       out.unlocks = un;
     }
-    if (_isObj(l.streak) || _isObj(r.streak)) {
-      var ls = l.streak, rs = r.streak;
-      var cur = !_isObj(ls) ? rs : !_isObj(rs) ? ls : (_time(rs.lastActiveAt) > _time(ls.lastActiveAt) ? rs : ls);
-      var st = _clone(cur);
-      _put(st, 'best', _max(_max(_isObj(ls) ? ls.best : null, _isObj(rs) ? rs.best : null), st.cur));
-      out.streak = st;
-    }
+    _put(out, 'streak', _mergeStreak(l.streak, r.streak));
     _put(out, 'badges', _unionList(l.badges, r.badges, function(b) { return String(b.id); }));
     if (_isObj(l.rating) || _isObj(r.rating)) {
       out.rating = _clone(_pickBy(_isObj(l.rating) ? l.rating : null, _isObj(r.rating) ? r.rating : null,
@@ -380,6 +654,14 @@ var Storage = (function() {
         if (cards.length > CARD_CAP) cards = cards.slice(-CARD_CAP);   // 오래된 카드부터 버림
         th.cards = cards;
       }
+      var mh = _unionList(lt.miniHist, rt.miniHist, _idKey);
+      if (mh) th.miniHist = _sortTail(mh, function(h) { return _time(h.at); }, MINI_HIST_CAP);
+      if (_has(lt, 'mini') || _has(rt, 'mini')) {
+        var mini = _mergeMini(lt.mini, rt.mini);
+        // 이미 끝난 시즌 기록(miniHist)에 있는 id의 진행 중 시즌은 다른 기기에서 끝난 것이라 되살리지 않는다
+        if (_isObj(mini) && mini.done !== true && mini.id != null && (Array.isArray(th.miniHist) ? th.miniHist : []).some(function(h) { return _isObj(h) && h.id === mini.id; })) mini = null;
+        if (mini !== undefined) th.mini = mini;
+      }
       out.theater = th;
     }
     var lp = _isObj(l.placement) ? l.placement : null, rp = _isObj(r.placement) ? r.placement : null;
@@ -393,6 +675,14 @@ var Storage = (function() {
       out.flags = flags;
     }
     ['weekly', 'season'].forEach(function(k) { if (_isObj(l[k]) || _isObj(r[k])) out[k] = _mergePeriod(l[k], r[k]); });
+    // M7 결정 28 8필드와 DATA-03: 로컬에 키가 있으면 파일 것을 통째로 버리던 필드
+    _put(out, 'review', _mergeReview(l.review, r.review));
+    _put(out, 'luck', _mergeLuck(l.luck, r.luck));
+    _put(out, 'badgeMeta', _mergeBadgeMeta(l.badgeMeta, r.badgeMeta));
+    _put(out, 'cosmetic', _mergeCosmetic(l.cosmetic, r.cosmetic));
+    var ss = _unionList(l.shortSessions, r.shortSessions, function(x) { return String(x.at) + '|' + String(x.node); });
+    if (ss) out.shortSessions = _sortTail(ss, function(x) { return _time(x.at); }, SHORT_CAP);
+    _put(out, 'boss', _mergeBoss(l.boss, r.boss));
     return out;
   }
 
@@ -406,14 +696,50 @@ var Storage = (function() {
     }
     return false;
   }
-  function _mergeStats(l, r) {
+  // 결정 링의 마지막 결정 시각(없으면 -Infinity)
+  function _ringEnd(arr) {
+    var t = -Infinity;
+    if (Array.isArray(arr)) arr.forEach(function(e) { if (_isObj(e) && _time(e.t) > t) t = _time(e.t); });
+    return t;
+  }
+  // 주 합계(weeks)에 이미 들어간 날을 days에서 뺀다(DATA-06). 주 기록의 keys(롤업한 날 키)가 있으면 그 날만, keys가 없는 예전 주
+  // 기록은 7일이 다 찼거나 그 날이 가장 늦은 날보다 90일 넘게 오래됐을 때(어차피 다음 로드에서 롤업될 날)만 뺀다.
+  function _dropRolledDays(out) {
+    var days = out.days, weeks = out.weeks;
+    if (!_isObj(days) || !_isObj(weeks)) return;
+    var latest = -Infinity;
+    Object.keys(days).forEach(function(k) { var i = _dayIdxOfKey(k); if (i !== null && i > latest) latest = i; });
+    Object.keys(days).forEach(function(k) {
+      var i = _dayIdxOfKey(k), w = i === null ? null : weeks[_isoWeekKey(k)];
+      if (!_isObj(w)) return;
+      if (Array.isArray(w.keys)) { if (w.keys.indexOf(k) >= 0) delete days[k]; return; }
+      if ((_num(w.days) || 0) >= 7 || latest - i > 90) delete days[k];
+    });
+  }
+  // hiddenKeys: 병합된 여정 상태에서 고른 은닉 배정의 key 집합(없으면 undefined). 그 key의 좌석 관찰이 hands와 무관하게 이긴다
+  function _mergeStats(l, r, hiddenKeys) {
     if (!_isObj(l)) return _clone(_isObj(r) ? r : null);
     if (!_isObj(r)) return _clone(l);
-    var out = _overlay(l, r);                    // recent(최근 결정 링)는 로컬 유지
+    var out = _overlay(l, r);
     _put(out, 'v', _max(l.v, r.v));
+    // 결정 링과 핸드 순번은 한 쌍이다(h 번호 체계가 한쪽 것). 마지막 결정이 더 늦은 쪽 쌍을 통째로 쓴다. 둘 다 비었으면 순번은 큰 값
+    var el = _ringEnd(l.recent), er = _ringEnd(r.recent);
+    if (er > el) {
+      out.recent = _clone(r.recent);
+      if (_has(r, 'hseq')) out.hseq = r.hseq; else delete out.hseq;
+    } else if (!isFinite(el) && !isFinite(er)) {
+      _put(out, 'hseq', _max(l.hseq, r.hseq));
+    }
     _put(out, 'days', _mergeMap(l.days, r.days, _dayBetter));
     _put(out, 'weeks', _mergeMap(l.weeks, r.weeks, _dayBetter));
-    _put(out, 'castObs', _mergeMap(l.castObs, r.castObs, function(b, a) { return (_num(b.hands) || 0) > (_num(a.hands) || 0); }));
+    _dropRolledDays(out);
+    _put(out, 'castObs', _mergeMap(l.castObs, r.castObs, function(b, a) {
+      if (hiddenKeys) {
+        var kb = b.key != null && hiddenKeys[b.key] === 1, ka = a.key != null && hiddenKeys[a.key] === 1;
+        if (kb !== ka) return kb;
+      }
+      return (_num(b.hands) || 0) > (_num(a.hands) || 0);
+    }));
     var lm = _isObj(l.marks) ? l.marks : null, rm = _isObj(r.marks) ? r.marks : null;
     if (lm && rm && (_isObj(lm.stageEnter) || _isObj(rm.stageEnter))) {
       var le = _isObj(lm.stageEnter) ? lm.stageEnter : {}, re = _isObj(rm.stageEnter) ? rm.stageEnter : {}, se = {};
@@ -426,6 +752,13 @@ var Storage = (function() {
     }
     return out;
   }
+  function _hiddenKeys(journey) {
+    var h = (_isObj(journey) && _isObj(journey.boss) && _isObj(journey.boss.hidden)) ? journey.boss.hidden : null;
+    if (!h) return undefined;
+    var keys = Object.create(null), any = false;
+    Object.keys(h).forEach(function(id) { if (_isObj(h[id]) && h[id].key != null) { keys[h[id].key] = 1; any = true; } });
+    return any ? keys : undefined;
+  }
 
   // local, incoming = {9키: 값|null} → 새 객체(입력 불변)
   function mergeData(local, incoming) {
@@ -436,7 +769,7 @@ var Storage = (function() {
     out.poker_mistakes = _unionByKey(local.poker_mistakes, incoming.poker_mistakes, _mistakeKey);
     out.poker_drills = _mergeDrills(local.poker_drills, incoming.poker_drills);
     out.poker_journey = _mergeJourney(local.poker_journey, incoming.poker_journey);
-    out.poker_journey_stats = _mergeStats(local.poker_journey_stats, incoming.poker_journey_stats);
+    out.poker_journey_stats = _mergeStats(local.poker_journey_stats, incoming.poker_journey_stats, _hiddenKeys(out.poker_journey));
     // 기기 설정: 로컬 유지(로컬에 없을 때만 파일 값)
     SETTING_KEYS.forEach(function(k) { out[k] = _clone(local[k] != null ? local[k] : (incoming[k] != null ? incoming[k] : null)); });
     return out;
@@ -465,7 +798,7 @@ var Storage = (function() {
     var raw = {};
     BACKUP_KEYS.forEach(function(k) { raw[k] = _raw(k); });
     try {
-      localStorage.setItem(PREV_KEY, JSON.stringify({ v: 1, savedAt: new Date().toISOString(), raw: raw }));
+      localStorage.setItem(PREV_KEY, JSON.stringify({ v: 1, kind: 'import', savedAt: new Date().toISOString(), raw: raw }));
       return true;
     } catch (e) { return false; }
   }
@@ -474,14 +807,63 @@ var Storage = (function() {
     return (_isObj(p) && _isObj(p.raw)) ? p : null;
   }
   function hasPrev() { return !!_prev(); }
-  function prevInfo() { var p = _prev(); return p ? { savedAt: p.savedAt || null } : null; }
+
+  // 기록 요약(되돌리기 확인 문구, 가져오기 미리보기): 여정 XP, 통과 노드, 실수 복습 항목, 핸드, 실수, 스트릭
+  function brief(data) {
+    var d = _isObj(data) ? data : {};
+    var j = _isObj(d.poker_journey) ? d.poker_journey : {};
+    var nodes = _isObj(j.nodes) ? j.nodes : {}, passed = 0;
+    Object.keys(nodes).forEach(function(id) { if (_isObj(nodes[id]) && nodes[id].status === 'passed') passed++; });
+    return {
+      xp: _num(j.xp) || 0, passed: passed,
+      review: (_isObj(j.review) && _isObj(j.review.items)) ? Object.keys(j.review.items).length : 0,
+      streak: _isObj(j.streak) ? (_num(j.streak.cur) || 0) : 0,
+      hands: Array.isArray(d.poker_game_history) ? d.poker_game_history.length : 0,
+      mistakes: Array.isArray(d.poker_mistakes) ? d.poker_mistakes.length : 0
+    };
+  }
+  function _parseRaw(rawMap) {
+    var out = {};
+    BACKUP_KEYS.forEach(function(k) {
+      if (!_isObj(rawMap) || typeof rawMap[k] !== 'string') return;
+      try { out[k] = JSON.parse(rawMap[k]); } catch (e) { /* 깨진 원문은 요약에서 뺀다 */ }
+    });
+    return out;
+  }
+  // 되돌리기 사본 정보(M7 DATA-08): savedAt, kind('import' 가져오기 직전 | 'undo' 되돌리기 직전), ageDays, prev(사본의 요약), current(지금의 요약)
+  function prevInfo() {
+    var p = _prev();
+    if (!p) return null;
+    var t = Date.parse(p.savedAt);
+    return { savedAt: p.savedAt || null, kind: p.kind === 'undo' ? 'undo' : 'import',
+      ageDays: isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / DAY_MS)) : null,
+      prev: brief(_parseRaw(p.raw)), current: brief(_readAll()) };
+  }
+  // 사본은 기한 없이 남아 몇 달 뒤에도 '되돌리기'가 보이고, 누르면 그 뒤 기록을 지웠다. 오래된 사본은 지운다(기본 30일). 지웠으면 true
+  function expirePrev(days) {
+    var p = _prev();
+    if (!p) return false;
+    var limit = (_num(days) !== null && days >= 0) ? days : PREV_DAYS;
+    var t = Date.parse(p.savedAt);
+    if (isFinite(t) && Date.now() - t <= limit * DAY_MS) return false;
+    return dropPrev();
+  }
+  function dropPrev() {
+    var had = !!_prev();
+    try { localStorage.removeItem(PREV_KEY); } catch (e) { return false; }
+    return had;
+  }
+  // 되돌리기 자체도 되돌릴 수 있다: 쓰기 전에 지금 9키를 슬롯(kind 'undo')에 바꿔 넣는다. 슬롯을 못 쓰면 예전처럼 비운다
   function restorePrev() {
     var p = _prev();
     if (!p) return false;
+    var cur = {};
+    BACKUP_KEYS.forEach(function(k) { cur[k] = _raw(k); });
     var raw = {};
     BACKUP_KEYS.forEach(function(k) { if (_has(p.raw, k)) raw[k] = (typeof p.raw[k] === 'string') ? p.raw[k] : null; });
     _writeRaw(raw);
-    try { localStorage.removeItem(PREV_KEY); } catch (e) {}
+    try { localStorage.setItem(PREV_KEY, JSON.stringify({ v: 1, kind: 'undo', savedAt: new Date().toISOString(), raw: cur })); }
+    catch (e) { try { localStorage.removeItem(PREV_KEY); } catch (e2) {} }
     return true;
   }
 
@@ -529,8 +911,18 @@ var Storage = (function() {
     return { ok: u.used + need <= u.limit, needKB: Math.ceil(need / 1024), freeKB: Math.max(0, Math.floor((u.limit - u.used) / 1024)) };
   }
 
-  // mode 'merge' | 'replace'. 검증 실패, 공간 부족, 되돌리기 사본 저장 실패 시 throw(기존 데이터 불변)
-  function importAll(obj, mode) {
+  // 사용량 요약(홈의 용량 경고 카드): used는 되돌리기 사본을 뺀 값(spaceCheck와 같은 기준), ratio는 사본까지 합친 비율
+  function usage() {
+    var u = _usage(), prevChars = 0;
+    var pr = _raw(PREV_KEY);
+    if (pr != null) prevChars = PREV_KEY.length + pr.length;
+    var prevBytes = prevChars * 2;
+    return { usedKB: Math.ceil(u.used / 1024), prevKB: Math.ceil(prevBytes / 1024), limitKB: Math.floor(u.limit / 1024),
+      ratio: u.limit > 0 ? (u.used + prevBytes) / u.limit : 0 };
+  }
+
+  // 가져오기 계획(쓰지 않음): { next(병합 또는 덮어쓴 결과), rawNext, space(spaceCheck 결과) }. 미리보기가 방식마다 공간 경고를 미리 보인다.
+  function planImport(obj, mode) {
     if (mode !== 'merge' && mode !== 'replace') throw new Error('가져오기 방식은 merge 또는 replace여야 해요');
     var v = validateBackup(obj);
     if (!v.ok) throw new Error(v.errors.join(' / '));
@@ -538,7 +930,13 @@ var Storage = (function() {
     var next = mode === 'merge' ? mergeData(local, obj.data) : _replaceData(local, obj.data);
     var rawNext = {};
     BACKUP_KEYS.forEach(function(k) { rawNext[k] = next[k] == null ? null : JSON.stringify(next[k]); });
-    var sc = spaceCheck(rawNext);
+    return { next: next, rawNext: rawNext, space: spaceCheck(rawNext) };
+  }
+
+  // mode 'merge' | 'replace'. 검증 실패, 공간 부족, 되돌리기 사본 저장 실패 시 throw(기존 데이터 불변)
+  function importAll(obj, mode) {
+    var plan = planImport(obj, mode);
+    var next = plan.next, rawNext = plan.rawNext, sc = plan.space;
     if (!sc.ok) throw new Error('저장 공간이 부족해요(백업 파일 ' + sc.needKB + ' KB, 여유 ' + sc.freeKB + ' KB)');
     if (!snapshotPrev()) throw new Error('저장 공간이 부족해 되돌리기용 사본을 만들지 못했어요');
     try { _writeRaw(rawNext); }
@@ -556,8 +954,10 @@ var Storage = (function() {
   }
 
   var _api = { getProgress, saveProgress, getMistakes, addMistake, saveHandHistory, getHandHistory, groupSessions,
-    BACKUP_KEYS, PREV_KEY, SCHEMA, exportAll, validateBackup, mergeData, importAll, snapshotPrev, hasPrev, prevInfo, restorePrev,
-    spaceCheck, _setSpaceProbe };
+    BACKUP_KEYS, PREV_KEY, SCHEMA, exportAll, validateBackup, mergeData, importAll, planImport, snapshotPrev, hasPrev, prevInfo, restorePrev,
+    expirePrev, dropPrev, brief, usage, spaceCheck, _setSpaceProbe };
+  // 앱을 열 때 오래된 되돌리기 사본을 지운다(M7 DATA-08). 저장소가 없거나 막혀 있으면 아무 일도 없다
+  try { expirePrev(PREV_DAYS); } catch (e) { /* 정리 실패는 앱에 영향 없음 */ }
   if (typeof module !== 'undefined') module.exports = _api;
   return _api;
 })();

@@ -82,6 +82,8 @@
   min-height: 44px; padding: 4px 6px; border-radius: 10px; box-sizing: border-box;
   border: 1px solid var(--hud-border); background: #161b22; color: var(--text);
   font-size: .85rem; line-height: 1.2; cursor: pointer; word-break: keep-all;
+  /* 320px, 글자 130%에서 3칸 칩의 긴 낱말('체크레이즈 함정')이 칩 밖으로 삐져 패널이 가로 스크롤되던 것(M7-P2): keep-all이어도 넘칠 때만 꺾는다 */
+  overflow-wrap: anywhere;
 }
 .th-chip.on { background: #1f6feb; border-color: #58a6ff; color: #fff; }
 .th-chip.on::before { content: '\2713  '; }

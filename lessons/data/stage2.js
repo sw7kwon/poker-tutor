@@ -127,8 +127,8 @@ LESSONS.push({
     { t: 'grid', pos: 'CO', facing: false, highlight: ['22', 'A2s'], claim: { hand: '22', action: 'raise' },
       calc: { type: 'rangePct', pos: 'CO', facing: false },
       caption: 'CO는 상위 약 {{pct}}%. 모든 페어와 모든 수딧 에이스가 들어와요.' },
-    { t: 'grid', pos: 'CO', facing: false, highlight: ['87s', '76s'], claim: { hand: '76s', action: 'raise' },
-      caption: '수딧 커넥터(87s, 76s)도 CO부터. 스트레이트나 플러시가 될 수 있어 뒷자리에서 좋아요.' },
+    { t: 'grid', pos: 'CO', facing: false, highlight: ['98s', '87s', '76s'], claim: { hand: '76s', action: 'raise' },
+      caption: '낮은 수딧 커넥터(98s, 87s, 76s)는 CO부터(JTs, T9s는 더 앞자리). 스트레이트와 플러시를 노려요.' },
     { t: 'grid', pos: 'BTN', facing: false, highlight: ['K2s', 'A2o'], claim: { hand: 'A2o', action: 'raise' },
       calc: { type: 'rangePct', pos: 'BTN', facing: false },
       caption: 'BTN은 상위 약 {{pct}}%. 수딧 K와 오프수트 에이스를 전부 열어요.' },
@@ -272,7 +272,7 @@ LESSONS.push({
         { pos: 'BTN', active: true }, { pos: 'SB', folded: true }, { pos: 'BB', action: '올인' }
       ],
       calc: { type: 'outs', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'] },
-      caption: '상대가 올인이면 콜 한 번으로 턴과 리버를 다 봐요. 어림 x4는 {{x4}}%, 정확값 {{pct2}}%.' },
+      caption: '상대가 올인이면(드문 장면) 콜 한 번으로 턴과 리버를 다 봐요. 어림 x4는 {{x4}}%, 정확값 {{pct2}}%.' },
     { t: 'table', heroPos: 'BTN', hero: ['Kh', 'Qh'], board: ['9h', '4h', '2c'],
       seats: [
         { pos: 'UTG', folded: true }, { pos: 'HJ', folded: true }, { pos: 'CO', folded: true },
@@ -282,10 +282,10 @@ LESSONS.push({
       caption: '올인이 아니면 턴에 또 벳이 올 수 있어요. 이번 콜로 보장되는 건 다음 1장, 어림 x2는 {{x2}}%, 정확값 {{pct1}}%.' },
     { t: 'ask', id: 'q2', q: '플랍에서 상대가 팟의 반을 벳했어요(올인 아님). 이번 콜의 가격과 비교할 어림은?',
       choices: ['아웃츠 x2(다음 1장)', '아웃츠 x4(턴과 리버 2장)'], answer: 0,
-      why: '올인이 아니면 턴에 또 벳이 올 수 있어 이번 콜로 보장되는 건 다음 1장뿐이에요.' },
+      why: '올인이 아니면 보장되는 건 다음 1장뿐. x2는 완성 몫만 센 값이라 작은 벳엔 가격에 조금 못 미쳐도 콜이 흔해요.' },
     { t: 'say', calc: { type: 'outs', n: 15 },
       text: '아웃츠가 9장을 넘으면 x4는 부풀려져요. {{outs}}장이면 x4는 {{x4}}%인데 정확값은 {{pct2}}%예요.' },
-    { t: 'sum', text: '아웃츠를 세고, 올인이면 x4(턴과 리버), 올인이 아니면 x2(다음 1장)로 어림한다.' }
+    { t: 'sum', text: '아웃츠를 세고, 올인이면 x4, 아니면 x2로 어림한다. x2는 완성 몫만 센 값이라 가격 바로 밑이면 콜도 흔하다.' }
   ]
 });
 
@@ -317,7 +317,7 @@ LESSONS.push({
       why: '수딧 커넥터도 아무 손 상대로는 약 {{eq}}%, 절반을 조금 넘어요.' },
     // 같은 축 비교 1(콜): 플러시와 양방향 스트레이트 드로우 대 탑페어, 상대 올인(팟만큼)
     { t: 'bar', kind: 'compare', exact: { hero: ['9h', '8h'], vs: ['As', 'Ts'], board: ['Th', '7c', '2h'] }, need: { potTotal: 40, toCall: 20 },
-      caption: '탑페어의 올인에 콜하면 끝까지 봐요. 내 드로우 {{eq}}%가 필요 {{need}}%보다 커서 콜이 이득.' },
+      caption: '탑페어의 올인(드문 장면)에 콜하면 끝까지 봐요. 내 드로우 {{eq}}%가 필요 {{need}}%보다 커서 콜이 이득.' },
     // 같은 축 비교 2(폴드): 같은 가격, 거트샷만
     { t: 'bar', kind: 'compare', exact: { hero: ['9s', '8s'], vs: ['Qd', 'Jd'], board: ['Jh', '7d', '2c'] }, need: { potTotal: 40, toCall: 20 },
       caption: '같은 가격에 거트샷뿐이면 {{eq}}%. 필요 {{need}}%에 못 미쳐 폴드가 나아요.' },
@@ -363,10 +363,10 @@ LESSONS.push({
   ]
 });
 
-// ── s2-10 20핸드 실전 밴드(신규 노드, 설계서 1.3절 7번: 밴드 = HeroStats.bandsFromChart ±4, 이 앱 차트 기준) ──
+// ── s2-10 30핸드 실전 밴드(신규 노드, 설계서 1.3절 7번: 밴드 = HeroStats.bandsFromChart ±4, 이 앱 차트 기준) ──
 // 미션(journey-data s2-10): VPIP, PFR이 밴드 안(기회 30번부터, journey/boss.js band), 림프 0. 밴드 수치는 band calc.
 LESSONS.push({
-  id: 's2-10', node: 's2-10', title: '20핸드 실전 밴드', est: 3,
+  id: 's2-10', node: 's2-10', title: '30핸드 실전 밴드', est: 3,
   source: '이 앱 차트(Gto.GTO_RANGES)로 계산한 HeroStats.bandsFromChart',
   scenes: [
     { t: 'say', text: 'VPIP는 스스로 칩을 넣은 핸드 비율(블라인드만 낸 건 빼요), PFR은 프리플랍에 레이즈한 비율이에요.' },
@@ -392,7 +392,7 @@ LESSONS.push({
       why: '자리마다 오픈과 방어를 차트대로 하면 약 {{pct}}%, 밴드는 {{lo}}~{{hi}}%예요.' },
     { t: 'ask', id: 'q2', q: '앞사람이 모두 폴드했는데 림프(콜)로 들어가면 오르는 것은?', choices: ['VPIP만', 'PFR만', '둘 다'], answer: 0,
       why: '림프도 스스로 칩을 넣은 거라 VPIP만 올라요. 이 미션은 림프 0번이에요.' },
-    { t: 'say', text: '판정은 기회 30번부터예요. 20핸드로 모자라면 몇 핸드 더 치면 되고, 그전엔 통과도 실패도 없어요.' },
+    { t: 'say', text: '30번부터 판정해요. 핸드마다 기회 1번이라 미션 핸드를 다 치면 거의 채워지고, 모자라면 몇 핸드 더.' },
     { t: 'sum', text: '차트대로 치면 VPIP와 PFR이 이 앱 차트 밴드 안에 들고, 림프는 하지 않는다.' }
   ]
 });
