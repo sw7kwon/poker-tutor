@@ -1,8 +1,8 @@
 {
-  "version": "39ab223-202610211424",
-  "sha": "39ab223",
+  "version": "5681268-202610211655",
+  "sha": "5681268",
   "branch": "feat/journey",
-  "builtAt": "2026-10-21T05:24:56.100Z",
+  "builtAt": "2026-10-21T07:55:27.696Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",
@@ -40,6 +40,7 @@
     "drills/preflop-drill.js",
     "engine/coach.js",
     "engine/deck.js",
+    "engine/equity-multi.js",
     "engine/equity.js",
     "engine/ev.js",
     "engine/game-state.js",

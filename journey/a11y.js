@@ -12,8 +12,9 @@
 var A11y = (function() {
   var KEY = 'poker_journey_settings';
   var SCALES = [100, 115, 130];
-  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true };
-  var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate'];
+  // showEq: 게임 테이블 '내 승률' 칩(코칭 가림 해제 + 히어로 좌석 배지), showAllEq: '모두 승률'(카드 공개 상황의 좌석별 승률). 둘 다 기본 꺼짐
+  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false };
+  var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq'];
   var MQ = '(prefers-reduced-motion: reduce)';
   // 진동 패턴(ms)과 비프(주파수 Hz, 길이 s). 짧게: 결과 알림용, 연속 재생으로 귀찮지 않게
   var VIB = { ok: 15, bad: [30, 40, 30], tap: 8, done: [20, 40, 60] };

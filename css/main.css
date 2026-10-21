@@ -13,12 +13,25 @@
   --green: #3fb950;
   --red: #f85149;
   --blue: #58a6ff;
+  /* 폴리시(VIS-07): 기본 UA 컨트롤(체크박스, select, 스크롤바)을 어두운 톤으로. 다크 모드 토글이나 밝은 테마 분기는 없다 */
+  color-scheme: dark;
+  /* 폴리시(VIS-02): 주 버튼 색, 반경, 그림자 토큰. 다른 CSS는 var(--x, 폴백)으로 쓴다 */
+  --btn-primary: linear-gradient(135deg, #1b5e2f, #25783c);
+  --btn-primary-border: var(--gold);
+  --btn-neutral: #21262d;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
+  --shadow-1: 0 2px 6px rgba(0,0,0,.4);
+  --shadow-2: 0 6px 20px rgba(0,0,0,.5);
 }
+input[type=checkbox], input[type=radio] { accent-color: var(--gold); }
 
 body {
   background: #0a0e14;
   color: var(--text);
-  font-family: 'Segoe UI', sans-serif;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
   height: 100vh;
   overflow: hidden;
 }
@@ -45,19 +58,19 @@ body {
 }
 
 .menu-btn {
-  background: linear-gradient(135deg, #1f6b35, #2d8a47);
+  background: var(--btn-primary);
   color: #fff;
-  border: 1px solid var(--gold);
+  border: 1px solid var(--btn-primary-border);
   padding: 14px 48px;
   font-size: 1.1rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--r-md);
   cursor: pointer;
   width: 280px;
   transition: all 0.2s;
 }
-.menu-btn:hover { background: linear-gradient(135deg, #2d8a47, #3da55f); transform: translateY(-2px); box-shadow: 0 4px 16px rgba(45,138,71,0.4); }
-.menu-btn.secondary { background: #21262d; border-color: var(--hud-border); }
+.menu-btn:hover { filter: brightness(1.12); transform: translateY(-2px); box-shadow: var(--shadow-1); }
+.menu-btn.secondary { background: var(--btn-neutral); border-color: var(--hud-border); }
 .menu-btn.secondary:hover { background: #30363d; }
 
 /* 빌런 선택 */
@@ -69,7 +82,7 @@ body {
   border: 2px solid var(--hud-border);
   color: var(--text);
   padding: 24px 32px;
-  border-radius: 12px;
+  border-radius: var(--r-lg, 14px);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -88,16 +101,19 @@ body {
 .session-actions { padding:16px 20px; background:#0d1117; border-top:1px solid var(--hud-border); display:flex; gap:12px; flex-wrap:wrap; }
 .session-section { max-width:760px; margin:0 auto; padding:20px; }
 .session-title { color:var(--gold); font-size:1.4rem; margin-bottom:16px; }
-.session-block { background:#161b22; border-left:3px solid var(--gold); padding:14px; border-radius:0 8px 8px 0; margin-bottom:12px; }
+.session-block { background:#161b22; border-left:3px solid var(--gold); padding:14px; border-radius: 0 var(--r-md, 10px) var(--r-md, 10px) 0; margin-bottom:12px; }
 .session-block h3 { color:var(--blue); font-size:0.85rem; margin-bottom:6px; }
 
 /* 시나리오 */
 .scenario-container { max-width:760px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:14px; height:100vh; box-sizing:border-box; overflow-y:auto; }
-.scenario-question { font-size:1.05rem; font-weight:600; line-height:1.6; padding:16px; background:#161b22; border-radius:8px; border-left:3px solid var(--blue); }
-.scenario-feedback { padding:14px; border-radius:8px; }
+.scenario-question { font-size:1.05rem; font-weight:600; line-height:1.6; padding:16px; background:#161b22; border-radius: var(--r-md, 10px); border-left:3px solid var(--blue); }
+.scenario-feedback { padding:14px; border-radius: var(--r-md, 10px); }
+/* VIS-09: 퀴즈 보기를 하단 엄지 영역으로(세로 폰). 데스크톱 미디어 쿼리에서 해제 */
+#scenario-choices { margin-top: auto; }
+@media (min-width: 761px) and (orientation: landscape), (min-width: 1024px) { #scenario-choices { margin-top: 0; } }
 .feedback-correct { background:rgba(63,185,80,0.1); border:1px solid var(--green); }
 .feedback-wrong { background:rgba(248,81,73,0.1); border:1px solid var(--red); }
-.seat-action { display:block; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:4px 7px; font-size:0.72rem; font-style:italic; color:#ccc; margin-top:4px; line-height:1.6; }
+.seat-action { display:block; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); border-radius: var(--r-sm, 6px); padding:4px 7px; font-size:0.72rem; font-style:italic; color:#ccc; margin-top:4px; line-height:1.6; }
 
 /* 딜 애니메이션 개선 */
 @keyframes dealSlide {
@@ -113,27 +129,36 @@ body {
 
 /* ── 8차 WP6: 드릴 허브 ─────────────────────────── */
 #screen-drill { overflow-y: auto; justify-content: center; align-items: flex-start; }
-.drill-container { width: 100%; max-width: 560px; padding: 12px 16px 32px; display: flex; flex-direction: column; gap: 12px; }
-.drill-topbar { display: flex; align-items: center; gap: 10px; font-weight: 700; min-height: 40px; }
-.drill-topbar #drill-title { flex: 1; font-size: 1.05rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drill-topbar #drill-progress { color: var(--text-dim); font-size: .9rem; }
-.drill-topbar #drill-streak { color: var(--gold); font-size: .9rem; }
-.drill-topbar .menu-btn { width: auto; min-width: 44px; padding: 6px 12px; margin: 0; }
+.drill-container { width: 100%; max-width: 560px; min-height: 100%; padding: 12px 16px 32px; display: flex; flex-direction: column; gap: 12px; }
+/* VIS-09: 허브를 세로 flex로 채워 .drill-today가 아래 끝에 가게(타일 간격은 4+4=8px로 전과 같음) */
+#drill-hub { display: flex; flex-direction: column; flex: 1 1 auto; }
+#drill-hub .drill-tile { margin: 4px 0; }
+/* 폴리시(VIS-08): 공통 상단 바(.j-sub-top 사양). 왼쪽 44px 원형 ↩, 금색 제목 1.15rem, 오른쪽 보조 1개.
+   드릴 허브(index.html 마크업은 ↩가 끝이라 order로 왼쪽), 히스토리, 실력 확인(.pv-top)이 같은 모양 */
+.top-bar, .drill-topbar, .history-topbar { display: flex; align-items: center; gap: 10px; font-weight: 700; min-height: 44px; }
+.top-bar .j-back, .drill-topbar .menu-btn, .history-topbar .menu-btn { order: -1; flex: 0 0 auto; width: auto; min-width: 44px; height: 44px; min-height: 44px; padding: 0 12px; margin: 0;
+  border-radius: 999px; background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border); font-size: 1.1rem; font-weight: 600; line-height: 1; }
+.drill-topbar .menu-btn { width: 44px; padding: 0; border-radius: 50%; }
+.top-bar .j-back:hover, .drill-topbar .menu-btn:hover, .history-topbar .menu-btn:hover { transform: none; box-shadow: none; }
+.top-bar-t, .drill-topbar #drill-title { flex: 1; font-size: 1.15rem; color: var(--gold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drill-topbar #drill-progress { color: var(--text-dim); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.drill-topbar #drill-streak { color: var(--gold); font-size: .9rem; font-variant-numeric: tabular-nums; }
 .drill-intro { color: var(--text-dim); font-size: .85rem; line-height: 1.5; }
-.drill-tile { display: block; width: 100%; text-align: left; background: var(--hud-bg); border: 1px solid var(--hud-border); border-radius: 10px; padding: 14px 16px; margin: 8px 0; color: var(--text); cursor: pointer; font: inherit; }
+.drill-tile { display: block; width: 100%; text-align: left; background: var(--hud-bg); border: 1px solid var(--hud-border); border-radius: var(--r-md, 10px); padding: 14px 16px; margin: 8px 0; color: var(--text); cursor: pointer; font: inherit; }
 .drill-tile:hover { border-color: var(--gold); }
 .tile-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
 .tile-sub { font-size: .85rem; line-height: 1.45; }
 .tile-sub.dim { color: var(--text-dim); margin-top: 2px; }
-.drill-today { text-align: center; color: var(--text-dim); font-size: .9rem; margin-top: 4px; }
+/* VIS-09: 허브의 '오늘' 줄은 남는 세로 공간 아래 끝에(빈 공간이 타일 사이가 아니라 아래에 모이게) */
+.drill-today { text-align: center; color: var(--text-dim); font-size: .9rem; margin-top: auto; padding-top: 8px; }
 #drill-stage { display: flex; flex-direction: column; gap: 14px; }
 #drill-prompt { font-size: 1.05rem; font-weight: 600; line-height: 1.5; word-break: keep-all; }
 .drill-tag { display: inline-block; background: #1f6feb; color: #fff; font-size: .72rem; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: middle; }
 #drill-cards, .drill-quick-cards { display: flex; gap: 10px; justify-content: center; }
 .card.drill-card { width: 64px; height: 90px; font-size: 1.5rem; }
-.drill-pot { font-size: 1.2rem; text-align: center; padding: 10px; background: var(--felt); border-radius: 10px; width: 100%; }
+.drill-pot { font-size: 1.2rem; text-align: center; padding: 10px; background: var(--felt); border-radius: var(--r-md, 10px); width: 100%; }
 #drill-choices, .drill-quick-choices { display: flex; flex-wrap: wrap; gap: 8px; }
-.drill-choice { flex: 1 1 120px; min-height: 48px; border-radius: 8px; border: 1px solid var(--hud-border); background: #161b22; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; padding: 8px; }
+.drill-choice { flex: 1 1 120px; min-height: 48px; border-radius: var(--r-md, 10px); border: 1px solid var(--hud-border); background: #161b22; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; padding: 8px; }
 .drill-choice.drill-fold { border-color: #6e7681; }
 .drill-choice.drill-call { border-color: var(--blue); }
 .drill-choice.drill-raise { border-color: var(--gold); }
@@ -164,7 +189,7 @@ body {
 .res-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .res-btns .menu-btn { flex: 1 1 120px; width: auto; margin: 0; }
 /* 결과바 ⚡ 1문제: 상단에 떠 있는 패널(하단 결과바를 가리지 않음) */
-.drill-quick { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); background: var(--hud-bg); border: 1px solid var(--gold); border-radius: 12px; padding: 14px; z-index: 900; box-shadow: 0 8px 28px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 10px; }
+.drill-quick { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); background: var(--hud-bg); border: 1px solid var(--gold); border-radius: var(--r-lg, 14px); padding: 14px; z-index: 900; box-shadow: var(--shadow-2, 0 6px 20px rgba(0,0,0,.5)); display: flex; flex-direction: column; gap: 10px; }
 .drill-quick-close { position: absolute; top: 6px; right: 8px; background: none; border: none; color: var(--text-dim); font-size: 1.1rem; cursor: pointer; }
 .drill-quick-title { font-weight: 700; color: var(--gold); }
 .drill-quick-prompt { font-size: .95rem; line-height: 1.4; padding-right: 20px; }

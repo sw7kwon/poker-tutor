@@ -19,7 +19,7 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.deal-anim { animation: dealCard 0.3s ease-out; }
+.deal-anim { animation: dealCard 0.24s ease-out; }
 .flip-anim { animation: flipCard 0.4s ease-in-out; }
 .fold-anim { animation: foldCard 0.35s ease-in forwards; }
 .fadein    { animation: fadeInUp 0.25s ease-out; }

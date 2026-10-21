@@ -83,7 +83,7 @@ html.cos-border-film .th-card {
 
 /* 배지 */
 .cv-badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.cv-badge { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; min-width: 0;
+.cv-badge { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-lg, 14px); min-width: 0;
   background: #11161d; border: 1px solid var(--hud-border); border-left: 4px solid var(--gold); }
 .cv-badge-ic { flex: 0 0 auto; width: 2.4rem; height: 2.4rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   font-size: 1.4rem; background: rgba(212,175,55,.14); border: 1px solid rgba(212,175,55,.5); }
@@ -94,7 +94,7 @@ html.cos-border-film .th-card {
 
 /* 명장면 카드 */
 .cv-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.cv-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; min-width: 0;
+.cv-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-lg, 14px); min-width: 0;
   background: #11161d; border: 1px solid var(--hud-border); }
 .cv-card.is-compact .th-card-eq,
 .cv-card.is-compact .th-card-plans,
@@ -107,7 +107,7 @@ html.cos-border-film .th-card {
 
 /* 캐릭터 도감 */
 .cv-cast { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.cv-cast-pg { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; min-width: 0;
+.cv-cast-pg { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--r-lg, 14px); min-width: 0;
   background: #11161d; border: 1px solid var(--hud-border); }
 .cv-cast-pg.is-locked { border-style: dashed; background: #0d1117; }
 .cv-cast-top { display: flex; align-items: center; gap: 12px; min-width: 0; }

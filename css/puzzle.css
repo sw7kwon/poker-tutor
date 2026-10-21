@@ -32,7 +32,10 @@
 /* 본문: 라벨, 장면, 지문 */
 .pz-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .pz-meta { display: flex; flex-wrap: wrap; gap: 6px; }
-.pz-label { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: .78rem; font-weight: 700; border: 1px solid; background: #11161d; }
+/* (polish UX-08) 라벨 칩은 탭하면 긴 설명 토스트. 탭 요소라 44px 높이, 짧은 글자만 */
+.pz-label { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 4px 12px; border-radius: 999px; font-size: .78rem; font-weight: 700; border: 1px solid; background: #11161d;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
+.pz-label:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 .pz-label-i { font-size: .82rem; }
 .pz-label--exact, .pz-label--given { color: #56d364; border-color: #2ea043; }
 .pz-label--chart { color: #79c0ff; border-color: #388bfd; }
@@ -76,7 +79,7 @@ html.four-color .pz-card[data-suit=c] { color: #17803d; }
 .pz-opts--c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .pz-opts--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pz-opt { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0;
-  min-height: 52px; padding: 8px 10px 8px 26px; border-radius: 12px; cursor: pointer; text-align: center;
+  min-height: 52px; padding: 8px 10px 8px 26px; border-radius: var(--r-md, 10px); cursor: pointer; text-align: center;
   background: #161b22; color: var(--text); border: 2px solid var(--hud-border); font: inherit; font-size: 1rem; font-weight: 700; line-height: 1.3;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .pz-key { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: .7rem; font-weight: 600; color: var(--text-dim); }
@@ -130,7 +133,7 @@ html.four-color .pz-card[data-suit=c] { color: #17803d; }
 .pz-end-t { font-size: 1.3rem; font-weight: 800; color: var(--gold); }
 .pz-end-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .pz-stat { display: flex; flex-direction: column; align-items: center; padding: 10px 4px; border-radius: 12px; background: #161b22; border: 1px solid var(--hud-border); }
-.pz-stat b { font-size: 1.35rem; }
+.pz-stat b { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
 .pz-stat span { font-size: .8rem; color: var(--text-dim); }
 .pz-end-rate { font-size: .92rem; color: #c9d1d9; }
 .pz-end-acts { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 6px; }
@@ -255,7 +258,7 @@ html.reduce-motion .pz-opt:active:not([aria-disabled="true"]) { transform: none;
 .rp-note { font-size: .8rem; line-height: 1.5; color: var(--text-dim); }
 /* 퍼즐 색칠 문항: 하단 엄지 영역 버튼(지우기, 채점하기), 채점 오버레이 */
 .pz-body--paint .pz-prompt { font-size: 1rem; }
-.pz-pacts .pz-pbtn { min-width: 0; min-height: 52px; padding: 8px 10px; border-radius: 12px; border: 2px solid var(--hud-border); background: #161b22;
+.pz-pacts .pz-pbtn { min-width: 0; min-height: 52px; padding: 8px 10px; border-radius: var(--r-md, 10px); border: 2px solid var(--hud-border); background: #161b22;
   color: var(--text); font: inherit; font-size: 1rem; font-weight: 700; cursor: pointer; touch-action: manipulation; }
 .pz-pacts .pz-pbtn--go { background: linear-gradient(135deg, #1f6b35, #2d8a47); border-color: var(--gold); color: #fff; }
 .pz-pacts .pz-pbtn.is-arm { border-color: var(--red); border-style: dashed; color: #ffa198; }

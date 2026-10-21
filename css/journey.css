@@ -11,12 +11,12 @@
 /* 공통 버튼 */
 .j-btn {
   display: inline-flex; align-items: center; justify-content: center; flex-direction: column; gap: 2px;
-  min-height: 48px; min-width: 44px; padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  min-height: 48px; min-width: 44px; padding: 10px 14px; border-radius: var(--r-md, 10px); cursor: pointer;
   background: #21262d; color: var(--text); border: 1px solid var(--hud-border); font: inherit; font-size: 1rem; font-weight: 600;
 }
 .j-btn small { font-size: .74rem; font-weight: 400; color: var(--text-dim); }
-.j-btn.j-primary { background: linear-gradient(135deg, #1f6b35, #2d8a47); border-color: var(--gold); color: #fff; }
-.j-btn.j-primary small { color: #d7ecdc; }
+.j-btn.j-primary { background: var(--btn-primary, linear-gradient(135deg, #1b5e2f, #25783c)); border-color: var(--btn-primary-border, var(--gold)); color: #fff; }
+.j-btn.j-primary small { color: #eaf5ec; }
 .j-btn.j-ghost { background: transparent; }
 .j-btn:disabled { opacity: .55; cursor: default; filter: grayscale(.5); }
 .j-btn:focus-visible, .j-node:focus-visible, .j-q:focus-visible, .j-stage-head:focus-visible, .j-x:focus-visible,
@@ -33,19 +33,19 @@
 .j-badge-t { color: var(--gold); font-size: 1.02rem; }
 .j-badge-s { color: var(--text-dim); font-size: .74rem; }
 .j-stats { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
-.j-stat { display: inline-flex; align-items: baseline; gap: 2px; font-size: .9rem; color: var(--text-dim); }
+.j-stat { display: inline-flex; align-items: baseline; gap: 2px; font-size: .9rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .j-stat b { color: var(--text); font-size: 1.05rem; }
 .j-ring { position: relative; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .j-ring svg { position: absolute; inset: 2px; width: 40px; height: 40px; }
 .j-ring-bg { fill: none; stroke: #30363d; stroke-width: 4; }
 .j-ring-fg { fill: none; stroke: var(--green); stroke-width: 4; stroke-linecap: round; }
-.j-ring-t { position: relative; font-size: .72rem; font-weight: 700; color: var(--text); }
+.j-ring-t { position: relative; font-size: .72rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
 .j-ring-t small { color: var(--text-dim); font-weight: 400; }
 .j-level { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: var(--text-dim); }
 .j-lv { color: var(--text); font-weight: 700; }
 .j-xpbar { flex: 1 1 auto; height: 6px; border-radius: 3px; background: #21262d; overflow: hidden; }
 .j-xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #b8932b, var(--gold)); }
-.j-xp-t { flex: 0 0 auto; }
+.j-xp-t { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .j-habit { font-size: .86rem; color: #c9d1d9; }
 /* M2-P7: 상단 ⚙ 설정(44px 원형, 첫 줄 오른쪽 끝)과 퍼즐 레이팅 칩(레벨 줄 오른쪽 끝).
    좁은 폰(320px)이나 글자 130%에서는 배지 글자를 한 글자씩 쪼개지 않고 줄을 바꾼다(스트릭, 링, ⚙는 오른쪽 정렬로 다음 줄) */
@@ -64,7 +64,7 @@
   margin: -8px 0; padding: 0 2px; cursor: pointer; background: transparent; border: 0; color: var(--text); font: inherit; }
 .j-rating-in { display: inline-flex; align-items: center; gap: 3px; padding: 3px 9px; border-radius: 999px; font-size: .8rem; line-height: 1.2;
   background: #161b22; border: 1px solid rgba(88,166,255,.55); color: #c9d1d9; white-space: nowrap; }
-.j-rating-in b { color: var(--text); font-size: .86rem; }
+.j-rating-in b { color: var(--text); font-size: .86rem; font-variant-numeric: tabular-nums; }
 .j-gear:focus-visible, .j-rating:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
 @media (hover: hover) { .j-gear:hover, .j-rating:hover .j-rating-in { filter: brightness(1.15); } }
 
@@ -72,19 +72,19 @@
 .j-today-area { margin-bottom: 18px; }
 .j-today-btn {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; min-height: 76px;
-  padding: 14px 16px; border-radius: 16px; cursor: pointer; font: inherit; color: #fff;
-  background: linear-gradient(135deg, #1f6b35, #2d8a47); border: 2px solid var(--gold); box-shadow: 0 6px 20px rgba(45,138,71,.35);
+  padding: 14px 16px; border-radius: var(--r-xl, 18px); cursor: pointer; font: inherit; color: #fff;
+  background: var(--btn-primary, linear-gradient(135deg, #1b5e2f, #25783c)); border: 2px solid var(--btn-primary-border, var(--gold)); box-shadow: var(--shadow-2, 0 6px 20px rgba(0,0,0,.5));
 }
 .j-today-btn.is-done { background: #161b22; border-style: dashed; box-shadow: none; }
 .j-today-main { font-size: 1.35rem; font-weight: 800; letter-spacing: .5px; }
-.j-today-sub { font-size: .82rem; color: #d7ecdc; }
+.j-today-sub { font-size: .82rem; color: #eaf5ec; }
 .j-today-btn.is-done .j-today-sub { color: var(--text-dim); }
 .j-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; justify-content: center; }
 .j-chip { font-size: .78rem; padding: 4px 10px; border-radius: 999px; background: #161b22; border: 1px solid var(--hud-border); color: #c9d1d9; }
 .j-chip.is-done { border-color: var(--green); color: var(--green); }
 
 /* 첫 카드 */
-.j-first { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 14px; background: #11161d; border: 1px solid rgba(212,175,55,.5); }
+.j-first { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid rgba(212,175,55,.5); box-shadow: var(--shadow-1, 0 2px 6px rgba(0,0,0,.4)); }
 .j-first-t { font-size: 1.1rem; font-weight: 800; color: var(--gold); }
 .j-first-d { font-size: .86rem; color: var(--text-dim); line-height: 1.45; margin-bottom: 2px; }
 .j-first-btn { width: 100%; min-height: 56px; }
@@ -92,7 +92,7 @@
 /* (3) 지도 */
 .j-sec-t { font-size: .9rem; color: var(--text-dim); font-weight: 600; margin: 4px 2px 8px; }
 .j-map { margin-bottom: 18px; }
-.j-stage { margin-bottom: 8px; border-radius: 12px; background: #0d1117; border: 1px solid var(--hud-border); overflow: hidden; }
+.j-stage { margin-bottom: 8px; border-radius: var(--r-lg, 14px); background: #0d1117; border: 1px solid var(--hud-border); overflow: hidden; }
 .j-stage.is-open { border-color: rgba(212,175,55,.45); }
 .j-stage-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 12px; cursor: pointer;
   background: transparent; border: 0; color: var(--text); font: inherit; text-align: left; }
@@ -108,7 +108,7 @@
 .j-path::before { content: ''; position: absolute; left: 35px; top: 10px; bottom: 26px; width: 3px; border-radius: 2px; background: #30363d; }
 .j-step { position: relative; }
 .j-node { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 6px 4px; cursor: pointer;
-  background: transparent; border: 0; color: var(--text); font: inherit; text-align: left; border-radius: 10px; }
+  background: transparent; border: 0; color: var(--text); font: inherit; text-align: left; border-radius: var(--r-md, 10px); }
 .j-dot { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
   width: 44px; height: 44px; margin-left: 4px; border-radius: 50%; background: #161b22; border: 3px solid #484f58; }
 .j-dot-ic { font-size: 1rem; line-height: 1; }
@@ -128,26 +128,29 @@
 .j-node.is-passed .j-dot-ic { color: #2a1d00; }
 .j-node.is-cur { background: rgba(212,175,55,.08); }
 .j-node.is-cur .j-dot { box-shadow: 0 0 0 4px rgba(212,175,55,.28); }
+/* 폴리시(PERF-2): 펄스는 box-shadow 애니메이션(매 프레임 페인트) 대신 ::after 고리의 transform과 opacity만 움직여 합성 전용으로.
+   정지 외형은 위 정적 box-shadow 그대로(모션 줄이기에서는 고리 없음). 보스 노드(56px)도 inset 기준이라 같은 규칙 */
 @media (prefers-reduced-motion: no-preference) {
-  html:not(.reduce-motion) .j-node.is-cur .j-dot { animation: j-pulse 2.4s ease-in-out infinite; }
+  html:not(.reduce-motion) .j-node.is-cur .j-dot::after { content: ''; position: absolute; inset: -4px; border-radius: 50%;
+    border: 4px solid rgba(212,175,55,.28); pointer-events: none; animation: j-pulse 2.4s ease-in-out infinite; will-change: transform, opacity; }
 }
-@keyframes j-pulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(212,175,55,.28); } 50% { box-shadow: 0 0 0 8px rgba(212,175,55,.08); } }
+@keyframes j-pulse { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.3); opacity: .15; } }
 
 /* (4) 빠른 줄 */
 .j-quick { display: grid; grid-template-columns: repeat(6, minmax(44px, 1fr)); gap: 6px; margin-bottom: 18px; }
 .j-q { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 60px; min-width: 44px;
-  padding: 6px 2px; border-radius: 12px; cursor: pointer; background: #161b22; border: 1px solid var(--hud-border); color: var(--text); font: inherit; }
+  padding: 6px 2px; border-radius: var(--r-lg, 14px); cursor: pointer; background: #161b22; border: 1px solid var(--hud-border); color: var(--text); font: inherit; }
 .j-q-ic { font-size: 1.3rem; line-height: 1; }
 .j-q-t { font-size: .7rem; color: #c9d1d9; line-height: 1.2; text-align: center; }
 .j-q { position: relative; }
 .j-q.is-soon .j-q-ic, .j-q.is-soon .j-q-t { opacity: .5; }
-.j-q-soon { position: absolute; top: 3px; right: 4px; font-size: .62rem; line-height: 1; padding: 2px 4px; border-radius: 6px;
+.j-q-soon { position: absolute; top: 3px; right: 4px; font-size: .62rem; line-height: 1; padding: 2px 4px; border-radius: var(--r-sm, 6px);
   color: #0a0e14; background: var(--gold); font-weight: 700; }
 @media (max-width: 360px) { .j-quick { grid-template-columns: repeat(3, 1fr); } }
 
 /* (5) 카드 */
 .j-cards { display: flex; flex-direction: column; gap: 10px; }
-.j-card { padding: 14px; border-radius: 14px; background: #11161d; border: 1px solid var(--hud-border); }
+.j-card { padding: 14px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid var(--hud-border); }
 .j-card-t { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
 .j-card-d { font-size: .86rem; color: var(--text-dim); line-height: 1.45; }
 .j-card-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -159,7 +162,7 @@
   border: 1px solid var(--hud-border); color: var(--text); font: inherit; font-size: .9rem; }
 .j-pick.is-on { border: 2px solid var(--gold); background: rgba(212,175,55,.14); font-weight: 700; }
 .j-pick.is-on::before { content: '✓ '; }
-.j-input { width: 100%; min-height: 44px; padding: 8px 10px; border-radius: 8px; background: #0d1117; color: var(--text);
+.j-input { width: 100%; min-height: 44px; padding: 8px 10px; border-radius: var(--r-md, 10px); background: #0d1117; color: var(--text);
   border: 1px solid var(--hud-border); font-size: 16px; }
 /* M2-P7: 데일리 5 카드(미완 = 시작 버튼, 완료 = 점수, 점선 테두리) */
 .j-d5 { border-color: rgba(88,166,255,.5); }
@@ -175,7 +178,7 @@
 .j-sheet {
   position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 401;
   width: 100%; max-width: 520px; max-height: 86vh; max-height: 86dvh; overflow-y: auto; overscroll-behavior: contain;
-  padding: 6px 16px calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: 18px 18px 0 0;
+  padding: 6px 16px calc(18px + env(safe-area-inset-bottom, 0px)); border-radius: var(--r-xl, 18px) var(--r-xl, 18px) 0 0;
   background: #11161d; border: 1px solid var(--hud-border); border-bottom: 0; box-shadow: 0 -10px 30px rgba(0,0,0,.6);
 }
 .j-sheet.is-boss { border-color: rgba(212,175,55,.6); }
@@ -195,12 +198,12 @@
 .j-pre-chip.is-passed { border-color: var(--gold); }
 .j-pre-chip.is-locked { border-style: dashed; color: var(--text-dim); }
 .j-prog3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-bottom: 10px; }
-.j-cell { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; background: #0d1117; border: 1px dashed #484f58; }
+.j-cell { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: var(--r-md, 10px); background: #0d1117; border: 1px dashed #484f58; }
 .j-cell.is-ok { border: 2px solid var(--green); }
 .j-cell-n { font-size: .84rem; font-weight: 700; }
 .j-cell.is-ok .j-cell-n { color: var(--green); }
 .j-cell-v { font-size: .76rem; color: var(--text-dim); }
-.j-crit { padding: 10px 12px; border-radius: 10px; background: #0d1117; margin-bottom: 10px; }
+.j-crit { padding: 10px 12px; border-radius: var(--r-md, 10px); background: #0d1117; margin-bottom: 10px; }
 .j-crit-t { font-size: .8rem; color: var(--text-dim); margin-bottom: 4px; }
 .j-crit ul { padding-left: 18px; font-size: .86rem; line-height: 1.5; }
 .j-roll { margin-top: 6px; font-size: .8rem; color: #c9d1d9; }
@@ -223,9 +226,9 @@
 .j-dots i.is-done { background: #1f6b35; border-color: var(--green); color: #fff; }
 .j-dots i.is-cur { border: 2px solid var(--gold); color: var(--gold); }
 .j-dots i.is-skip { border-style: dashed; }
-.j-done-line { padding: 10px 12px; border-radius: 10px; background: #161b22; border: 1px solid var(--hud-border); font-size: .9rem; margin-bottom: 12px; }
+.j-done-line { padding: 10px 12px; border-radius: var(--r-md, 10px); background: #161b22; border: 1px solid var(--hud-border); font-size: .9rem; margin-bottom: 12px; }
 .j-done-line.is-ok { border-color: var(--green); }
-.j-block-card { padding: 18px 16px; border-radius: 16px; background: #11161d; border: 1px solid rgba(212,175,55,.45); }
+.j-block-card { padding: 18px 16px; border-radius: var(--r-xl, 18px); background: #11161d; border: 1px solid rgba(212,175,55,.45); box-shadow: var(--shadow-1, 0 2px 6px rgba(0,0,0,.4)); }
 .j-block-k { font-size: .8rem; color: var(--text-dim); margin-bottom: 6px; }
 .j-block-t { font-size: 1.3rem; font-weight: 800; margin-bottom: 6px; }
 .j-block-d { font-size: .9rem; color: #c9d1d9; line-height: 1.5; }
@@ -234,10 +237,10 @@
 .j-btn.j-big { width: 100%; min-height: 56px; font-size: 1.15rem; }
 .j-row2 { display: flex; gap: 8px; }
 .j-row2 .j-btn { flex: 1 1 0; }
-.j-wrap-card { padding: 18px 16px; border-radius: 16px; background: #11161d; border: 1px solid rgba(212,175,55,.55); display: flex; flex-direction: column; gap: 10px; }
+.j-wrap-card { padding: 18px 16px; border-radius: var(--r-xl, 18px); background: #11161d; border: 1px solid rgba(212,175,55,.55); display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-1, 0 2px 6px rgba(0,0,0,.4)); }
 .j-wrap-t { font-size: 1.35rem; font-weight: 800; color: var(--gold); }
 .j-wrap-line { font-size: .95rem; line-height: 1.45; }
-.j-wrap-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 1rem; font-weight: 700; }
+.j-wrap-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .j-wrap-streak, .j-wrap-next, .j-wrap-rating { font-size: .9rem; color: #c9d1d9; }
 
 /* 준비 중 서브뷰 */
@@ -245,12 +248,13 @@
 
 /* 토스트 */
 .j-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 600;
-  max-width: calc(100vw - 32px); width: max-content; padding: 10px 16px; border-radius: 10px; pointer-events: none;
+  max-width: calc(100vw - 32px); width: max-content; padding: 10px 16px; border-radius: var(--r-md, 10px); pointer-events: none;
   background: rgba(20,24,32,.96); color: #f0d77a; border: 1px solid rgba(212,175,55,.7); font-size: .9rem; line-height: 1.4;
   opacity: 0; visibility: hidden; transition: opacity .2s; word-break: keep-all; overflow-wrap: anywhere; text-align: center; }
 .j-toast.is-on { opacity: 1; visibility: visible; }
-/* 퍼즐 화면과 노드 시트에서는 하단 엄지 영역의 보기, 시작 버튼을 가리지 않게 위쪽에 띄운다 */
+/* 퍼즐 화면, 노드 시트, 오늘의 5분(마무리 카드와 블록 카드의 하단 버튼)에서는 하단 엄지 영역의 보기, 시작 버튼을 가리지 않게 위쪽에 띄운다. 홈은 하단 유지(UX-04) */
 body:has(#screen-journey.active .pz) .j-toast,
+body:has(#screen-journey.active .j-today) .j-toast,
 body:has(#screen-journey.active .j-layer.is-open) .j-toast { bottom: auto; top: calc(64px + env(safe-area-inset-top, 0px)); }
 
 /* 다른 화면에 주입하는 "오늘의 5분 계속" 버튼(기존 .menu-btn 모양 그대로, 강조 테두리만) */
@@ -294,7 +298,7 @@ html.reduce-motion .j-toast { transition: none; }
 .lp-chip--approx { color: #b1bac4; border-color: #6e7681; }
 .lp-chip--appdef { color: #79c0ff; border-color: #388bfd; border-style: dashed; }
 .lp-scene { max-height: 55vh; max-height: 55dvh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; min-width: 0;
-  padding: 12px; border-radius: 12px; background: #0f1e15; border: 1px solid #23462f; animation: lp-in .18s ease-out; }
+  padding: 12px; border-radius: var(--r-lg, 14px); background: #0f1e15; border: 1px solid #23462f; animation: lp-in .18s ease-out; }
 .lp-scene--say, .lp-scene--ask { background: #11161d; border-color: var(--hud-border); }
 .lp-say p { font-size: 1.16rem; line-height: 1.6; font-weight: 600; }
 .lp-ask { display: flex; flex-direction: column; gap: 6px; }
@@ -315,13 +319,13 @@ html.reduce-motion .j-toast { transition: none; }
    (이웃 낱말의 넓힌 영역이 앞 낱말 글자를 덮어 'UTG'를 눌렀는데 'HJ' 풀이가 뜨던 문제), 글자 없는 곳과 보통 글자 위만 가까운 낱말로 간다.
    문단 밖을 누르면 지금처럼 장면(다음으로 넘기기)이 받는다. */
 .lp-cap, .lp-say p, .lp-sum p { position: relative; z-index: 0; pointer-events: none; }
-.lp-term::after { content: ""; position: absolute; left: -16px; right: -16px; top: -12px; bottom: -12px; z-index: -1; }
+.lp-term::after { content: ""; position: absolute; left: -16px; right: -16px; top: -13px; bottom: -13px; z-index: -1; }  /* 시스템 글꼴 스택(VIS-14)에서 320px 폰의 글줄 상자가 1px 낮아져 누를 영역 43px → 상하 1px씩 더 */
 .lp-term:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 
 /* 하단 엄지 영역 */
 .lp-foot { display: flex; flex-direction: column; gap: 8px; margin-top: auto; position: sticky; bottom: 0; z-index: 2;
   padding: 10px 0 calc(6px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(rgba(10,14,20,0), #0a0e14 14px); }
-.lp-feed { padding: 8px 12px; border-radius: 10px; font-size: .94rem; line-height: 1.5; background: #161b22; border: 1px solid var(--hud-border); }
+.lp-feed { padding: 8px 12px; border-radius: var(--r-md, 10px); font-size: .94rem; line-height: 1.5; background: #161b22; border: 1px solid var(--hud-border); }
 .lp-feed.is-ok { border-color: var(--green); color: #c9f5d1; }
 .lp-feed.is-ok b { color: #7ee787; }
 .lp-feed.is-bad { border-color: var(--red); color: #ffd7d3; }
@@ -331,7 +335,7 @@ html.reduce-motion .j-toast { transition: none; }
 .lp-opts--c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .lp-opts--c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .lp-opt { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 2px 6px; min-width: 0;
-  min-height: 52px; padding: 8px 10px 8px 26px; border-radius: 12px; cursor: pointer; text-align: center;
+  min-height: 52px; padding: 8px 10px 8px 26px; border-radius: var(--r-md, 10px); cursor: pointer; text-align: center;
   background: #161b22; color: var(--text); border: 2px solid var(--hud-border); font: inherit; font-size: 1rem; font-weight: 700; line-height: 1.3;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .lp-key { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: .7rem; font-weight: 600; color: var(--text-dim); }
@@ -387,20 +391,20 @@ html.reduce-motion .lp-opt:active:not([aria-disabled="true"]) { transform: none;
 /* M5-WEEKLY: 📅 주간 리포트(j-wk- 접두, journey/views/weekly.js)와 홈 카드. 정보형(설계서 4.7절): 정확도가 내려가도 빨간 경고 없이
    중립 회색, 오른 쪽만 초록 글자. 표시는 글자(+9%p, -4%p, 같음)로도 구분한다. */
 .j-wk-card.is-new { border: 2px solid var(--gold); background: linear-gradient(135deg, rgba(212,175,55,.12), #11161d 60%); }
-.j-wk-banner { padding: 10px 12px; margin-bottom: 10px; border-radius: 10px; font-size: .9rem; line-height: 1.45;
+.j-wk-banner { padding: 10px 12px; margin-bottom: 10px; border-radius: var(--r-md, 10px); font-size: .9rem; line-height: 1.45;
   background: rgba(212,175,55,.08); border: 1px solid rgba(212,175,55,.45); }
 .j-wk-range { font-size: .8rem; color: var(--text-dim); margin: 0 2px 10px; }
 .j-wk-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
-.j-wk-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: 12px;
+.j-wk-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: var(--r-lg, 14px);
   background: #11161d; border: 1px solid var(--hud-border); text-align: center; }
-.j-wk-stat b { font-size: 1.3rem; line-height: 1.1; }
+.j-wk-stat b { font-size: 1.3rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .j-wk-stat span { font-size: .74rem; color: var(--text-dim); line-height: 1.25; }
-.j-wk-sec { padding: 12px; margin-bottom: 12px; border-radius: 14px; background: #11161d; border: 1px solid var(--hud-border); }
+.j-wk-sec { padding: 12px; margin-bottom: 12px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid var(--hud-border); }
 .j-wk-h { font-size: .98rem; margin-bottom: 8px; }
 .j-wk-empty { font-size: .86rem; color: var(--text-dim); line-height: 1.45; }
 .j-wk-tip { font-size: .76rem; color: var(--text-dim); line-height: 1.4; margin-top: 8px; }
 .j-wk-top { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.j-wk-item { padding: 10px; border-radius: 10px; background: #0d1117; border: 1px solid #30363d; display: flex; flex-direction: column; gap: 4px; }
+.j-wk-item { padding: 10px; border-radius: var(--r-md, 10px); background: #0d1117; border: 1px solid #30363d; display: flex; flex-direction: column; gap: 4px; }
 .j-wk-item-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .j-wk-rank { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
   font-size: .8rem; font-weight: 800; background: #21262d; color: var(--gold); border: 1px solid rgba(212,175,55,.5); }
@@ -409,7 +413,7 @@ html.reduce-motion .lp-opt:active:not([aria-disabled="true"]) { transform: none;
   background: #21262d; border: 1px solid #484f58; white-space: nowrap; }
 .j-wk-item-s { font-size: .78rem; color: var(--text-dim); line-height: 1.35; }
 .j-wk-act { width: 100%; margin-top: 4px; min-height: 44px; }
-.j-wk-pat { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 10px; background: #0d1117; border: 1px solid #30363d; }
+.j-wk-pat { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: var(--r-md, 10px); background: #0d1117; border: 1px solid #30363d; }
 .j-wk-pat + .j-wk-pat { margin-top: 8px; }
 .j-wk-pat-t { font-size: .92rem; }
 .j-wk-pat-r { font-size: .78rem; color: var(--text-dim); line-height: 1.35; }

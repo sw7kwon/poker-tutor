@@ -242,3 +242,13 @@
 }
 html.reduce-motion .sr-grid .sr-cell.sr-hl, html.reduce-motion .sr-grid .sr-cell.sr-lay { animation: none; }
 html.reduce-motion .sr-tseat.is-focus, html.reduce-motion .sr-tpot .is-focus, html.reduce-motion .sr-bfill { animation: none; }
+
+/* (polish UX-08) 라벨 칩은 탭하면 긴 설명 말풍선. 탭 요소라 44px 높이(칩 본체는 css/journey.css .lp-chip) */
+.lp-chip[data-act="chip"] { min-height: 44px; padding: 4px 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
+.lp-chip[data-act="chip"]:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+
+/* (polish UX-14) 그림 없는 질문 장면: 장면 칸이 남는 높이를 차지하지 않고 질문 카드가 보기 바로 위에 붙는다(그림 장면은 css/journey.css 그대로) */
+.lp-stage.is-text { flex: 1 1 auto; min-height: auto; justify-content: flex-end; }
+
+/* (polish VIS-05b) 보기 버튼 반경은 공용 토큰(--r-md, 폴백 10px). 본체는 css/journey.css .lp-opt */
+.lp-opt { border-radius: var(--r-md, 10px); }

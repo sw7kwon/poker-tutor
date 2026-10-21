@@ -486,14 +486,23 @@ var Seasons = (function() {
     if (!_fn(J, 'load')) return null;
     try { var s = J.load(); return _isObj(s) ? s : null; } catch (e) { _warn(e); return null; }
   }
+  // (POLISH PERF-6b) 상태가 실제로 바뀌었을 때만 J.save() (반환 out.changed). 홈을 다시 그릴 때마다 저장소에 쓰던 것을 막는다.
+  //   비교는 weekly, season 두 가지의 JSON 직렬화(XP는 _award 안의 addXp가 스스로 저장).
   function sync(now) {
     now = _ms(now == null ? Date.now() : now);
     var st = _journeyState();
     if (!st) return null;
+    var before = _snap(st);
     var out = { now: now, weekly: _period('weekly', st, now, true), season: _period('season', st, now, true) };
-    var J = _m('Journey');
-    if (_fn(J, 'save')) { try { J.save(); } catch (e) { _warn(e); } }
+    out.changed = before !== _snap(st);
+    if (out.changed) {
+      var J = _m('Journey');
+      if (_fn(J, 'save')) { try { J.save(); } catch (e) { _warn(e); } }
+    }
     return out;
+  }
+  function _snap(st) {
+    try { return JSON.stringify([st.weekly === undefined ? null : st.weekly, st.season === undefined ? null : st.season]); } catch (e) { return String(Math.random()); }
   }
   function view(state, now) {
     now = _ms(now == null ? Date.now() : now);

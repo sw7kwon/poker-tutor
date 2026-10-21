@@ -242,9 +242,9 @@ var PuzzleUI = (function() {
   function labelOf(q) {
     var raw = null, P = _P();
     if (P && typeof P.label === 'function') { try { raw = P.label(q); } catch (e) { raw = null; } }
-    var key = null, text = null, icon = null, full = null;
+    var key = null, text = null, icon = null, full = null, fromStr = false;
     if (typeof raw === 'string' && raw) {
-      text = raw;
+      text = raw; fromStr = true;
       if (raw.indexOf('레인지 기준') >= 0) key = 'given';
       else if (raw.indexOf('엔진') >= 0) key = 'exact';
       else if (raw.indexOf('차트') >= 0) key = 'chart';
@@ -269,12 +269,24 @@ var PuzzleUI = (function() {
       else key = 'exact';
     }
     var L = LABELS[key];
+    // (polish UX-08) Puzzles.label이 긴 문장(차트 기준 설명 등)을 주면 칩에는 짧은 글자만 쓰고 긴 문장은 탭 설명(full)으로 돌린다. 정답과 라벨 데이터는 그대로
+    // Puzzles.label(puzzle-core)은 {kind, text}로 긴 문장을 그대로 주므로 20자가 넘는 text도 같은 규칙(full로)
+    if ((fromStr || (text && !full && text.length > 20)) && LABELS[key]) { full = full || text; text = L.text; }
     return { key: key, icon: icon || L.icon, text: text || L.text, full: full || L.full };
   }
+  // title 속성은 두지 않는다(ui/touch.js가 [title] 탭에 말풍선을 따로 띄워 두 번 보임). 긴 설명은 data-full
   function _labelHTML(q) {
     var L = labelOf(q);
-    return '<span class="pz-label pz-label--' + L.key + '" title="' + _esc(L.full) + '"><span class="pz-label-i" aria-hidden="true">' +
-      _esc(L.icon) + '</span>' + _esc(L.text) + '</span>';
+    return '<span class="pz-label pz-label--' + L.key + '" role="button" tabindex="0" data-pz="label" data-full="' + _esc(L.full) +
+      '" aria-label="' + _esc(L.text) + ', 눌러서 설명 보기"><span class="pz-label-i" aria-hidden="true">' + _esc(L.icon) + '</span>' + _esc(L.text) + '</span>';
+  }
+  // 라벨 칩 탭: 긴 설명을 말풍선(TouchUI.showTip)으로, 없으면 토스트(JourneyUI.toast)로. 둘 다 없으면 조용히 무시
+  function _labelTap(el) {
+    var full = (el && typeof el.getAttribute === 'function') ? (el.getAttribute('data-full') || '') : '';
+    if (!full) return false;
+    if (_can('TouchUI', 'showTip')) { _call('TouchUI', 'showTip', full, el); return true; }
+    if (_can('JourneyUI', 'toast')) { _call('JourneyUI', 'toast', full, 3600); return true; }
+    return false;
   }
 
   // ── 장면(SceneRender가 없으면 텍스트 대체) ──────────────────
@@ -1024,6 +1036,7 @@ var PuzzleUI = (function() {
     else if (a === 'act') _action(id);
     else if (a === 'pgrade') grade();
     else if (a === 'pclear') paintClear();
+    else if (a === 'label') _labelTap(el);
   }
   // 키보드는 여정 화면이 보일 때만(다른 화면이 활성이면 무시)
   function _screenOk() {
@@ -1044,6 +1057,7 @@ var PuzzleUI = (function() {
       return;
     }
     if (e.key === 'Enter' || e.key === ' ') {
+      if (e.target && typeof e.target.getAttribute === 'function' && e.target.getAttribute('data-pz') === 'label') { e.preventDefault(); _labelTap(e.target); return; }
       if (S.phase === 'overlay' || S.phase === 'done' || S.phase === 'flash') { e.preventDefault(); next(); return; }
       if (S.phase === 'end' && !(e.target && e.target.tagName && String(e.target.tagName).toLowerCase() === 'button')) {
         e.preventDefault();
@@ -1214,7 +1228,7 @@ var PuzzleUI = (function() {
     available: available, isRated: isRated, rng: rng, ratingWindow: ratingWindow, stage: _stage, rating: _rating,
     core: { clampCount: clampCount, clampPaint: clampPaint, planTypes: planTypes, tierOf: tierOf, xpFor: xpFor, labelOf: labelOf, optCols: optCols, qSig: qSig, questionScene: questionScene,
       sceneFallback: sceneFallback, miniGrid: miniGrid, cardHTML: cardHTML, breakdownHTML: breakdownHTML },
-    _onKey: _onKey, _onClick: _onClick, _action: _action, _setEnv: _setEnv, _reset: _reset
+    _onKey: _onKey, _onClick: _onClick, _action: _action, _labelTap: _labelTap, _setEnv: _setEnv, _reset: _reset
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

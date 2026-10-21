@@ -21,6 +21,7 @@
 //   showCard({card, onDone}) → bool: 명장면 카드 1장 창(오늘의 명장면 블록용). cardHTML(card) → string(순수). active() → bool.
 //   next(), pick('action'|'plan', 값), skip(), togglePause(), toggleSpeed(), exit(): 화면 버튼과 같은 동작(키보드, 테스트).
 //   delayMs(speed, reduced), chipsHTML(stop), stripHTML(lines), barHTML(model): 순수 문자열/수치(node 테스트).
+//   refresh(): 화면 다시 그리기(App.toggleEq가 '모두 승률' 토글 뒤 부른다). 좌석별 승률(TABLE-03b)은 _seatEq 머리 주석.
 // M6-MINI(로드맵 M6 계약 H7): 미니시즌(캐스트 6인 싯앤고 3편, 하루 1편)
 //   miniStatus(now) → { active, canStart, episode, total, pick, playedToday, done, winner, alive, id }
 //   openMini({onDone}) → bool(오늘 볼 편이 없으면 false), start({episodes, mini, onDone})는 mini가 있고 진행 중인 시즌에 오늘 안 본 편이
@@ -745,6 +746,7 @@ var TheaterUI = (function() {
     _r = r;
     _mount(r);
     _render();
+    _syncEqChips();
     return true;
   }
 
@@ -1014,8 +1016,11 @@ var TheaterUI = (function() {
     _r = r;
     _mount(r);
     _render();
+    _syncEqChips();
     return true;
   }
+  // 승률 토글 칩(App.toggleEq, TABLE)이 극장에서도 상태를 맞추게
+  function _syncEqChips() { if (_fn('App', 'syncEqChips')) _call('App', 'syncEqChips'); }
 
   function _mount(r) {
     r.dom = _hasDom();
@@ -1141,14 +1146,114 @@ var TheaterUI = (function() {
     v.revealAll = r.mode !== 'pick';   // 우승자 예측 중에는 첫 핸드 카드를 가린다(예측이 카드에 끌리지 않게)
     v.spectator = true;
     if (v.hideTypes == null) v.hideTypes = !!(r.specs[r.idx] && r.specs[r.idx].hideTypes);
+    // TABLE-03b 좌석별 승률: 이미 계산해 둔 값만 뷰에 싣는다(없으면 _seatEq가 뒤에서 계산해 캐시)
+    var ek = _eqKey(v);
+    if (ek && r.eqCache && r.eqCache[ek]) v.seatEq = r.eqCache[ek];
     return v;
   }
 
+  // ── 좌석별 승률(모두 승률, TABLE-03b) ──────────────────────
+  // A11y 설정 showAllEq가 켜져 있고 카드가 전부 공개된 뷰(revealAll)일 때만, 폴드 안 한 좌석에 승률 배지를 붙인다.
+  // 계산은 EquityMulti.multiway(hands, board) → { eq: [0..1 좌석 순서], exact, n }. EquityMulti가 없으면 아무것도 하지 않는다.
+  // 캐시 키 = 보드 + '|' + 이름순 홀카드. 보드 5장(리버)은 쇼다운이 가리므로 생략, 프리플랍은 몬테카를로라 '≈' 표시.
+  function _showAllEq() {
+    if (typeof _env.showAllEq === 'boolean') return _env.showAllEq;
+    var a = _m('A11y');
+    if (!a || typeof a.load !== 'function') return false;
+    try { var st = a.load(); return !!(st && st.showAllEq); } catch (e) { return false; }
+  }
+  function _eqHands(view) {
+    if (!view || !view.players || !view.holeCards) return null;
+    var names = [], hands = [];
+    Object.keys(view.players).sort().forEach(function(n) {
+      var p = view.players[n];
+      if (!p || (view.spectator && p.isHero)) return;
+      if (view.folded && view.folded[n]) return;
+      var h = view.holeCards[n];
+      if (!h || h.length !== 2) return;
+      var a = _cardObj(h[0]), b = _cardObj(h[1]);
+      if (!a || !b) return;
+      names.push(n); hands.push([a, b]);
+    });
+    if (names.length < 2) return null;
+    var board = (view.board || []).map(_cardObj).filter(Boolean);
+    if (board.length >= 5) return null;
+    return { names: names, hands: hands, board: board };
+  }
+  function _eqKey(view) {
+    var h = _eqHands(view);
+    if (!h) return null;
+    return h.board.map(_cardText).join('') + '|' + h.names.map(function(n, i) { return n + ':' + _cardText(h.hands[i][0]) + _cardText(h.hands[i][1]); }).join(',');
+  }
+  // 캐시에 있으면 { key, eq } 즉시, 없으면 _later(0)로 계산해 cache[key]에 넣고 onDone(key)를 부른다. 계산 불가면 null
+  function _eqCalc(view, cache, onDone) {
+    var em = _m('EquityMulti');
+    if (!em || typeof em.multiway !== 'function' || !cache) return null;
+    var h = _eqHands(view);
+    if (!h) return null;
+    var key = _eqKey(view);
+    if (cache[key]) return { key: key, eq: cache[key] };
+    if (cache['~' + key]) return { key: key, eq: null, pending: true };
+    cache['~' + key] = true;
+    _later(function() {
+      var out = null;
+      try {
+        var res = em.multiway(h.hands, h.board, { preflop: !h.board.length });
+        if (res && res.eq && res.eq.length === h.names.length) { out = {}; h.names.forEach(function(n, i) { out[n] = _num(res.eq[i], 0); }); }
+      } catch (e) { _warn('EquityMulti.multiway', e); }
+      delete cache['~' + key];
+      if (out) cache[key] = out;
+      if (onDone) onDone(key, out);
+    }, 0);
+    return { key: key, eq: null, pending: true };
+  }
+  function _eqText(eq, preflop) {
+    var pct = Math.round(_num(eq, 0) * 100);
+    return (preflop ? '≈' : '') + pct + '%';
+  }
+  // 화면 패치: 좌석 .seat-eq textContent만 바꾼다(없으면 .seat-cards 뒤에 만든다)
+  function _seatEq(r, view) {
+    if (!r || !r.dom || !view || !view.revealAll || !_showAllEq()) return;
+    r.eqCache = r.eqCache || {};
+    var got = _eqCalc(view, r.eqCache, function(key) {
+      if (_r !== r || !r.ep) return;
+      var v2 = _viewState(r);
+      if (v2 && _eqKey(v2) === key) _seatEq(r, v2);
+    });
+    if (!got || !got.eq) return;
+    var d = _doc(), preflop = !(view.board || []).length;
+    Object.keys(got.eq).forEach(function(n) {
+      var seat = _seatEl(view, n);
+      if (!seat || !seat.querySelector) return;
+      var el = seat.querySelector('.seat-eq');
+      if (!el) {
+        el = d.createElement('div');
+        el.className = 'seat-eq';
+        el.setAttribute('aria-label', '승률');
+        var cards = seat.querySelector('.seat-cards');
+        if (cards && cards.parentNode === seat) seat.insertBefore(el, cards.nextSibling);
+        else seat.appendChild(el);
+      }
+      var t = _eqText(got.eq[n], preflop);
+      if (el.textContent !== t) el.textContent = t;
+    });
+  }
+
+  // 렌더를 쓰기 단계와 읽기 단계로 나눈다(TABLE-08, 강제 레이아웃 1~2회로):
+  //   쓰기: Table.render, hand-info, th-stop, _seatMarks, root.innerHTML, 피드 append, 말풍선 제거(포커스 키는 쓰기 전에 1회 읽음)
+  //   읽기(다음 프레임 1회): 포커스 복원, 피드와 도크 scrollTop, 말풍선 배치(getBoundingClientRect), 좌석 승률
+  // 연속 렌더는 r.renderSeq 토큰으로 마지막 것만 읽기 단계를 실행한다. rAF가 없거나 테스트 타이머 주입이면 _later(fn, 0).
+  function _raf(fn) {
+    if (typeof _env.setTimeout !== 'function' && typeof requestAnimationFrame === 'function') return requestAnimationFrame(fn);
+    return _later(fn, 0);
+  }
   function _render() {
     var r = _r;
     if (!r || !r.dom) return;
     var md = _model();
     var view = _viewState(r);
+    var keep = r.root ? _focusKey() : null;   // 읽기: 쓰기 전에 1회
+    // ── 쓰기 ──
     if (view && _fn('Table', 'render')) {
       _call('Table', 'render', view);
       var hi = _el('hand-info');
@@ -1159,14 +1264,21 @@ var TheaterUI = (function() {
     if (sc) sc.classList.toggle('th-stop', r.mode === 'stop');
     _seatMarks(view, r.focus, r.bubble ? r.bubble.name : null);
     if (r.root) {
-      var keep = _focusKey();
       r.root.setAttribute('data-mode', r.mode);
       r.root.innerHTML = stripHTML(md.strip, md.mode === 'pick' ? '우승자를 고르면 1편이 시작돼요' : null) + '<div class="th-panel' + (r.mode === 'play' && !r.verdict ? ' is-quiet' : '') + (r.mini && r.mode !== 'stop' && r.mode !== 'play' ? ' is-mini' : '') + '">' + panelHTML(md) + '</div>' + barHTML(md);
-      _restoreFocus(r.root, keep);
     }
     _renderFeed(r);
     _clearBubble();
-    if (r.bubble && view) _showBubble(view, r.bubble, r.mode === 'stop');
+    // ── 읽기(다음 프레임, 마지막 렌더만) ──
+    var seq = r.renderSeq = (r.renderSeq || 0) + 1;
+    _raf(function() {
+      if (_r !== r || seq !== r.renderSeq || !r.dom) return;
+      // 자동 재생 중(play, 멈춤 아님) 포커스가 없으면 복원 생략
+      if (keep && r.root && !(r.mode === 'play' && !r.paused && !keep.th)) _restoreFocus(r.root, keep);
+      _feedScroll(r);
+      if (r.bubble && view) _showBubble(view, r.bubble, r.mode === 'stop');
+      _seatEq(r, view);
+    });
   }
 
   function _focusKey() {
@@ -1200,10 +1312,15 @@ var TheaterUI = (function() {
       f.appendChild(line);
     }
     r.fed = feed.length;
-    f.scrollTop = f.scrollHeight;
-    // 세로 폰에서는 도크 본문이 스크롤 상자(피드 자체는 높이 제한 없음)라 그쪽도 맨 아래로
+  }
+  // 피드를 맨 아래로(읽기 단계). 세로 폰에서는 도크 본문이 스크롤 상자(피드 자체는 높이 제한 없음)라 그쪽도 맨 아래로
+  function _feedScroll(r) {
+    var f = _el('thinking-feed');
+    if (!f) return;
     var body = f.closest ? f.closest('.m-dock-body') : null;
-    if (body) body.scrollTop = body.scrollHeight;
+    var fh = f.scrollHeight, bh = body ? body.scrollHeight : 0;   // 읽기 먼저
+    f.scrollTop = fh;
+    if (body) body.scrollTop = bh;
   }
 
   function _seatEl(view, name) {
@@ -1436,10 +1553,12 @@ var TheaterUI = (function() {
     miniStatus: miniStatus, openMini: openMini, homeCard: homeCard, pickWinner: pickWinner,
     MINI_STOP_HAND: MINI_STOP_HAND, MINI_STOP_EP: MINI_STOP_EP,
     next: next, pick: pick, skip: skip, togglePause: togglePause, toggleSpeed: toggleSpeed, exit: exit,
+    refresh: _render,
     delayMs: delayMs, chipsHTML: chipsHTML, stripHTML: stripHTML, barHTML: barHTML, panelHTML: panelHTML,
     actionLabel: actionLabel, planKor: planKor,
     SPEED_MS: SPEED_MS, MAX_STOPS: MAX_STOPS, CHAR_NOTE: CHAR_NOTE,
-    _model: _model, _setEnv: _setEnv, _setCore: _setCore, _reset: _reset, _cardOpen: function() { return !!_card; }
+    _model: _model, _setEnv: _setEnv, _setCore: _setCore, _reset: _reset, _cardOpen: function() { return !!_card; },
+    _eqKey: _eqKey, _eqCalc: _eqCalc, _eqText: _eqText
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

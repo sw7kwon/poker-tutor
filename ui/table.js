@@ -58,6 +58,7 @@ var Table = (function() {
         '<div class="seat-stack">'+stack.toFixed(1)+'bb</div>'+
         (bet>0?'<div class="seat-bet">'+bet.toFixed(1)+'bb</div>':'')+
         '<div class="seat-cards">'+cardsHtml+'</div>'+
+        seatEqHTML(state, name)+
         '<div class="seat-stack-bar"><div class="seat-stack-fill" style="height:'+stackPct+'%;background:'+barColor+'"></div></div>';
       if (keptBubbles[pos]) seatEl.appendChild(keptBubbles[pos]);
     });
@@ -90,6 +91,15 @@ var Table = (function() {
     if (state.revealAll) return hole.map(function(c) { return _cardFace(c, 'face-up'); }).join('');
     if (state.folded && state.folded[name]) return '';
     return '<div class="card back"></div><div class="card back"></div>';
+  }
+
+  // 좌석 승률 배지(순수 함수). state.seatEq = { 이름: 0..1 } 가 있을 때만 '승률 NN%' 1줄, 아니면 빈 문자열.
+  // 히어로 '내 승률' 칩(App.toggleEq)과 전원 올인 런아웃, 극장 공개 때 App이 채운다. 일반 플레이 중 빌런 값은 넣지 않는다.
+  function seatEqHTML(state, name) {
+    if (!state || !state.seatEq || name == null) return '';
+    var v = state.seatEq[name];
+    if (v == null || typeof v !== 'number' || isNaN(v)) return '';
+    return '<div class="seat-eq">승률 ' + Math.round(v * 100) + '%</div>';
   }
 
   // 세로 폰 배치용 좌석 슬롯(표시 계층만, 데스크톱 CSS는 참조 안 함): 히어로=0(하단 중앙), 이후 시계방향 1~5
@@ -202,6 +212,6 @@ var Table = (function() {
     seatEl.appendChild(div);
   }
 
-  if (typeof module !== 'undefined') module.exports = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, _hudHTML };
-  return { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, _hudHTML };
+  if (typeof module !== 'undefined') module.exports = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML };
+  return { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML };
 })();

@@ -18,6 +18,52 @@ var App = (function() {
   var _sessionId = null; // selectVillains()에서 Date.now() — saveHandHistory meta로 전파
   var _practice = null;  // 활성 시: { seed, heroPos, config, attempts:[{n,delta}], resume:{...}|null }
   var _sessionNet = 0;
+  // 결정 전 계산 체인(승률 MC → 판정 → HUD)을 다음 프레임으로 미루는 순번. 새 핸드, 다음 핸드, 히어로 액션마다 올려 묵은 결과를 버린다
+  var _calcSeq = 0;
+  var _pendingCalc = null;  // 다음 프레임 대기 중인 계산 체인. heroAction이 먼저 들어오면 동기로 끝내 지난 결정의 판정으로 채점하지 않는다
+  var _lastViewBase = null; // 코칭 뷰 원본('내 승률' 가림 해제 전). 칩 토글 때 체인을 다시 돌리지 않고 가림만 다시 적용
+  var _eqCache = { key: null, eq: 0 };   // 같은 스트리트 재결정(빌런 레이즈 뒤 등)은 승률 MC를 다시 돌리지 않는다
+  // 브라우저: rAF 뒤 setTimeout 0 = 빌런 액션과 보드가 먼저 그려진 다음 계산. node 러너와 smoke-sim은 동기 그대로
+  var _defer = (typeof window !== 'undefined' && typeof requestAnimationFrame === 'function')
+    ? function(fn) { requestAnimationFrame(function() { setTimeout(fn, 0); }); }
+    : function(fn) { fn(); };
+
+  // 승률 칩 2종(index.html #eq-chips): 'mine'=내 승률(showEq), 'all'=모두 승률(showAllEq). A11y 설정에 저장되어 다음에도 유지
+  function _eqSettings() {
+    try { return (typeof A11y !== 'undefined' && A11y && typeof A11y.load === 'function') ? A11y.load() : {}; } catch (e) { return {}; }
+  }
+  function _bossOn() {
+    try { return !!(typeof Boss !== 'undefined' && Boss && typeof Boss.active === 'function' && Boss.active()); } catch (e) { return false; }
+  }
+  function syncEqChips() {
+    if (typeof document === 'undefined' || !document.querySelectorAll) return;
+    var s = _eqSettings();
+    var chips = document.querySelectorAll('.eq-chip');
+    for (var i = 0; i < chips.length; i++) {
+      var k = chips[i].getAttribute('data-eq') === 'all' ? 'showAllEq' : 'showEq';
+      chips[i].setAttribute('aria-pressed', s[k] ? 'true' : 'false');
+    }
+  }
+  function toggleEq(kind) {
+    if (typeof A11y === 'undefined' || !A11y || typeof A11y.save !== 'function') return;
+    var s = _eqSettings();
+    var key = (kind === 'all') ? 'showAllEq' : 'showEq';
+    var p = {}; p[key] = !s[key];
+    A11y.save(p);
+    syncEqChips();
+    // 핸드가 끝난 뒤(쇼다운 카드 표시 중)와 극장 관전 중에는 게임 테이블을 다시 그리지 않는다(renderShowdown이 패치한 공개 카드, 극장 화면이 지워진다)
+    var sg = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('screen-game') : null;
+    var theater = !!(sg && sg.classList && sg.classList.contains('th-on'));
+    if (_state && !_state.handOver && !theater) {
+      if (_state.waitingForHero) {
+        // 결정 대기 중: 계산 체인(판정, 코칭 예측, 속마음)을 다시 돌리지 않고 마지막 결과에 승률 가림만 다시 적용. 계산이 아직이면 그 체인이 새 설정을 읽는다
+        if (key === 'showEq' && !_pendingCalc && _lastEV) _reapplyEqView();
+      } else {
+        _renderTable();
+      }
+    }
+    if (typeof TheaterUI !== 'undefined' && TheaterUI && typeof TheaterUI.refresh === 'function') { try { TheaterUI.refresh(); } catch (e) {} }
+  }
 
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
@@ -65,6 +111,7 @@ var App = (function() {
     if (toggleBtn) toggleBtn.classList.add('active');
     var chartEl = document.getElementById('gto-chart');
     if (chartEl) chartEl.classList.remove('panel-closed');
+    syncEqChips();
     _newHand();
   }
 
@@ -75,6 +122,9 @@ var App = (function() {
     // Hand#/Round 표시 갱신 (buildInitialState는 항상 1로 고정하는 버그가 있었음)
     _state.handNum = _round;
     _state.round = _gtoMode ? _gtoRound : 0;
+    _state.seatEq = null;
+    _calcSeq++; _pendingCalc = null;
+    syncEqChips();
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onNewHand(_state); // WP8
     showScreen('screen-game');
     Table.render(_state);
@@ -153,7 +203,9 @@ var App = (function() {
     if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount, a); }); // WP8 (액션 전 상태, a에 potBefore 등 스냅샷)
     _state = result.newState;
     if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, result.villainActions);
-    Table.render(_state);
+    // TABLE-09: 말풍선 없이 바로 스트리트 전환이 뒤따르면 전환 전 렌더를 생략하고 전환 뒤 1회만 그린다(말풍선이 있으면 기존 2회)
+    var skipPre = result.villainActions.length === 0 && !_state.waitingForHero && !_state.handOver && GameState.needsStreetAdvance(_state);
+    if (!skipPre) _renderTable();
     if (result.villainActions.length > 0) {
       Table.updateVillainActions(result.villainActions);
     }
@@ -163,11 +215,111 @@ var App = (function() {
       _showResult();
     } else if (GameState.needsStreetAdvance(_state)) {
       _state = GameState.advanceStreet(_state);
-      Table.render(_state);
+      _state.seatEq = null;
+      _renderTable();
       Animator.dealBoard(_state, function() { _processVillainActions(); });
     } else {
       _showResult();
     }
+  }
+
+  // ── 올인 런아웃 공개(TABLE-03a): 폴드 안 한 좌석 2명 이상, 칩이 남은 사람은 많아야 1명(더 벳이 오갈 수 없음), 히어로 폴드 아님, 핸드 종료 아님 ──
+  // 칩이 남은 사람에게 콜 금액이 남아 있으면(올인을 마주한 상태) 진짜 결정이 남은 것이므로 공개하지 않는다(히어로 폴드 뒤 빌런 진행 포함).
+  // 결정 대기 중에는 히어로가 유일한 칩 보유자일 때만(아무도 콜할 수 없는 빈 결정) 공개. 리버 5장도 쇼다운 전까지 유지(뒷면 깜빡임 방지). 순수 판정
+  function _allInRunout(st) {
+    if (!st || st.handOver) return false;
+    if (st.folded && st.folded.Hero) return false;
+    var names = st.names || Object.keys(st.players || {}), live = 0, withChips = 0, holder = null;
+    var cb = st.currentBet || 0, bets = st.playerBets || {};
+    for (var i = 0; i < names.length; i++) {
+      var nm = names[i];
+      if (st.folded && st.folded[nm]) continue;
+      live++;
+      if (((st.stacks && st.stacks[nm]) || 0) > 0.001) {
+        withChips++;
+        if (withChips > 1) return false;
+        holder = nm;
+        if (cb > (bets[nm] || 0) + 0.001) return false; // 콜 금액이 남음 = 결정이 남음
+      }
+    }
+    if (live < 2) return false;
+    if (st.waitingForHero && holder !== 'Hero') return false;
+    return true;
+  }
+  var _seatEqCache = { key: null, eq: null };
+  function _seatEqKey(st) {
+    var cs = function(a) { return (a || []).map(function(c) { return c.rank + c.suit; }).join(''); };
+    var names = (st.names || Object.keys(st.players || {})).filter(function(n) { return !(st.folded && st.folded[n]); }).sort();
+    return cs(st.board) + '|' + names.map(function(n) { return n + ':' + cs(st.holeCards && st.holeCards[n]); }).join(',');
+  }
+  // 캐시된 좌석별 승률({이름: 0..1}) 또는 null. null이면 다음 프레임에 EquityMulti로 계산해 .seat-eq만 패치(없으면 1회 렌더)
+  function _seatEqFor(st) {
+    if (!_eqSettings().showAllEq || typeof EquityMulti === 'undefined' || !EquityMulti.multiway) return null;
+    var key = _seatEqKey(st);
+    if (_seatEqCache.key === key) return _seatEqCache.eq;
+    var names = (st.names || Object.keys(st.players || {})).filter(function(n) { return !(st.folded && st.folded[n]); }).sort();
+    var hands = names.map(function(n) { return st.holeCards && st.holeCards[n]; });
+    var board = (st.board || []).slice(), pre = board.length === 0;
+    _defer(function() {
+      if (!_state || _seatEqKey(_state) !== key) return;
+      var r;
+      try { r = EquityMulti.multiway(hands, board, { iters: 300 }); } catch (e) { r = null; }
+      if (!r || r.eq.length !== names.length) return;
+      var out = {};
+      names.forEach(function(n, i) { out[n] = r.eq[i]; });
+      _seatEqCache = { key: key, eq: out };
+      if (typeof document === 'undefined' || !document.querySelectorAll) return;
+      var patched = 0;
+      document.querySelectorAll('.seat').forEach(function(seatEl) {
+        var nameEl = seatEl.querySelector('.seat-name'), el = seatEl.querySelector('.seat-eq');
+        if (!nameEl || !el) return;
+        var nm = nameEl.textContent.trim().split(/\s+/)[0];
+        if (out[nm] == null) return;
+        el.textContent = '승률 ' + (pre ? '≈' : '') + Math.round(out[nm] * 100) + '%';
+        patched++;
+      });
+      if (!patched) _renderTable();
+    });
+    return null;
+  }
+  // 게임 진행 중 테이블 그리기: 전원 올인 런아웃이면 사본만 공개(revealAll, seatEq). 엔진 _state 불변
+  function _renderTable() {
+    if (_allInRunout(_state)) {
+      var seatEq = _seatEqFor(_state);
+      var view = Object.assign({}, _state, { revealAll: true, seatEq: seatEq || _pendingSeatEq(_state) || _state.seatEq || null });
+      Table.render(view);
+      return;
+    }
+    Table.render(_state);
+  }
+  // 계산 전 자리 표시(배지 자리를 먼저 만들어 재렌더 없이 패치)
+  function _pendingSeatEq(st) {
+    if (!_eqSettings().showAllEq) return null;
+    var out = {}, names = st.names || Object.keys(st.players || {});
+    for (var i = 0; i < names.length; i++) if (!(st.folded && st.folded[names[i]])) out[names[i]] = 0;
+    return out;
+  }
+
+  // 같은 스트리트, 같은 레인지, 같은 활성 인원이면 승률 MC 결과를 재사용하는 캐시 키
+  function _eqCacheKey(st) {
+    var cs = function(cs) { return (cs || []).map(function(c) { return c.rank + c.suit; }).join(''); };
+    var vr = st.villainRange;
+    var live = 0, names = st.names || Object.keys(st.players || {});
+    for (var i = 0; i < names.length; i++) if (!(st.folded && st.folded[names[i]])) live++;
+    var vk = Array.isArray(vr) ? vr.length + ':' + vr.slice(0, 8).join(',') : ((vr && typeof vr.size === 'number') ? 'set' + vr.size : '-');
+    return cs(st.heroCards) + '|' + cs(st.board) + '|' + st.street + '|' + vk + '|' + live;
+  }
+
+  // '내 승률' 칩 토글(결정 대기 중): 마지막 계산 결과에 승률 가림 해제만 다시 적용한다(판정, 코칭 예측, 속마음 체인은 다시 돌리지 않는다)
+  function _reapplyEqView() {
+    if (!_state || !_lastEV) return;
+    var view = _lastViewBase || _lastView || { level: 0, hide: false, hideEquity: false, hidePotOdds: false };
+    var eqOn = !!(_eqSettings().showEq) && !_bossOn();
+    if (eqOn) view = Object.assign({}, view, { hideEquity: false, eqShown: true });
+    _lastView = view;
+    _state.seatEq = eqOn ? { Hero: _lastEQ } : null;
+    _patchHeroSeatEq(_lastEQ, eqOn);
+    HUD.update(_lastEQ, _lastEV, _state, _gtoMode ? _gtoRound : 0, view);
   }
 
   function _computeEVAndShow() {
@@ -186,7 +338,28 @@ var App = (function() {
         }
       }
     }
-    Equity.calc(_state, function(eq) {
+    // 동기 단계는 여기까지(레인지). 승률과 그 뒤 체인은 다음 프레임: 빌런 액션과 보드가 먼저 그려진다
+    var eqValEl = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('equity-value') : null;
+    if (eqValEl) eqValEl.textContent = '…';
+    var seq = ++_calcSeq;
+    var run = function() {
+      if (_pendingCalc === run) _pendingCalc = null;
+      if (seq !== _calcSeq || !_state || !_state.waitingForHero) return;
+      var key = _eqCacheKey(_state);
+      if (_eqCache.key === key) { _onEquity(_eqCache.eq); return; }
+      Equity.calc(_state, function(eq) {
+        if (seq !== _calcSeq || !_state || !_state.waitingForHero) return;
+        _eqCache = { key: key, eq: eq };
+        _onEquity(eq);
+      });
+    };
+    _pendingCalc = run; // heroAction이 계산 전에 들어오면 동기로 끝낸다(지난 결정의 판정으로 채점 방지)
+    _defer(run);
+  }
+
+  // 승률이 나온 뒤의 결정 전 체인(판정, 코칭 뷰, HUD, 차트, 액션바, 해설). 순서는 예전 Equity.calc 콜백과 같다
+  function _onEquity(eq) {
+    {
       var ev = EV.calcOptions(_state, eq);
       _lastVerdict = (typeof Coach !== 'undefined') ? Coach.verdict(_state, ev, eq, _heroPos, { mode: _villainConfig }) : null;
       var V = _lastVerdict;
@@ -203,7 +376,13 @@ var App = (function() {
             gtoRound: _gtoRound, practice: !!_practice, sessionId: _sessionId })
         : null;
       if (!view) view = { level: 0, hide: false, hideEquity: false, hidePotOdds: false };
+      // '내 승률' 칩이 켜져 있으면(보스 시험 제외) 코칭 레벨의 승률 가림만 해제(정답 가림, 팟 오즈 가림은 그대로)
+      var eqOn = !!(_eqSettings().showEq) && !_bossOn();
+      _lastViewBase = view;
+      if (eqOn) view = Object.assign({}, view, { hideEquity: false, eqShown: true });
       _lastView = view;
+      _state.seatEq = eqOn ? { Hero: eq } : null;
+      _patchHeroSeatEq(eq, eqOn);
       HUD.update(eq, ev, _state, _gtoMode ? _gtoRound : 0, view);
       if (typeof GtoChart !== 'undefined') {
         if (view.hide) GtoChart.hide();
@@ -259,7 +438,18 @@ var App = (function() {
       }
       if (typeof ThinkingUI !== 'undefined') ThinkingUI.onHeroTurn(_state, _heroPos, eq, ev); // WP8
       if (typeof MobileUI !== 'undefined' && MobileUI.onHeroTurn) MobileUI.onHeroTurn(view, { gtoMode: _gtoMode, gtoRound: _gtoRound });
-    });
+    }
+  }
+
+  // 히어로 좌석의 '승률 NN%' 배지만 갱신(재렌더 없이). 배지 자리가 없으면 1회 렌더
+  function _patchHeroSeatEq(eq, on) {
+    if (typeof document === 'undefined' || !document.querySelector) return;
+    var seat = document.querySelector('.seat.hero');
+    if (!seat) return;
+    var el = seat.querySelector('.seat-eq');
+    if (!on) { if (el) el.remove(); return; }
+    if (el) el.textContent = '승률 ' + Math.round(eq * 100) + '%';
+    else _renderTable(); // 런아웃 공개 상태면 그대로 유지한 채 배지 자리를 만든다
   }
 
   // GTO 2회차 프리플랍 힌트 한 줄(순수 함수). 림퍼 뒤는 '(오픈)' 대신 림퍼 수와 아이솔 기준 표(isoPos)를 적는다(M4-P9).
@@ -276,6 +466,10 @@ var App = (function() {
 
   function heroAction(action) {
     if (!_state || !_state.waitingForHero) return; // 이중 클릭 가드
+    // 결정 전 계산 체인이 아직 다음 프레임 대기 중이면 지금 동기로 끝낸다(_lastEV, _lastVerdict가 지난 결정의 값으로 채점되는 일 방지)
+    if (_pendingCalc) { var flush = _pendingCalc; _pendingCalc = null; flush(); }
+    _calcSeq++; // 아직 안 끝난 결정 전 계산 체인은 폐기
+
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onHeroAction(_state, action); // WP8
     var pre = _state;
     var heroBet = (pre.playerBets && pre.playerBets['Hero']) || 0;
@@ -308,6 +502,7 @@ var App = (function() {
       dec.eq = r3(_lastEQ);
       dec.gtoRound = _gtoMode ? _gtoRound : 0;
       dec.hidden = !!(_lastView && _lastView.hide);
+      dec.eqShown = !!(_lastView && _lastView.eqShown); // '내 승률' 칩으로 승률을 보고 결정했는지(참고용, 레이팅 무관)
       dec.intended = n.intended;
       if (V && g) {
         dec.bestEV = _lastEV[V.evKey] || 0;
@@ -378,7 +573,7 @@ var App = (function() {
     if (logIt && V && g && V.source === 'chart' && typeof Drills !== 'undefined' && Drills.recordFromGame) {
       Drills.recordFromGame(pre, _heroPos, V, g.light === 'green' || !!g.sizeOnly);   // 깊은 스택 올인(sizeOnly)은 손은 맞혔으니 플래시카드는 정답
     }
-    Table.render(_state);
+    _renderTable();
     // 말풍선은 render 뒤에 — render가 좌석 innerHTML을 갈아 끼워 즉시 지워지던 문제
     Table.showHeroAction(n.action, amount, g ? g.light : null);
     HUD.clear();
@@ -394,7 +589,8 @@ var App = (function() {
       _showResult();
     } else if (GameState.needsStreetAdvance(_state)) {
       _state = GameState.advanceStreet(_state);
-      Table.render(_state);
+      _state.seatEq = null;
+      _renderTable();
       Animator.dealBoard(_state, function() { _processVillainActions(); });
     } else {
       _processVillainActions();
@@ -651,11 +847,19 @@ var App = (function() {
     _state = result.newState;
     var heroNet = Math.round((((_state.stacks && _state.stacks.Hero) || 0) - (startStacks.Hero || 0)) * 100) / 100;
     Table.renderShowdown(result);
+    // 총평과 '▶ 다음 핸드'를 먼저(350ms), 기록 저장(여정 XP, 운 미터, 히스토리)은 지역 스냅샷으로 한 틱 뒤에(모션 줄이기면 즉시)
+    var reducedMotion = false;
+    try { reducedMotion = !!(typeof A11y !== 'undefined' && A11y && typeof A11y.reduced === 'function' && A11y.reduced()); } catch (e) { reducedMotion = false; }
+    var later = reducedMotion ? function(fn) { fn(); } : function(fn) { setTimeout(fn, 0); };
     setTimeout(function() {
+      var st = _state, res = result, practice = _practice, gtoMode = _gtoMode, gtoRound = _gtoRound, heroPos = _heroPos,
+        mode = _villainConfig, sessionId = _sessionId, round = _round;
       // 신호등 + 핸드 복기는 총평 패널에 통합 (연습 모드에서도 동일하게 렌더)
       if (typeof CoachUI !== 'undefined' && CoachUI.onHandEnd) CoachUI.onHandEnd({decisions:decisionsSnap, practice:!!_practice, gtoMode:_gtoMode, gtoRound:_gtoRound, sessionId:_sessionId});
-      if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: result, state: _state, net: heroNet, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, heroFolded: !!(_state.folded && _state.folded.Hero) });
-      if (typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: result, state: _state, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, sessionId: _sessionId, hu: (_state.names || []).length === 2, heroFolded: !!(_state.folded && _state.folded.Hero) }); // 운 미터(M5-HUD, F1)
+      later(function() {
+        if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, heroFolded: !!(st.folded && st.folded.Hero) });
+        if (typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: res, state: st, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, sessionId: sessionId, hu: (st.names || []).length === 2, heroFolded: !!(st.folded && st.folded.Hero) }); // 운 미터(M5-HUD, F1)
+      });
       _renderHandSummary(result);
       // 액션바 교체
       var actionBar = document.getElementById('action-bar');
@@ -673,23 +877,25 @@ var App = (function() {
       if (_practice) {
         // 연습 핸드는 localStorage·세션 기록 어디에도 남기지 않고 추이만 갱신
         _practice.attempts.push(_practiceAttempt(_practice.attempts.length + 1, decisionsSnap));
-        HUD.updatePracticeTrend(_practice.attempts);
+        later(function() { HUD.updatePracticeTrend(practice.attempts); });
       } else {
-        Storage.saveHandHistory(_state, result, { sessionId: _sessionId, mode: _villainConfig, heroPos: _heroPos,
-          pot: finalPot, net: heroNet, gtoRound: _gtoMode ? _gtoRound : 0 });
+        later(function() {
+          Storage.saveHandHistory(st, res, { sessionId: sessionId, mode: mode, heroPos: heroPos,
+            pot: finalPot, net: heroNet, gtoRound: gtoMode ? gtoRound : 0 });
+        });
         _sessionNet += heroNet;
         _sessionHands.push({
-          num: _round, gtoRound: _gtoMode ? _gtoRound : null,
+          num: round, gtoRound: gtoMode ? gtoRound : null,
           heroCards: heroCardsSnap, board: boardSnap,
           pot: finalPot, heroWon: result.heroWon, showCards: result.showCards,
           winner: result.winner, handDescriptions: result.handDescriptions||{},
           decisions: decisionsSnap,
-          seed: _state.seed, heroPos: _heroPos, mode: _villainConfig, net: heroNet,
-          delta: _calcHandDelta(decisionsSnap), heroFolded: !!(_state.folded && _state.folded.Hero)
+          seed: st.seed, heroPos: heroPos, mode: mode, net: heroNet,
+          delta: _calcHandDelta(decisionsSnap), heroFolded: !!(st.folded && st.folded.Hero)
         });
         if (_gtoMode && _gtoRound === 3) _renderGtoLoopReport();
       }
-    }, 800);
+    }, 350);
   }
 
   // 핸드 1회의 EV 손실 합계(bb) — 연습 모드 추이 표시용 순수 함수
@@ -1109,10 +1315,27 @@ var App = (function() {
     showScreen('screen-curriculum');
   }
 
+  // 로드 뒤: 칩 상태 동기화, 한가할 때 승률 MC 1회 예열(JIT, 첫 결정의 멈칫함 완화). 엔진 불변
+  if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+    window.addEventListener('load', function() {
+      try { syncEqChips(); } catch (e) {}
+      var idle = (typeof window.requestIdleCallback === 'function') ? window.requestIdleCallback : function(f) { setTimeout(f, 800); };
+      idle(function() {
+        try {
+          if (typeof Equity === 'undefined' || typeof Deck === 'undefined' || !Deck.fromString) return;
+          Equity.calc({ heroCards: [Deck.fromString('As'), Deck.fromString('Ks')], board: [Deck.fromString('Qs'), Deck.fromString('7h'), Deck.fromString('2d')],
+            villainRange: ['AA', 'KK', 'AKs'], street: 'flop' }, function() {});
+        } catch (e) {}
+      });
+    });
+  }
+
   return {
     showMenu: showMenu,
     showScreen: showScreen,
     toggleEquity: toggleEquity,
+    toggleEq: toggleEq,
+    syncEqChips: syncEqChips,
     startGame: startGame,
     selectVillains: selectVillains,
     heroAction: heroAction,
@@ -1142,6 +1365,7 @@ var App = (function() {
     _handGoalText: _handGoalText,
     _curriculumSpotKey: _curriculumSpotKey,
     _villainOpts: _villainOpts,
+    _allInRunout: _allInRunout,
     // 테스트용: 실제 핸드를 시작한 시험이 뒤 테스트에 게임 상태를 남기지 않도록 비운다(M7 FLOW-02 시험)
     _resetForTest: function() { _state = null; _practice = null; _gtoMode = false; }
   };

@@ -320,11 +320,13 @@ var JourneyUI = (function() {
   function homeHTML(s) { return _homeHTML(s || state()); }   // 순수 문자열(테스트, 하네스용)
   function _homeHTML(s) {
     var sm = summary(s), pc = providerCards(s);
+    // (POLISH UX-01) 빠른 줄은 오늘의 5분 바로 아래(설계서 5.2절 순서와 다름): 매일 쓰는 입구가 폰 첫 화면에 보이게.
+    // (POLISH UX-03) 첫 완주 뒤 1회 설정 카드는 지도 위(.j-cards-top)에: 카드 영역은 지도 아래라 스크롤해야 보였다.
     return '<div class="j-home">' + _topHTML(s, sm) +
       '<section class="j-today-area" aria-label="오늘의 학습">' + (needFirstCard(s) ? firstCard() : _todayBtnHTML(s)) + '</section>' +
-      _topCardsHTML(pc) +
-      '<section class="j-map" aria-label="여정 지도">' + renderMap(_mapModel(s), true) + '</section>' +
       _quickHTML() +
+      _topCardsHTML(pc, needSettingsCard(s) ? settingsCard() : '') +
+      '<section class="j-map" aria-label="여정 지도">' + renderMap(_mapModel(s), true) + '</section>' +
       '<section class="j-cards" aria-label="알림 카드">' + _cardsHTML(s, sm, pc) + '</section>' +
       '</div>';
   }
@@ -402,7 +404,7 @@ var JourneyUI = (function() {
     if (pv && pv.state === 'progress') { main = '▶ 이어서 하기'; sub = '남은 블록 ' + pv.left + '개'; }
     else if (pv && pv.state === 'done' && pv.completed) { main = '✓ 오늘 완주'; sub = '한 번 더 하려면 눌러요'; }
     else if (pv && pv.state === 'done') { sub = '새 블록으로 다시 시작해요'; }
-    else if (pv && pv.estMin) sub = '약 ' + pv.estMin + '분, 블록 ' + (pv.chips || []).length + '개';
+    else if (pv && pv.estMin) sub = '약 ' + Math.max(1, Math.round(pv.estMin)) + '분, 블록 ' + (pv.chips || []).length + '개';   // (UX-07) 소수점 분 숨김, 저장값은 그대로
     var chips = (pv && pv.chips) || [];
     return '<button type="button" class="j-today-btn' + (pv && pv.state === 'done' && pv.completed ? ' is-done' : '') + '" onclick="JourneyUI._todayTap()">' +
         '<span class="j-today-main">' + main + '</span>' + (sub ? '<span class="j-today-sub">' + _esc(sub) + '</span>' : '') +
@@ -549,8 +551,7 @@ var JourneyUI = (function() {
     var out = [];
     pc = pc || providerCards(s);
     out = out.concat(pc.emph);   // (M6-P0, H11 a) 공급자 강조 카드는 카드 영역 맨 앞
-    var sc = settingsCard();
-    if (sc) out.push(sc);
+    // (POLISH UX-03) 첫 완주 뒤 설정 카드는 _homeHTML이 지도 위(.j-cards-top)에 그린다. 여기(지도 아래)에는 없음.
     var wk = _weeklyInfo(), wkHTML = weeklyCard(wk);
     if (wkHTML && wk.emph) out.push(wkHTML);
     var d5 = daily5Card();
@@ -581,19 +582,25 @@ var JourneyUI = (function() {
   function providerCards(s) {
     var out = { emph: [], rest: [] }, now = _now();
     s = s || state();
+    // (POLISH UX-10) 아직 아무것도 안 한 사용자(첫 카드 단계 또는 XP 0)에게는 주간 챌린지 카드를 보이지 않는다(첫 화면 정보량).
+    //   Seasons.homeCard(sync 포함)는 그대로 불러 XP 판정과 상태 갱신은 변함없고, html만 버린다.
+    var hideSeason = needFirstCard(s) || summary(s).xp === 0;
     CARD_PROVIDERS.forEach(function(name) {
       var M = _m(name);
       if (!M || typeof M.homeCard !== 'function') return;
       var c = null;
       try { c = M.homeCard(s, now); } catch (e) { _warn(name + '.homeCard', e); return; }
       if (!c || typeof c !== 'object' || typeof c.html !== 'string' || !c.html) return;
+      if (name === 'Seasons' && hideSeason) return;
       if (c.top) { (out.top = out.top || []).push(c.html); return; }
       (c.emph ? out.emph : out.rest).push(c.html);
     });
     return out;
   }
-  function _topCardsHTML(pc) {
-    var list = (pc && pc.top) || [];
+  // (POLISH UX-03) extra: 공급자 top 카드 뒤에 붙일 카드 문자열(첫 완주 뒤 설정 카드). 빈 문자열이면 무시.
+  function _topCardsHTML(pc, extra) {
+    var list = ((pc && pc.top) || []).slice();
+    if (extra) list.push(extra);
     return list.length ? '<section class="j-cards j-cards-top" aria-label="중요 알림" style="margin:12px 0">' + list.join('') + '</section>' : '';
   }
 
@@ -959,7 +966,8 @@ var JourneyUI = (function() {
     }
     if (nd.drill) {
       var dp = _drillPath(nd);
-      btns.push(_actBtn(!!dp, 'drill', nd.id, passed ? '⚡ 같은 유형 퍼즐' : '⚡ 드릴 ' + _drillCount(nd.drill) + '문항', dp ? '' : _typeName(nd.drill.type) + ' 퍼즐은 다음 업데이트에서 열려요'));
+      // (POLISH VIS-02 위계) 레슨이 있는 노드에서는 레슨 시작만 주 버튼. 드릴은 보조(레슨 없는 노드면 드릴이 주 버튼)
+      btns.push(_actBtn(!!dp, 'drill', nd.id, passed ? '⚡ 같은 유형 퍼즐' : '⚡ 드릴 ' + _drillCount(nd.drill) + '문항', dp ? '' : _typeName(nd.drill.type) + ' 퍼즐은 다음 업데이트에서 열려요', !nd.lesson));
     }
     if (nd.mission && !passed) {
       var canM = _can('App', 'selectVillains') && _can('Journey', 'startSession');
@@ -970,8 +978,9 @@ var JourneyUI = (function() {
     }
     return '<div class="j-acts">' + btns.join('') + '</div>';
   }
-  function _actBtn(ok, what, id, label, why) {
-    return '<button type="button" class="j-btn j-act' + (ok ? ' j-primary' : '') + '"' + (ok ? ' onclick="JourneyUI._act(\'' + what + '\',\'' + _esc(id) + '\')"' : ' disabled aria-disabled="true"') + '>' + label + '</button>' +
+  // primary(기본 true): 누를 수 있을 때 주 버튼(초록 금테)으로 그릴지. false면 누를 수 있어도 보조 버튼
+  function _actBtn(ok, what, id, label, why, primary) {
+    return '<button type="button" class="j-btn j-act' + (ok && primary !== false ? ' j-primary' : '') + '"' + (ok ? ' onclick="JourneyUI._act(\'' + what + '\',\'' + _esc(id) + '\')"' : ' disabled aria-disabled="true"') + '>' + label + '</button>' +
       (!ok && why ? '<div class="j-why">' + _esc(why) + '</div>' : '');
   }
   // 레슨 경로: M3 레슨 플레이어 > M1 커리큘럼 세션 페이지(absorbs, CURRICULUM_MAP 역매핑)

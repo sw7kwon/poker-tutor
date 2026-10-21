@@ -112,6 +112,14 @@
 }
 #screen-game.th-on .poker-table .seat.th-act { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff, 0 0 10px rgba(88,166,255,.35); z-index: 7; }
 
+/* ── 좌석별 승률 배지(모두 승률, TABLE-03b): 카드 공개 뷰에서만, textContent만 바뀐다 ── */
+.seat-eq {
+  display: inline-block; margin-top: 3px; padding: 0 6px; border-radius: 8px;
+  background: rgba(63,185,80,.18); color: #7ee787; font-size: .7rem; font-weight: 700; line-height: 1.5;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+#screen-game.th-stop .poker-table .seat:not(.th-focus) .seat-eq { opacity: .85; }
+
 /* ── 활성 좌석 말풍선(1곳만) ── */
 .th-bubble {
   position: absolute; z-index: 35; width: max-content; max-width: 180px; box-sizing: border-box;

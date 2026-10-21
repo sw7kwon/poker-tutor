@@ -18,6 +18,7 @@ var MobileUI = (function() {
   var _active = false, _moved = [], _dock = null, _tab = 'coach', _collapsed = true, _inited = false;
   var _forced = null;     // openTab으로 연 탭 키(내용이 비어 보여도 숨기지 않음)
   var _savedTop = null;   // _reveal 직전 게임 화면 스크롤 위치 — 접으면 되돌림
+  var _revealSeq = 0;     // _reveal 연속 호출 토큰(마지막 것만 실행)
 
   function _el(id) { return document.getElementById(id); }
 
@@ -123,36 +124,55 @@ var MobileUI = (function() {
     _reveal();
   }
 
+  // 강제 레이아웃 묶기(TABLE-06a): 스크롤 쓰기는 다음 프레임에 1회(읽기 뒤 쓰기). rAF가 없으면 즉시
+  function _raf(fn) {
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(fn);
+    else fn();
+  }
+
   function _collapse() {
     _collapsed = true;
     _refresh();
-    var sc = _el('screen-game');
-    if (sc && _savedTop != null) sc.scrollTop = _savedTop;   // 펼치며 내려갔던 만큼 되돌려 테이블을 다시 보여 줌
+    var top = _savedTop;
     _savedTop = null;
+    if (top == null) return;
+    _raf(function() {
+      var sc = _el('screen-game');
+      if (sc && _collapsed) sc.scrollTop = top;   // 펼치며 내려갔던 만큼 되돌려 테이블을 다시 보여 줌
+    });
   }
 
   // 펼친 본문이 하단 고정 액션바 뒤에 숨지 않게 게임 화면을 필요한 만큼만 스크롤(탭 바가 화면 위로 넘어가지 않는 범위)
+  // rAF 1회 안에서 getBoundingClientRect 읽기를 전부 먼저 모은 뒤 scrollTop 쓰기 1회(레이아웃 스래싱 방지)
   function _reveal() {
-    var sc = _el('screen-game');
-    if (!_dock || _collapsed || !sc || !sc.getBoundingClientRect) return;
-    var body = _dock.querySelector('.m-dock-body'), tabs = _dock.querySelector('.m-dock-tabs');
-    var bar = null;
-    ['action-bar', 'result-actions-bar'].forEach(function(id) {
-      var b = _el(id);
-      if (b && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
+    var seq = ++_revealSeq;
+    _raf(function() {
+      if (seq !== _revealSeq) return;   // 연속 호출은 마지막 것만
+      var sc = _el('screen-game');
+      if (!_dock || _collapsed || !sc || !sc.getBoundingClientRect) return;
+      var body = _dock.querySelector('.m-dock-body'), tabs = _dock.querySelector('.m-dock-tabs');
+      if (!body || !tabs) return;
+      // ── 읽기 ──
+      var bar = null;
+      ['action-bar', 'result-actions-bar'].forEach(function(id) {
+        var b = _el(id);
+        if (b && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
+      });
+      var scRect = sc.getBoundingClientRect(), scTop = scRect.top;
+      var limit = bar ? bar.getBoundingClientRect().top : scRect.bottom;
+      var over = body.getBoundingClientRect().bottom - limit + 4;
+      var room = tabs.getBoundingClientRect().top - scTop;
+      // 내 카드(히어로 카드)는 화면 안에 남겨 둠, 읽으면서 내 패를 확인할 수 있게
+      var hc = document.querySelector('#screen-game .seat.hero .seat-cards');
+      if (hc && hc.offsetHeight > 0) room = Math.min(room, hc.getBoundingClientRect().top - scTop - 4);
+      var d = Math.min(over, room);
+      var cur = sc.scrollTop;
+      // ── 쓰기 ──
+      if (d > 0) {
+        if (_savedTop == null) _savedTop = cur;
+        sc.scrollTop = cur + d;
+      }
     });
-    var scTop = sc.getBoundingClientRect().top;
-    var limit = bar ? bar.getBoundingClientRect().top : sc.getBoundingClientRect().bottom;
-    var over = body.getBoundingClientRect().bottom - limit + 4;
-    var room = tabs.getBoundingClientRect().top - scTop;
-    // 내 카드(히어로 카드)는 화면 안에 남겨 둠 — 읽으면서 내 패를 확인할 수 있게
-    var hc = document.querySelector('#screen-game .seat.hero .seat-cards');
-    if (hc && hc.offsetHeight > 0) room = Math.min(room, hc.getBoundingClientRect().top - scTop - 4);
-    var d = Math.min(over, room);
-    if (d > 0) {
-      if (_savedTop == null) _savedTop = sc.scrollTop;
-      sc.scrollTop += d;
-    }
   }
 
   function _hidden(el) {
@@ -211,8 +231,10 @@ var MobileUI = (function() {
     _forced = null;
     _tab = 'coach'; _collapsed = true; _savedTop = null;
     _refresh();
-    var sc = _el('screen-game');
-    if (sc) sc.scrollTop = 0;   // 새 핸드는 테이블 전체가 보이게
+    _raf(function() {
+      var sc = _el('screen-game');
+      if (sc) sc.scrollTop = 0;   // 새 핸드는 테이블 전체가 보이게
+    });
   }
 
   function onHeroTurn(view, ctx) {
@@ -220,8 +242,10 @@ var MobileUI = (function() {
     // 자동 펼침: L0(풀코칭) / GTO 2회차(힌트 회차)
     if ((view && view.level === 0) || (ctx && ctx.gtoMode && ctx.gtoRound === 2)) { _tab = 'coach'; _collapsed = false; }
     _refresh();
-    var top = _dock.querySelector('.m-dock-top');
-    if (top) top.scrollTop = 0;
+    _raf(function() {
+      var top = _dock && _dock.querySelector('.m-dock-top');
+      if (top) top.scrollTop = 0;
+    });
   }
 
   function onAfterDecision() { if (_active) _refresh(); }

@@ -69,7 +69,7 @@
   /* 빌런 벳: 좌석 오른쪽 위 배지(좌석 높이 고정) */
   .poker-table .seat:not(.hero) .seat-bet {
     position: absolute; top: -8px; right: -4px; z-index: 3; width: auto; font-size: .62rem; font-weight: 700; line-height: 1.45;
-    background: #2b1010; border: 1px solid var(--red); border-radius: 8px; padding: 0 5px; white-space: nowrap;
+    background: rgba(0,0,0,.6); border: 1px solid rgba(212,175,55,.7); border-radius: 8px; padding: 0 5px; white-space: nowrap; /* 돈=금색 */
   }
   /* 액션 말풍선 */
   .seat-action { font-size: .66rem; line-height: 1.35; padding: 2px 5px; }

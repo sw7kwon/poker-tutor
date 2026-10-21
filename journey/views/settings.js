@@ -1,6 +1,6 @@
 // journey/views/settings.js (채우는 패키지: M2-P5, M6-SEASON이 '상대가 내 성향에 적응' 행 추가)
 // ⚙ 설정 화면(SettingsView, 설계서 5.9절, 계약 C8): JourneyUI.view('settings')가 open(params, el)로 연다.
-// 항목 6개: 글자 크기(100/115/130%), 4색 덱, 색약 차트, 움직임(시스템 따름/줄이기/보통), 효과음, 진동.
+// 항목 7개: 하루 목표(5/10/15분, POLISH UX-02: Journey 상태 goal.minutes에 저장), 글자 크기(100/115/130%), 4색 덱, 색약 차트, 움직임(시스템 따름/줄이기/보통), 효과음, 진동.
 // M6(계약 H6): 🧠 상대 카드의 '상대가 내 성향에 적응'(키 adaptive, 기본 켜기)은 VillainAdaptive.unlocked()가 true일 때만(S5 승급 시험 통과 뒤).
 //   html(settings, sup, opts)의 opts.adaptive(true/false)로 표시 여부를 직접 줄 수 있다(테스트용, 없으면 VillainAdaptive.unlocked()).
 //   효과음은 WebAudio, 진동은 navigator.vibrate가 없으면 그 줄을 숨긴다. 둘 다 기본 꺼짐.
@@ -59,11 +59,29 @@ var SettingsView = (function() {
       '<div class="j-card-d">레인지 차트 칸: 레이즈, 콜, 폴드. 바꾸면 이 줄이 바로 달라져요.</div></div>';
   }
 
-  // 순수: 설정과 지원 여부로 화면 문자열을 만든다
+  // (POLISH UX-02) 하루 목표(분): 여정 상태 goal.minutes(5, 10, 15, 그 밖은 5. today-ui.js _goal과 같은 규칙). A11y 설정이 아니라 Journey에 저장.
+  function _journey(fn) { return (typeof Journey !== 'undefined' && Journey && typeof Journey[fn] === 'function') ? Journey : null; }
+  function _goalOf(v) { var g = Number(v); return (g === 10 || g === 15) ? g : 5; }
+  function _goalMin() {
+    var J = _journey('load');
+    try { var st = J ? J.load() : null; return _goalOf(st && st.goal && st.goal.minutes); } catch (e) { return 5; }
+  }
+  function _saveGoal(m) {
+    var J = _journey('load');
+    if (!J || typeof J.save !== 'function') return false;
+    try { var st = J.load(); if (!st) return false; st.goal = st.goal || {}; st.goal.minutes = _goalOf(m); J.save(st); return true; }
+    catch (e) { return false; }
+  }
+
+  // 순수: 설정과 지원 여부로 화면 문자열을 만든다. opts.goal(5, 10, 15)로 하루 목표 표시값을 직접 줄 수 있다(테스트용, 없으면 Journey.load().goal.minutes)
   function html(settings, sup, opts) {
     var s = settings || _settings();
     sup = sup || _supports();
     var showAdaptive = (opts && typeof opts.adaptive === 'boolean') ? opts.adaptive : _adaptiveOpen();
+    var goal = (opts && opts.goal != null) ? _goalOf(opts.goal) : _goalMin();
+    var goalCard = '<div class="j-card"><div class="j-card-t">🎯 하루 목표</div>' +
+      _row('goal', '하루 목표', '오늘의 5분 길이가 달라져요(복습, 레슨, 재미 블록 수).',
+        [5, 10, 15].map(function(m) { return _pick('goal', m, goal === m, m + '분'); })) + '</div>';
     var rm = (s.reduceMotion === true || s.reduceMotion === false) ? s.reduceMotion : null;
     var look = [
       _row('fontScale', '글자 크기', '앱 전체 글자가 커져요.',
@@ -84,7 +102,7 @@ var SettingsView = (function() {
     return '<div class="j-sub j-settings-view">' +
       '<div class="j-sub-top"><button type="button" class="j-back" aria-label="여정 홈으로" onclick="SettingsView.back()">↩</button>' +
       '<h2 class="j-sub-t">⚙ 설정</h2></div>' +
-      _previewHTML() +
+      _previewHTML() + goalCard +
       '<div class="j-card"><div class="j-card-t">👀 보기</div>' + look.join('') + '</div>' +
       '<div class="j-card"><div class="j-card-t">🎬 움직임</div>' + motion.join('') + '</div>' + foe +
       '<div class="j-card"><div class="j-card-t">🔔 소리와 진동</div>' +
@@ -113,14 +131,17 @@ var SettingsView = (function() {
   }
 
   var LIVE = { fontScale: '글자 크기를 바꿨어요', fourColor: '4색 덱을 바꿨어요', cbChart: '색약용 차트를 바꿨어요',
-    reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요' };
+    reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요',
+    goal: '하루 목표를 바꿨어요' };
 
   // set(key, value): 바로 저장 + 적용 + 다시 그리기. 반환 = 저장된 설정
+  // (UX-02) key 'goal'은 A11y가 아니라 Journey 상태(goal.minutes)에 저장. 반환은 { goal } (TodayUI.preview는 _cache.goal이 다르면 스스로 다시 계산)
   function set(key, value) {
     if (!LIVE[key]) return null;
     var patch = {}; patch[key] = value;
     var A = _a11y('save'), s;
-    try { s = A ? A.save(patch) : null; } catch (e) { s = null; }
+    if (key === 'goal') s = _saveGoal(value) ? { goal: _goalMin() } : null;
+    else { try { s = A ? A.save(patch) : null; } catch (e) { s = null; } }
     if (!s) return null;
     if ((key === 'sound' || key === 'vibrate') && value === true && _a11y('fx')) { try { A11y.fx('tap'); } catch (e) { /* noop */ } }
     if (_el && typeof document !== 'undefined') {

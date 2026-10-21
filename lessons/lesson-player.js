@@ -139,8 +139,10 @@ var LessonPlayer = (function() {
   }
 
   // ── 그리기(순수 문자열) ─────────────────────────────────
+  // (polish UX-08) 칩에는 짧은 글자만, 긴 설명은 탭하면 말풍선(_tip). 용어 버튼과 같은 방식
   function _chip(L) {
-    return '<span class="lp-chip lp-chip--' + L.cls + '" title="' + _esc(L.full) + '"><span aria-hidden="true">' + L.icon + '</span> ' + _esc(L.text) + '</span>';
+    return '<span class="lp-chip lp-chip--' + L.cls + '" role="button" tabindex="0" data-act="chip" data-full="' + _esc(L.full) +
+      '" aria-label="' + _esc(L.text) + ', 눌러서 설명 보기"><span aria-hidden="true">' + L.icon + '</span> ' + _esc(L.text) + '</span>';
   }
   function _chips(sc) {
     var out = [];
@@ -280,7 +282,8 @@ var LessonPlayer = (function() {
       '<div class="lp-dots" aria-hidden="true">' + dots + '</div><span class="lp-count">' + (idx + 1) + '/' + n + '</span></div>';
     var cap = sc.caption ? '<p class="lp-cap" aria-live="polite">' + termify(_esc(_fillWith(sc.caption, v)), used) + '</p>' : '';
     var body = sceneHTML(sc, v, x.sel, used);
-    var stage = '<div class="lp-stage' + (sc.t === 'grid' ? ' is-grid' : '') + '" data-act="tap">' + _chips(sc) +
+    // (polish UX-14) 그림 없는 질문 장면은 is-text: 장면 칸이 남는 높이를 차지하지 않아 질문 카드와 보기가 붙어 보인다(그림 장면은 그대로)
+    var stage = '<div class="lp-stage' + (sc.t === 'grid' ? ' is-grid' : '') + (sc.t === 'ask' ? ' is-text' : '') + '" data-act="tap">' + _chips(sc) +
       '<div class="lp-scene lp-scene--' + _esc(sc.t || 'none') + '">' + body + '</div>' + cap + '</div>';
 
     var foot = '';
@@ -316,7 +319,8 @@ var LessonPlayer = (function() {
         (st.canNext ? nextLabel : '해설을 읽어요') + '</button>'
       : '<span class="lp-wait">보기를 골라요</span>';
     foot += '<div class="lp-navrow"><button type="button" class="j-btn lp-prev" data-act="prev"' + (st.canPrev ? '' : ' disabled aria-hidden="true" tabindex="-1"') + ' aria-label="이전 장면">◀ 이전</button>' + nextBtn + '</div>';
-    if (x.kbdHint) foot += '<div class="lp-hint">화면을 누르거나 옆으로 밀어도 넘어가요</div>';
+    // (polish VIS-09b) 질문 장면은 보기를 골라야 넘어가므로 '누르거나 밀어도 넘어가요' 힌트를 그리지 않는다(표시만, 진행 로직 무관)
+    if (x.kbdHint && !isAsk) foot += '<div class="lp-hint">화면을 누르거나 옆으로 밀어도 넘어가요</div>';
     return top + prog + stage + '<div class="lp-foot">' + foot + '</div>';
   }
 
@@ -484,6 +488,7 @@ var LessonPlayer = (function() {
       return;
     }
     if (act === 'term') { _termTip(a); return; }
+    if (act === 'chip') { _chipTip(a); return; }
     if (act === 'tap') {
       if (_now() - _swipeAt < TAP_GUARD_MS) return;
       if (_closest(t, 'button, a, input, select, textarea, [role="button"]')) return;
@@ -497,6 +502,10 @@ var LessonPlayer = (function() {
     var g = _glossary(), i = Number(el.getAttribute('data-term'));
     var it = g && g.list[i];
     if (it) _tip(String(it.term) + ': ' + String(it.easy), el);
+  }
+  function _chipTip(el) {
+    var full = el && typeof el.getAttribute === 'function' ? (el.getAttribute('data-full') || '') : '';
+    if (full) _tip(full, el);
   }
   function _onTouchStart(e) {
     if (!S || !e.touches || e.touches.length !== 1) { _touch = null; return; }
@@ -542,11 +551,11 @@ var LessonPlayer = (function() {
   }
   function _onTermKey(e) {
     if (!S || !e || (e.key !== 'Enter' && e.key !== ' ')) return;
-    var a = _closest(e.target, '.lp-term');
+    var a = _closest(e.target, '.lp-term, .lp-chip[data-act="chip"]');
     if (!a) return;
     e.preventDefault();
     if (e.stopPropagation) e.stopPropagation();
-    _termTip(a);
+    if (a.getAttribute('data-act') === 'chip') _chipTip(a); else _termTip(a);
   }
 
   function _ensureKeys() {

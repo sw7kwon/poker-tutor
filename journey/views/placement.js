@@ -77,10 +77,11 @@ var PlacementView = (function() {
   var CSS = [
     '.pv-wrap{position:fixed;inset:0;z-index:30;overflow-y:auto;overscroll-behavior:contain;background:#0a0e14;display:flex;justify-content:center;align-items:flex-start;}',
     '.pv-box{width:100%;max-width:520px;min-height:100%;padding:12px 16px calc(24px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;}',
+    /* 폴리시(VIS-08): 공통 상단 바(.top-bar, css/main.css)와 같은 모양. 왼쪽 44px 원형 ↩(.j-back), 금색 제목 */
     '.pv-top{display:flex;align-items:center;gap:10px;font-weight:700;min-height:44px;}',
-    '.pv-title{flex:1;min-width:0;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    '.pv-prog{color:var(--text-dim);font-size:.9rem;}',
-    '.pv-top .menu-btn{width:auto;min-width:44px;min-height:44px;padding:6px 12px;margin:0;}',
+    '.pv-title{flex:1;min-width:0;font-size:1.15rem;color:var(--gold);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.pv-prog{color:var(--text-dim);font-size:.9rem;font-variant-numeric:tabular-nums;}',
+    '.pv-top .pv-exit{flex:0 0 auto;width:44px;height:44px;padding:0;margin:0;border-radius:50%;cursor:pointer;background:var(--btn-neutral,#21262d);color:var(--text);border:1px solid var(--hud-border);font:inherit;font-size:1.1rem;}',
     '.pv-bar{height:6px;border-radius:3px;background:var(--hud-border);overflow:hidden;}',
     '.pv-bar i{display:block;height:100%;background:var(--gold);}',
     '.pv-sub{color:var(--text-dim);font-size:.85rem;line-height:1.5;word-break:keep-all;}',
@@ -174,9 +175,11 @@ var PlacementView = (function() {
 
   // ── 렌더 ─────────────────────────────────────────
   function _topHTML(title, prog) {
-    return '<div class="pv-top"><span class="pv-title">' + title + '</span>' +
-      (prog ? '<span class="pv-prog" aria-live="polite">' + prog + '</span>' : '') +
-      '<button class="menu-btn secondary pv-exit" onclick="PlacementView.exit()" aria-label="그만두기(결과 미반영)">↩</button></div>';
+    // VIS-08: ↩를 왼쪽 원형(.j-back)으로. 로직 무변경, 마크업 순서만
+    return '<div class="pv-top top-bar">' +
+      '<button class="j-back pv-exit" onclick="PlacementView.exit()" aria-label="그만두기(결과 미반영)">↩</button>' +
+      '<span class="pv-title">' + title + '</span>' +
+      (prog ? '<span class="pv-prog" aria-live="polite">' + prog + '</span>' : '') + '</div>';
   }
 
   function _qHTML() {

@@ -15,6 +15,7 @@ var CoachUI = (function() {
 
   var _st = null;          // 저장 상태 {v, level, auto, recent, patterns}
   var _ctx = null;         // 마지막 beforeDecision ctx
+  var _fxKey = null;       // UX-12: 판정 효과음을 낸 마지막 결정 키(중복 방지)
   var _view = null;        // 마지막 view
   var _handCtx = {};       // 마지막 onNewHand ctx
   var _awaiting = false;   // 히어로 결정 대기 중
@@ -416,16 +417,27 @@ var CoachUI = (function() {
             return '<button class="cp-opt' + (_pred.po === v ? ' sel' : '') + '" onclick="CoachUI._pick(\'po\',' + i + ')">' + (i + 1) + ') ' + v + '%</button>';
           }).join('') + '</div></div>';
       }
-      html += '<div class="cp-q"><div class="cp-qt">Q' + qn + '. 내 승률은?</div><div class="cp-grid">' +
-        EQ_LABELS.map(function(lab, i) {
-          return '<button class="cp-opt' + (_pred.eq === i ? ' sel' : '') + '" onclick="CoachUI._pick(\'eq\',' + i + ')">' + (i + 1) + ') ' + lab + '</button>';
-        }).join('') + '</div></div>';
+      if (_predOpts.eq) {
+        html += '<div class="cp-q"><div class="cp-qt">Q' + qn + '. 내 승률은?</div><div class="cp-grid">' +
+          EQ_LABELS.map(function(lab, i) {
+            return '<button class="cp-opt' + (_pred.eq === i ? ' sel' : '') + '" onclick="CoachUI._pick(\'eq\',' + i + ')">' + (i + 1) + ') ' + lab + '</button>';
+          }).join('') + '</div></div>';
+      }
     } else {
       html += '<div class="cp-title">🎲 실전 모드: 보조 없이 결정해요</div>';
     }
     html += _hintBtnHTML();
     el.innerHTML = html;
     el.style.display = '';
+  }
+
+  // 사용자가 '내 승률' 칩을 켰는지(A11y.load().showEq). 보스 시험 중이면 항상 false(가림 유지). node 러너에서 A11y 없이 안전
+  function _showEqOn() {
+    try {
+      if (typeof A11y === 'undefined' || !A11y || typeof A11y.load !== 'function') return false;
+      if (typeof Boss !== 'undefined' && Boss && typeof Boss.active === 'function' && Boss.active()) return false;
+      return !!A11y.load().showEq;
+    } catch (e) { return false; }
   }
 
   function beforeDecision(ctx) {
@@ -452,6 +464,8 @@ var CoachUI = (function() {
     }
     _predAns.eq = (typeof ctx.eq === 'number') ? ctx.eq : null;
     _predOpts.eq = [0, 1, 2, 3];
+    // '내 승률' 칩(A11y showEq)이 켜져 있고 보스 시험이 아니면 승률은 이미 보이므로 예측 질문에서 뺀다(팟 오즈만, Q 번호 자동)
+    if (_showEqOn()) { _predOpts.eq = null; _predAns.eq = null; }
     _renderReminder(ctx);
     _renderPre();
     _firstDecision = false;
@@ -530,6 +544,14 @@ var CoachUI = (function() {
       el.className = 'last-verdict ' + vt.cls;
       el.innerHTML = html;
       el.style.display = '';
+    }
+    // 판정 효과음과 진동(UX-12): 설정이 켜진 경우만 A11y.fx가 낸다. 같은 결정의 재렌더는 결정 수+street 키로 1회만.
+    // 극장 관전(state.spectator)과 연습 재생(ctx.practice)은 제외. node 러너에서 A11y 없이 안전
+    var stF = ctx.state || {};
+    var fxKey = ((stF.decisions || []).length) + '|' + (stF.street || '') + '|' + (stF.seed || '') + '|' + (stF.handNum || '');
+    if (!ctx.practice && !stF.spectator && fxKey !== _fxKey && typeof A11y !== 'undefined' && A11y && typeof A11y.fx === 'function') {
+      _fxKey = fxKey;
+      try { A11y.fx(G.light === 'green' ? 'ok' : (G.light === 'red' ? 'bad' : 'tap')); } catch (e) {}
     }
     // 토스트 메시지 모음 (단일 요소에 여러 줄)
     var msgs = [], ms = 0;
