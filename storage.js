@@ -666,6 +666,11 @@ var Storage = (function() {
     }
     var lp = _isObj(l.placement) ? l.placement : null, rp = _isObj(r.placement) ? r.placement : null;
     if (rp && rp.done === true && !(lp && lp.done === true)) out.placement = _clone(rp);
+    // 배치를 건너뛴 기록(declinedAt)도 넘긴다. 없으면 새 기기 홈에 '어디서부터 시작할까요?' 카드가 다시 뜬다
+    else if (rp && rp.declinedAt && !(lp && (lp.done === true || lp.declinedAt))) {
+      out.placement = _isObj(lp) ? _clone(lp) : {};
+      out.placement.declinedAt = rp.declinedAt;
+    }
     if (_isObj(l.flags) || _isObj(r.flags)) {
       var lf = _isObj(l.flags) ? l.flags : {}, rf = _isObj(r.flags) ? r.flags : {}, flags = {};
       Object.keys(lf).concat(Object.keys(rf)).forEach(function(id) {
