@@ -7,10 +7,12 @@
 //   2. assignPlans: Thinking.preflopGrade 등급을 예상 강도(GRADE_CLASS)로 바꿔 계획의 needs.strength와 대조하고, 자리
 //      (needs.position 'oop'는 BTN 제외, 'ip'는 SB 제외)로 거른 뒤 캐스트 plan_weights로 1개를 뽑는다(블라인드는 함정 가중에
 //      TRAP_BONUS x trap_freq를 더함). 에어 등급(weak)에는 슬로플레이가 후보로 들어가지 않고, 포켓 페어에는 세미블러프
-//      압박이 들어가지 않는다. 주사위 13개를 사전 롤한다.
+//      압박이 들어가지 않는다. 주사위 13개를 사전 롤한다. 캐스트 plan_weights에 없는 계획(리버 오버벳, 플랍 체크 뒤 턴 벳,
+//      클라우드 작업 I)은 유형별 기본 가중 TYPE_WEIGHT(없으면 1)를 쓴다.
 //   3. decide(플랍 뒤): Thinking.strength(약한 페어는 weak)로 계획의 keep, 자리, 주도권을 대조한다. 벗어나면(또는 내 카드로
 //      만든 투페어 이상인데 블러프캐치나 팟컨트롤이면, 보드 페어에 얹힌 원페어는 제외) 핸드당 1회 계획을 바꾼다.
-//      새 계획은 지금 맞는 계획 중 plan_weights로 다시 뽑고(OOP 중간 이상이면 함정 가중 보너스, 드로우만 세미블러프 압박), 맞는 게 없으면 강도 기준 고정 대상(에어 → 포기,
+//      새 계획은 지금 맞는 계획 중 plan_weights로 다시 뽑고(OOP 중간 이상이면 함정 가중 보너스, 드로우만 세미블러프 압박, 플랍 체크 뒤
+//      턴 벳은 플랍에서만, 리버 오버벳은 리버 전에만: TARGET_STREET), 맞는 게 없으면 강도 기준 고정 대상(에어 → 포기,
 //      중간과 약한 페어 → 팟컨트롤, 강함 → 밸류 극대화)이다. 기회 전환 1가지: 밸류 극대화가 플랍에서 OOP이고 프리플랍
 //      레이저가 뒤에 있으면 주사위 0.65로 체크레이즈 함정으로 바꾼다. 바꾼 노드에서 switched와 '계획 변경' 자막(caption)을 낸다.
 //      체크레이즈 함정(trap_cr)은 medium 중 내 카드로 만든 투페어 이상(ctx.two)만 keep이다. 탑페어와 오버페어는 why 'strength'로 바꾼다(M7 TH-01).
@@ -34,7 +36,19 @@
 var TheaterAI = (function() {
   var STREETS = ['preflop', 'flop', 'turn', 'river'];
   var POST_ORDER = ['SB', 'BB', 'UTG', 'HJ', 'CO', 'BTN'];
-  var PLAN_KEYS = ['barrel3', 'trap_cr', 'slowplay', 'bet_fold', 'bluffcatch', 'value_max', 'semi_push', 'pot_control', 'give_up'];
+  var PLAN_KEYS = ['barrel3', 'trap_cr', 'slowplay', 'bet_fold', 'bluffcatch', 'value_max', 'semi_push', 'pot_control', 'give_up',
+    'river_overbet', 'delay_bet'];
+  // 클라우드 작업 I: 캐스트(journey/cast.js, 수정 금지)의 plan_weights에 없는 계획의 기본 가중. 기본은 1이고 유형별로 보정한다
+  //   (리버 오버벳은 공격형이 즐겨 쓰고 콜링 스테이션은 쓰지 않는다, 플랍 체크 뒤 턴 벳은 타이트한 유형이 즐겨 쓴다).
+  //   cast.js의 plan_weights에 그 키를 적으면 이 표보다 그 값이 우선한다.
+  //   두 계획은 needs가 넓어 거의 모든 손의 후보에 들어가므로 가중을 1 아래로 둬 양념 수준(좌석 계획의 5~8%)으로 쓴다. 가중 3/2로 두면
+  //   좌석 계획의 11~15%를 차지해 드라마 60점 이상 편이 2500편 표본에서 108 → 88로 줄었다(턴 리드와 리버 오버벳에 다 접어 팟이 작게 끝남).
+  var TYPE_WEIGHT = {
+    river_overbet: { LAG: 1.5, Mixed: 1, TAG: 0.5, Fish: 0.3, Nit: 0.3, Station: 0 },
+    delay_bet: { TAG: 1, Nit: 0.8, Mixed: 1, LAG: 0.5, Fish: 0.5, Station: 0.3 }
+  };
+  // 전환 대상 제한: 플랍 체크 뒤 턴 벳은 플랍에서만(핵심이 플랍 체크), 리버 오버벳은 리버 전에만(앞 스트리트에서 준비하는 계획) 바꿔 간다
+  var TARGET_STREET = { delay_bet: { flop: true }, river_overbet: { flop: true, turn: true } };
   // 프리플랍 등급 → 플랍 뒤 예상 강도(후보 필터용). 에어 등급(weak)에는 nut이 없어 슬로플레이가 빠진다.
   var GRADE_CLASS = {
     premium: ['nut', 'strong', 'medium'],
@@ -54,7 +68,9 @@ var TheaterAI = (function() {
     value_max: ['slowplay', 'trap_cr', 'bet_fold', 'pot_control'],
     semi_push: ['barrel3', 'give_up', 'pot_control', 'value_max'],
     pot_control: ['bluffcatch', 'bet_fold', 'give_up', 'slowplay'],
-    give_up: ['barrel3', 'pot_control', 'bluffcatch', 'semi_push']
+    give_up: ['barrel3', 'pot_control', 'bluffcatch', 'semi_push'],
+    river_overbet: ['value_max', 'barrel3', 'slowplay', 'semi_push'],
+    delay_bet: ['pot_control', 'bet_fold', 'bluffcatch', 'barrel3']
   };
   var WHY_KOR = { strength: '손이 바뀌었다', position: '자리가 맞지 않는다', aggressor: '주도권이 맞지 않는다',
     trap: '레이저가 뒤에 있다, 체크하면 벳이 온다', two: '투페어 이상이 됐다, 받기만 하기엔 너무 강하다' };
@@ -189,11 +205,12 @@ var TheaterAI = (function() {
   }
 
   // ── 캐스트 파라미터 ──
-  function _merge(th) {
+  function _merge(th, type) {
     var out = { plan_weights: {} };
     PLAN_KEYS.forEach(function(k) {
       var w = th && th.plan_weights && th.plan_weights[k];
-      out.plan_weights[k] = (typeof w === 'number' && w >= 0) ? w : 1;
+      var def = (TYPE_WEIGHT[k] && typeof TYPE_WEIGHT[k][type] === 'number') ? TYPE_WEIGHT[k][type] : 1;
+      out.plan_weights[k] = (typeof w === 'number' && w >= 0) ? w : def;
     });
     PARAM_KEYS.forEach(function(k) {
       var v = th && th[k];
@@ -202,14 +219,15 @@ var TheaterAI = (function() {
     return out;
   }
   // castItem({key|name, type, theater?}) 또는 이름 → 극장 파라미터. 없으면 같은 유형의 CAST, 그래도 없으면 기본값.
+  //   plan_weights에 없는 계획(리버 오버벳, 플랍 체크 뒤 턴 벳)은 캐스트 유형(없으면 넘긴 type)별 기본 가중 TYPE_WEIGHT.
   function paramsFor(item, type) {
     var name = (item && typeof item === 'object') ? (item.name || item.key) : item;
-    if (item && typeof item === 'object' && item.theater) return _merge(item.theater);
     if (item && typeof item === 'object' && !type) type = item.castType || item.type;
+    if (item && typeof item === 'object' && item.theater) return _merge(item.theater, type);
     var list = _castList(), hit = null, i;
     for (i = 0; i < list.length && !hit; i++) if (list[i] && name && (list[i].key === name || list[i].name === name)) hit = list[i];
     for (i = 0; i < list.length && !hit; i++) if (list[i] && type && list[i].type === type) hit = list[i];
-    return _merge(hit && hit.theater);
+    return _merge(hit && hit.theater, (hit && hit.type) || type);
   }
 
   // ── 핸드 시작: 계획 배정과 주사위 사전 롤 ──
@@ -278,6 +296,7 @@ var TheaterAI = (function() {
     return Math.min(to, a.maxTo);
   }
   function BET(a, frac) { return { action: 'bet', amount: _to(Math.max(a.bb, a.pot * frac), a) }; }
+  var OVERBET_FRAC = 1.3;   // 리버 오버벳 크기(팟의 1.3배, 스택 60% 이상이면 _to가 올인으로)
   function RAISE(a, mult) { return { action: 'raise', amount: _to(Math.max(a.cb * mult, a.cb * 2), a) }; }
   function CALL(a) { return { action: 'call', amount: Math.min(a.toCall, a.stack) }; }
   var CHECK = { action: 'check', amount: 0 };
@@ -377,9 +396,99 @@ var TheaterAI = (function() {
       if (a.toCall === 0) return { r: CHECK, step: 'gu-check' };
       if (c.cls === 'draw' && c.street !== 'river' && a.price <= 0.2) return { r: CALL(a), step: 'gu-call' };
       return { r: FOLD, step: 'gu-fold' };
+    },
+    // 리버 오버벳(양극화, 클라우드 작업 I): 플랍과 턴은 보통 크기(강한 손은 팟의 65% 벳, 주도권 있는 드로우는 절반 벳, 레이저의 중간 손은
+    //   c벳 빈도로 작게, 나머지 체크), 벳을 맞으면 강한 손은 콜로 숨기고(넛은 레이즈를 맞을 때만 리레이즈) 중간 손과 드로우는 싸게만 콜한다.
+    //   리버: 넛급과 강한 손은 팟의 1.3배 벳(ro-value), 빈손은 배럴 빈도로 같은 크기의 블러프(ro-bluff) 또는 포기(ro-giveup),
+    //   중간 손과 약한 페어는 체크(ro-check). 벳을 맞으면 넛은 레이즈, 강한 손은 콜, 중간 손은 싼 벳만 콜.
+    river_overbet: function(c) {
+      var a = c.a, s = c.street, cls = c.cls, made = _made(cls);
+      if (s !== 'river') {
+        if (a.toCall === 0) {
+          if (made) return { r: BET(a, 0.65), step: 'ro-build' };
+          if (cls === 'draw' && c.ctx.aggr) return { r: BET(a, 0.5), step: 'ro-semi' };
+          if (cls === 'medium' && s === 'flop' && c.ctx.isPfa && c.d('flop', 0) < c.cbet) return { r: BET(a, 0.33), step: 'ro-small' };
+          return { r: CHECK, step: 'ro-wait' };
+        }
+        if (a.have > 0) {
+          if (cls === 'nut') return { r: RAISE(a, 2.5), step: 'ro-reraise' };
+          if (made) return { r: CALL(a), step: 'ro-callwait' };
+          if (cls === 'draw' && a.price <= 0.3) return { r: CALL(a), step: 'ro-draw-call' };
+          return { r: FOLD, step: 'ro-fold' };
+        }
+        if (made) return { r: CALL(a), step: 'ro-callwait' };
+        if (cls === 'medium' && a.price <= 0.3) return { r: CALL(a), step: 'ro-call' };
+        if (cls === 'draw' && a.price <= 0.35) return { r: CALL(a), step: 'ro-draw-call' };
+        if (cls === 'weak' && a.price <= 0.2) return { r: CALL(a), step: 'ro-call' };
+        return { r: FOLD, step: 'ro-fold' };
+      }
+      if (a.toCall === 0) {
+        // 스택이 짧아 올인이 팟보다 작으면 오버벳 대사('팟보다 크게') 대신 리버 예고 대사(line 'river')를 쓴다(액션은 같다)
+        var ob = BET(a, OVERBET_FRAC), obLine = (ob.amount - a.have) > a.pot ? null : 'river';
+        if (made) return { r: ob, step: 'ro-value', planTurn: true, line: obLine };
+        if (cls === 'air') {
+          return c.d('river', 0) < c.p.barrel ? { r: ob, step: 'ro-bluff', planTurn: true, line: obLine } : { r: CHECK, step: 'ro-giveup', planTurn: true };
+        }
+        return { r: CHECK, step: 'ro-check' };
+      }
+      if (cls === 'nut') return { r: RAISE(a, 2.5), step: 'ro-raise' };
+      if (made) return { r: CALL(a), step: 'ro-call' };
+      if (cls === 'medium' && a.price <= 0.25) return { r: CALL(a), step: 'ro-call' };
+      return { r: FOLD, step: 'ro-fold', planTurn: cls === 'medium' };
+    },
+    // 플랍 체크 뒤 턴 벳(지연 c벳, 프로브 벳, 클라우드 작업 I): 플랍은 체크(db-check), 벳이 오면 맞은 손과 드로우는 싸게 콜(강한 손은
+    //   체크레이즈 빈도로 레이즈). 턴에 아무도 안 쳤으면 먼저 벳한다: 맞은 손은 밸류 리드(db-lead, 강한 손은 팟의 65%, 나머지는 절반),
+    //   드로우는 세미블러프 리드, 빈손은 배럴 빈도의 절반으로 블러프 리드(db-lead-bluff, 팟의 절반) 또는 체크(db-give). 턴에 벳을 맞으면
+    //   강한 손은 절반 확률로 레이즈, 아니면 싸게 콜.
+    //   리버: 강한 손은 벳(db-value), 중간 손은 IP에서 절반 확률로 작게(db-thin), 빈손은 배럴 빈도의 절반으로 블러프(db-bluff), 나머지 체크.
+    delay_bet: function(c) {
+      var a = c.a, s = c.street, cls = c.cls, made = _made(cls), has = made || cls === 'medium' || cls === 'weak';
+      if (s === 'flop') {
+        if (a.toCall === 0) return { r: CHECK, step: 'db-check' };
+        if (a.have > 0) {
+          if (cls === 'nut') return { r: RAISE(a, 2.5), step: 'db-reraise' };
+          return made ? { r: CALL(a), step: 'db-call' } : { r: FOLD, step: 'db-fold' };
+        }
+        if (made) return c.d('flop', 1) < c.p.checkraise_freq ? { r: RAISE(a, 3), step: 'db-raise', planTurn: true } : { r: CALL(a), step: 'db-call' };
+        if (cls === 'medium' && a.price <= 0.35) return { r: CALL(a), step: 'db-call' };
+        if (cls === 'draw' && a.price <= 0.3) return { r: CALL(a), step: 'db-call' };
+        if (cls === 'weak' && a.price <= 0.15) return { r: CALL(a), step: 'db-call' };
+        return { r: FOLD, step: 'db-fold' };
+      }
+      if (s === 'turn') {
+        if (a.toCall === 0) {
+          // 리드 크기: 강한 손은 팟의 65%(큰 벳), 중간 손과 약한 페어, 블러프는 팟의 절반(작은 벳). 큰 턴 벳은 강한 손이라는 극장 읽기
+          //   표(THEATER_READ betBig turn)와 어긋나지 않게(같은 크기로 섞으면 읽기 오독이 늘어 은행 오독 한도 35%를 넘긴다)
+          if (has) return { r: BET(a, made ? 0.65 : 0.5), step: 'db-lead', planTurn: true };
+          if (cls === 'draw' || c.d('turn', 0) < 0.5 * c.p.barrel) return { r: BET(a, 0.5), step: 'db-lead-bluff', planTurn: true };
+          return { r: CHECK, step: 'db-give', planTurn: true };
+        }
+        if (a.have > 0) {
+          if (cls === 'nut') return { r: RAISE(a, 2.5), step: 'db-reraise' };
+          if (made) return { r: CALL(a), step: 'db-call' };
+          if (cls === 'draw' && a.price <= 0.3) return { r: CALL(a), step: 'db-call' };
+          if (cls === 'medium' && a.price <= 0.25) return { r: CALL(a), step: 'db-call' };
+          return { r: FOLD, step: 'db-fold', planTurn: true };
+        }
+        if (made) return c.d('turn', 1) < 0.5 ? { r: RAISE(a, 3), step: 'db-raise', planTurn: true } : { r: CALL(a), step: 'db-call' };
+        if (cls === 'medium' && a.price <= 0.3) return { r: CALL(a), step: 'db-call' };
+        if (cls === 'draw' && a.price <= 0.35) return { r: CALL(a), step: 'db-call' };
+        return { r: FOLD, step: 'db-fold' };
+      }
+      if (a.toCall === 0) {
+        if (made) return { r: BET(a, 0.7), step: 'db-value' };
+        if (cls === 'medium' && c.ctx.ip && c.d('river', 0) < 0.5) return { r: BET(a, 0.4), step: 'db-thin' };
+        if (cls === 'air' && c.d('river', 0) < 0.5 * c.p.barrel) return { r: BET(a, 0.7), step: 'db-bluff', planTurn: true };
+        return { r: CHECK, step: has ? 'db-check-river' : 'db-giveup' };
+      }
+      if (cls === 'nut') return { r: RAISE(a, 2.5), step: 'db-reraise' };
+      if (made) return { r: CALL(a), step: 'db-call' };
+      if (cls === 'medium' && a.price <= 0.25) return { r: CALL(a), step: 'db-call' };
+      return { r: FOLD, step: 'db-fold' };
     }
   };
-  var STEP_LINE = { 'trap-raise': 'trigger', 'bf-fold': 'fold', 'barrel-stop': 'stop' };
+  var STEP_LINE = { 'trap-raise': 'trigger', 'bf-fold': 'fold', 'barrel-stop': 'stop',
+    'ro-value': 'overbet', 'ro-bluff': 'overbet', 'ro-giveup': 'giveup', 'db-lead': 'lead', 'db-lead-bluff': 'lead', 'db-give': 'give' };
   // 계획을 따르지 않는 걸음(올인 직면, 핸드당 1회 전환 뒤 또 어긋남)의 대사. 엔진 정책으로 치는데 계획 대사를 붙이면
   // '포기' 계획이 '더 넣지 않는다'고 하면서 밸류 벳을 하는 식으로 말과 행동이 엇갈린다(M4 통합 검증)
   var OFF_LINES = {
@@ -400,6 +509,7 @@ var TheaterAI = (function() {
     var keys = PLAN_KEYS.filter(function(k) {
       if (k === pl.key || !plan(k) || fits(k, cls, ctx, street)) return false;
       if (two && TOO_STRONG[k]) return false;
+      if (TARGET_STREET[k] && !TARGET_STREET[k][street]) return false;
       return k !== 'semi_push' || cls === 'draw';
     });
     var weights = {};
@@ -582,7 +692,7 @@ var TheaterAI = (function() {
     var wet = typeof Villain !== 'undefined' && Villain && Villain._isBoardWet && Villain._isBoardWet(state.board);
     var cbet = (prof.cbet && (wet ? prof.cbet.wet : prof.cbet.dry)) || 0.5;
     var res = RUN[P.key]({ a: a, cls: cls, ctx: ctx, street: street, plan: pl, p: p, d: dice, two: _twoPlus(cls, hole, state.board), cbet: cbet });
-    var lineKey = STEP_LINE[res.step] || street;
+    var lineKey = res.line || STEP_LINE[res.step] || street;
     var lines = (P.lines && P.lines[lineKey]) || null;
     meta.step = res.step;
     meta.planTurn = !!res.planTurn || !!now;

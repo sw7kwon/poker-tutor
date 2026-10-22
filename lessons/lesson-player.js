@@ -1,11 +1,14 @@
 // lessons/lesson-player.js (채우는 패키지: M3-P1b)
 // 레슨 플레이어 DOM 레이어(설계서 3.1절 진행 규칙, 5.4절 화면, 5.9절 접근성, 8.3절 4번 '이상해요', 부록 D 용어 밑줄).
 // 계약 L2(렌더 분담), L6(Leitner), L8(API)은 lessons/lesson-core.js 머리 주석. 상태기계는 LessonCore, 여기는 화면과 기록만.
-//   start(lessonId, sceneIdx, onDone) → bool
+//   start(lessonOrId, sceneIdx, onDone) → bool
 //     장면마다 Journey.completeLesson(node, idx, false)로 이어 보기 위치 저장, 끝까지 보면 completeLesson(node, 마지막, true) 뒤
 //     onDone({done:true, scene}). ↩, Esc, 안드로이드 뒤로는 같은 종료로 onDone({done:false, scene}).
 //     레슨이 없으면 안내 토스트 뒤 onDone({done:false, scene, missing:true})와 false.
 //     이미 끝낸 레슨을 마지막 장면 번호로 다시 열면(노드 시트 '다시 보기') 처음부터 보여 준다.
+//     (F4) 첫 인자가 레슨 객체면 그대로 연다. id가 LESSONS에 없으면 CAREER_LESSONS에서 찾는다. lesson.career가 참이면
+//     Journey.completeLesson과 Leitner 기록을 생략하고, 끝까지 보면 첫 완료 XP(Journey.addXp('lesson'))와
+//     CareerContract.emit('lesson:done', { id })로 알린다(끝낸 적은 Career.state().lessons[id]로 본다).
 //   화면: JourneyUI.mountView('lesson', 셸) 안 .lp. 뒤로: Nav.view('lesson', id) + Nav.setBack('j/lesson').
 //   진행: 하단 '다음' 버튼, 장면 탭(격자 장면 제외, 버튼이나 격자 칸, 용어를 누른 것은 제외), 좌우 스와이프(왼쪽 = 다음),
 //     키보드 1~4(보기), Enter/Space(다음, 버튼에 포커스가 있으면 그 버튼), 화살표 좌우, Esc(종료).
@@ -353,16 +356,19 @@ var LessonPlayer = (function() {
       if (evt.kind === 'scene') {
         S.sel = null;
         S.scrollTop = true;
-        _call('Journey', 'completeLesson', S.node, evt.idx, false, _now());
+        if (!S.career) _call('Journey', 'completeLesson', S.node, evt.idx, false, _now());
         return;
       }
       if (evt.kind === 'answer') _onAnswer(evt);
     };
   }
   function _onAnswer(evt) {
-    var prior = _call('Drills', 'item', 'lesson', evt.key);
-    if (!evt.ok) _call('Drills', 'record', 'lesson', evt.key, false, undefined, _now());
-    else if (prior) _call('Drills', 'record', 'lesson', evt.key, true, undefined, _now());
+    // 커리어 레슨은 복원할 노드가 없어 Leitner 키('career|qid')를 남기지 않는다(복습 큐에 못 여는 항목이 생기지 않게)
+    var prior = S.career ? null : _call('Drills', 'item', 'lesson', evt.key);
+    if (!S.career) {
+      if (!evt.ok) _call('Drills', 'record', 'lesson', evt.key, false, undefined, _now());
+      else if (prior) _call('Drills', 'record', 'lesson', evt.key, true, undefined, _now());
+    }
     if (_can('A11y', 'fx')) _call('A11y', 'fx', evt.ok ? 'ok' : 'bad');
     if (evt.ok && evt.first && !prior && !S.wasDone && !_askXp[evt.key]) {
       _askXp[evt.key] = true;
@@ -398,7 +404,11 @@ var LessonPlayer = (function() {
   }
   function _complete() {
     var last = S.n - 1, was = S.wasDone;
-    _call('Journey', 'completeLesson', S.node, last, true, _now());
+    if (S.career) {
+      // 커리어 레슨(F4): 노드 훅 대신 첫 완료 XP를 직접 주고 커리어에 완료를 알린다(core가 lessons[id]에 기록, 장소 해금 조건)
+      if (!was) { var amt = _xpConst('lesson', 15); if (amt > 0) _call('Journey', 'addXp', 'lesson', amt, _now()); }
+      _careerEmit(String(S.lesson.id));
+    } else _call('Journey', 'completeLesson', S.node, last, true, _now());
     if (_can('A11y', 'fx')) _call('A11y', 'fx', 'done');
     var xp = (was ? 0 : _xpConst('lesson', 15)) + S.xp;
     _toast('📖 레슨 완료' + (xp > 0 ? ', +' + xp + ' XP' : ''), 2400);
@@ -594,10 +604,31 @@ var LessonPlayer = (function() {
     _call('Nav', 'view', 'lesson', String(id));
   }
 
+  // ── 커리어 레슨(F4) ─────────────────────────────────────
+  // lesson.career가 참이면 여정 노드가 없다: Journey.completeLesson과 Leitner 기록을 생략하고, 완료는 CareerContract 'lesson:done'으로 알린다.
+  // 끝낸 적이 있는지는 커리어 상태 lessons[id](Career.state())로 본다. 첫 완료 XP는 Journey.addXp('lesson')로 직접 준다.
+  function _careerFind(id) {
+    var L = _m('CAREER_LESSONS');
+    if (!Array.isArray(L) || id == null || id === '') return null;
+    for (var i = 0; i < L.length; i++) if (L[i] && L[i].id === id) return L[i];
+    return null;
+  }
+  function _careerDone(id) {
+    var st = _call('Career', 'state');
+    return !!(st && _isObj(st) && _isObj(st.lessons) && st.lessons[id]);
+  }
+  function _careerEmit(id) {
+    var CC = _m('CareerContract');
+    if (!CC || typeof CC.emit !== 'function') return 0;
+    try { return CC.emit('lesson:done', { id: id }); } catch (e) { _warn('lesson:done', e); return 0; }
+  }
+
   // ── 시작 ──────────────────────────────────────────────
-  function start(lessonId, sceneIdx, onDone) {
+  // lessonOrId: 레슨 id(LESSONS, 없으면 CAREER_LESSONS에서 찾는다) 또는 레슨 객체(F4, 커리어 레슨처럼 등록부 밖의 레슨)
+  function start(lessonOrId, sceneIdx, onDone) {
     var C = _core();
-    var lesson = C && typeof C.find === 'function' ? C.find(lessonId) : null;
+    var lesson = _isObj(lessonOrId) ? lessonOrId : (C && typeof C.find === 'function' ? C.find(lessonOrId) : null);
+    if (!lesson && !_isObj(lessonOrId)) lesson = _careerFind(lessonOrId);
     var scenes = lesson && Array.isArray(lesson.scenes) ? lesson.scenes.filter(_isObj) : [];
     var at = Math.max(0, Math.floor(_num(sceneIdx, 0)));
     if (!lesson || !scenes.length || !C || typeof C.create !== 'function') {
@@ -606,15 +637,16 @@ var LessonPlayer = (function() {
       return false;
     }
     if (S) stop();
+    var career = lesson.career === true;
     var node = String(lesson.node || lesson.id);
-    var rec = _nodeRec(node);
-    var wasDone = !!(rec && rec.lesson && rec.lesson.done);
+    var rec = career ? null : _nodeRec(node);
+    var wasDone = career ? _careerDone(String(lesson.id)) : !!(rec && rec.lesson && rec.lesson.done);
     var n = scenes.length;
     var idx = Math.min(n - 1, at);
     if (wasDone && at >= n - 1) idx = 0;      // 끝낸 레슨 다시 보기는 처음부터
     _seq++;
     var token = _seq;
-    S = { token: token, lesson: lesson, node: node, onDone: onDone, wasDone: wasDone, n: n, sel: null, flagged: {}, xp: 0,
+    S = { token: token, lesson: lesson, node: node, career: career, onDone: onDone, wasDone: wasDone, n: n, sel: null, flagged: {}, xp: 0,
       html: '', scrollTop: true, startedAt: _now(), core: null, wg: null };
     S.core = C.create(lesson, idx, {
       timer: function(fn, ms) {
@@ -643,7 +675,7 @@ var LessonPlayer = (function() {
     if (!S) return null;
     var st = S.core.state();
     return { id: S.lesson.id, node: S.node, idx: st.idx, n: st.n, phase: st.phase, picked: st.picked, ok: st.ok, ready: st.ready,
-      canNext: st.canNext, wasDone: S.wasDone, xp: S.xp, sel: S.sel, html: S.html, t: st.scene ? st.scene.t : null };
+      canNext: st.canNext, wasDone: S.wasDone, xp: S.xp, sel: S.sel, html: S.html, t: st.scene ? st.scene.t : null, career: S.career };
   }
   function active() { return !!S; }
 

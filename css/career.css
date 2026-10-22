@@ -1,2 +1,181 @@
-/* css/career.css (스텁, 채우는 작업: 클라우드 F3 커리어 지도, 장소, 트로피 룸 화면. 지시문 docs/cloud-tasks/F3.md)
-   클래스 머리는 .j-career-로 시작한다. journey.css의 .j-sub, .j-card를 재사용하고 터치 44px, 색 + 글자 + 아이콘을 지킨다. */
+/* css/career.css (채우는 작업: 클라우드 F3 커리어 지도, 장소, 트로피 룸 화면. 지시문 docs/cloud-tasks/F3.md)
+   클래스 머리는 .j-career-. journey.css의 .j-sub, .j-sub-top, .j-card, .j-btn, .j-pick을 재사용한다.
+   기준: 412x915 세로 폰 우선, 데스크톱은 커리어 화면만 최대 폭 560px(여정 루트 520px을 :has로 넓힌다).
+   누르는 요소 44px 이상, 글자 대비 4.5:1 이상(어두운 배경 #11161d 위 #e6edf3, #c9d1d9, #8b949e은 라벨만),
+   상태는 색 + 글자 + 아이콘 3중(열림 🔓 초록 실선, 잠김 🔒 회색 점선, 지금 여기 📍 금색 이중선, 완료 ✓). */
+
+#journey-root:has(> .j-view > .j-career-view) { max-width: 560px; }
+.j-career-view { display: flex; flex-direction: column; gap: 10px; }
+.j-career-view .j-card { margin-top: 0; }
+.j-career-view .j-card-t { display: flex; align-items: center; gap: 8px; }
+.j-career-k { font-size: .78rem; color: var(--text-dim); }
+.j-career-count { font-size: .82rem; color: var(--text-dim); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+/* 공용 진행 막대(조건, 평판, 챌린지) */
+.j-career-bar { display: block; flex: 1 1 60px; min-width: 40px; height: 8px; border-radius: 4px; background: #21262d; overflow: hidden; }
+.j-career-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2d8a47, var(--green)); }
+.j-career-bar.is-rep i { background: linear-gradient(90deg, #b8932b, var(--gold)); }
+.j-career-req { display: grid; grid-template-columns: minmax(0, 1fr) 72px; grid-template-areas: "t p" "b b"; column-gap: 8px; row-gap: 4px; align-items: center; padding: 6px 0; }
+.j-career-req + .j-career-req { border-top: 1px dashed #30363d; }
+.j-career-req-t { grid-area: t; font-size: .86rem; color: var(--text); min-width: 0; }
+.j-career-req-ic { color: var(--text-dim); font-weight: 700; }
+.j-career-req.is-done .j-career-req-ic { color: var(--green); }
+.j-career-req .j-career-bar { grid-area: b; }
+.j-career-req.is-done .j-career-bar i { width: 100% !important; }
+.j-career-req-p { grid-area: p; justify-self: end; font-size: .82rem; font-weight: 700; color: #c9d1d9; font-variant-numeric: tabular-nums; }
+.j-career-req.is-done .j-career-req-p { color: var(--green); }
+.j-career-reqs { margin-top: 8px; }
+
+/* 머리: 자산, 칭호, 평판 */
+.j-career-head { border-color: rgba(212,175,55,.5); }
+.j-career-head-row { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: flex-end; }
+.j-career-bank, .j-career-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.j-career-bank-v { font-size: 1.5rem; line-height: 1.15; color: var(--gold); font-variant-numeric: tabular-nums; }
+.j-career-title b { font-size: 1.05rem; }
+.j-career-rep { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.j-career-rep .j-career-k b { color: var(--text); font-size: .95rem; }
+.j-career-rep-n { flex: 0 1 auto; font-size: .78rem; color: #c9d1d9; }
+.j-career-stats { margin-top: 8px; font-size: .82rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.j-career-stats b { color: var(--text); }
+.is-plus { color: #7ee787 !important; }
+.is-minus { color: #ffa198 !important; }
+
+/* 진행 중 세션 */
+.j-career-session { border: 2px solid var(--gold); background: linear-gradient(135deg, rgba(212,175,55,.12), #11161d 60%); }
+
+/* 지역 탭 3개(44px 이상, 선택은 금테 + 굵게, 잠김은 점선 + 🔒) */
+.j-career-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.j-career-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 64px; min-width: 44px; padding: 8px 4px;
+  border-radius: var(--r-lg, 14px); cursor: pointer; background: #161b22; color: var(--text); border: 1px solid var(--hud-border); font: inherit; line-height: 1.2; }
+.j-career-tab-ic { font-size: 1.3rem; line-height: 1; }
+.j-career-tab-t { font-size: .84rem; font-weight: 600; text-align: center; }
+.j-career-tab-s { font-size: .7rem; color: #c9d1d9; }
+.j-career-tab.is-locked { border-style: dashed; }
+.j-career-tab.is-locked .j-career-tab-t { color: #c9d1d9; font-weight: 400; }
+.j-career-tab.is-here { border-color: rgba(212,175,55,.6); }
+.j-career-tab.is-selected { border: 2px solid var(--gold); background: rgba(212,175,55,.14); }
+.j-career-tab.is-selected .j-career-tab-t { font-weight: 800; color: var(--gold); }
+.j-career-tab:focus-visible, .j-career-start:focus-visible, .j-career-travel:focus-visible, .j-career-stake:focus-visible, .j-career-card:focus-visible,
+.j-career-resume:focus-visible, .j-career-buy:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+@media (hover: hover) { .j-career-tab:hover, .j-career-card:hover { filter: brightness(1.12); } }
+
+/* 지역 카드와 여행 버튼 */
+.j-career-region.is-locked { border-style: dashed; }
+.j-career-travel { width: 100%; }
+
+/* 오늘 이벤트 띠 */
+.j-career-event { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-md, 10px); font-size: .88rem; line-height: 1.4;
+  background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.5); color: var(--text); }
+.j-career-event b { color: #79c0ff; }
+.j-career-event-ic { flex: 0 0 auto; font-size: 1.3rem; line-height: 1; }
+.j-career-event-t { min-width: 0; }
+.j-career-event.is-none { background: #0d1117; border-color: var(--hud-border); color: #c9d1d9; }
+.j-career-event.is-used { border-style: dashed; }
+
+/* 장소 카드 */
+.j-career-venues { display: flex; flex-direction: column; gap: 10px; }
+.j-career-venue.is-open { border-color: rgba(63,185,80,.55); }
+.j-career-venue.is-here { border: 3px double var(--gold); }
+.j-career-venue.is-locked { border-style: dashed; }
+.j-career-venue-h { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.j-career-venue-ic { flex: 0 0 auto; font-size: 1.6rem; line-height: 1; }
+.j-career-venue-n { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.j-career-venue-n b { font-size: 1.02rem; }
+.j-career-venue-n span { font-size: .76rem; color: var(--text-dim); }
+.j-career-venue.is-locked .j-career-venue-n b { color: #c9d1d9; font-weight: 600; }
+.j-career-status { flex: 0 0 auto; font-size: .78rem; font-weight: 700; padding: 4px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid; }
+.j-career-status.is-open { color: #7ee787; border-color: #2ea043; background: rgba(46,160,67,.12); }
+.j-career-status.is-here { color: var(--gold); border-color: var(--gold); background: rgba(212,175,55,.14); }
+.j-career-status.is-locked { color: #c9d1d9; border-color: #6e7681; border-style: dashed; background: #0d1117; }
+.j-career-venue-m { margin-top: 8px; font-size: .84rem; color: #c9d1d9; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.j-career-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.j-career-tag { font-size: .74rem; padding: 3px 8px; border-radius: 999px; background: #161b22; border: 1px solid var(--hud-border); color: #c9d1d9; }
+/* 오늘 와 있는 라이벌 얼굴 3개 */
+.j-career-faces { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.j-career-face { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; min-width: 44px; }
+.j-career-face .cast-face, .j-career-face-ic { width: 40px; height: 40px; border-radius: 50%; background: #161b22; border: 2px solid var(--hud-border); display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; line-height: 1; }
+.j-career-face.is-hidden .j-career-face-ic { border-style: dashed; color: var(--text-dim); }
+.j-career-face-n { font-size: .7rem; color: #c9d1d9; max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 스테이크 고르기와 세션 시작(44px 이상) */
+.j-career-stakes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.j-career-stake { flex: 1 1 100px; display: inline-flex; align-items: baseline; justify-content: center; gap: 4px; min-height: 44px; }
+.j-career-stake small { font-size: .74rem; color: var(--text-dim); }
+.j-career-stake.is-on small { color: #e6edf3; }
+.j-career-start { width: 100%; min-height: 52px; margin-top: 8px; }
+.j-career-start:disabled { background: #161b22; border-color: var(--hud-border); color: #c9d1d9; filter: none; opacity: 1; }
+.j-career-start:disabled small { color: var(--text-dim); }
+
+/* 주간 챌린지 3칸 */
+.j-career-ch3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+.j-career-ch { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px; border-radius: var(--r-md, 10px); background: #0d1117; border: 1px dashed #484f58; }
+.j-career-ch.is-done { border: 2px solid var(--green); }
+.j-career-ch-ic { font-size: 1.1rem; line-height: 1; }
+.j-career-ch.is-done .j-career-ch-ic { color: var(--green); font-weight: 800; }
+.j-career-ch-n { font-size: .8rem; line-height: 1.3; min-height: 2.6em; }
+.j-career-nw { white-space: nowrap; }
+.j-career-ch .j-career-bar { flex: 0 0 8px; width: 100%; }
+.j-career-ch-p { font-size: .74rem; color: #c9d1d9; font-variant-numeric: tabular-nums; }
+.j-career-ch.is-done .j-career-ch-p { color: var(--green); }
+@media (max-width: 360px) { .j-career-ch3 { grid-template-columns: 1fr; } .j-career-ch-n { min-height: 0; } }
+
+/* 트로피 룸 16칸(미획득은 윤곽만: 점선 테두리, ○, 글자 '미획득') */
+.j-career-tgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+.j-career-trophy { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 3px; min-height: 84px; padding: 8px 4px; text-align: center;
+  border-radius: var(--r-md, 10px); background: #0d1117; border: 2px solid rgba(212,175,55,.6); }
+.j-career-trophy.is-got { background: linear-gradient(180deg, rgba(212,175,55,.16), #0d1117 70%); }
+.j-career-trophy.is-locked { border: 2px dashed #484f58; background: transparent; }
+.j-career-trophy-ic { font-size: 1.5rem; line-height: 1; }
+.j-career-trophy.is-locked .j-career-trophy-ic { color: #6e7681; }
+.j-career-trophy-n { font-size: .72rem; line-height: 1.25; color: var(--text); }
+.j-career-trophy.is-locked .j-career-trophy-n { color: #c9d1d9; }
+.j-career-trophy-d { font-size: .66rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+@media (max-width: 360px) { .j-career-tgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* 내 공간 */
+.j-career-home-cur { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.j-career-home-cur > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.j-career-home-ic { flex: 0 0 auto; font-size: 1.6rem; line-height: 1; }
+.j-career-homes { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.j-career-home-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 8px 10px; border-radius: var(--r-md, 10px); background: #0d1117; border: 1px solid #30363d; }
+.j-career-home-row.is-owned { border-color: rgba(212,175,55,.55); }
+.j-career-home-row.is-buyable { border: 2px solid var(--green); }
+.j-career-home-row.is-locked { border-style: dashed; }
+.j-career-home-t { flex: 1 1 120px; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.j-career-home-t b { font-size: .92rem; }
+.j-career-home-t span { font-size: .74rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.j-career-home-s { flex: 0 0 auto; font-size: .78rem; font-weight: 700; color: #c9d1d9; }
+.j-career-home-row.is-owned .j-career-home-s { color: var(--gold); }
+.j-career-home-row.is-buyable .j-career-home-s { color: #7ee787; }
+.j-career-buy { flex: 0 0 auto; min-height: 44px; }
+
+/* 최근 기록 5줄 */
+.j-career-log { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }
+.j-career-log-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 0; font-size: .86rem; line-height: 1.35; }
+.j-career-log-row + .j-career-log-row { border-top: 1px dashed #30363d; }
+.j-career-log-d { font-size: .74rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.j-career-log-ic { font-size: 1rem; line-height: 1; width: 1.4em; text-align: center; }
+.j-career-log-t { min-width: 0; color: var(--text); }
+.j-career-delta { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; color: #c9d1d9; }
+
+/* 홈 카드(Career.homeCard, 강조: 카드 영역 맨 앞). 카드 전체가 버튼 */
+.j-career-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; min-height: 56px; text-align: left; cursor: pointer; font: inherit; color: var(--text);
+  border: 2px solid rgba(212,175,55,.65); background: linear-gradient(135deg, rgba(212,175,55,.12), #11161d 60%); }
+.j-career-card-t { font-size: 1rem; font-weight: 700; line-height: 1.35; }
+.j-career-card-s { font-size: .8rem; color: #c9d1d9; line-height: 1.35; }
+
+/* 라이브 안내(스크린 리더용) */
+.j-career-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 데스크톱(560px): 장소 카드 메타와 버튼을 두 줄로 */
+@media (min-width: 1024px) {
+  .j-career-start { min-height: 48px; }
+  .j-career-tgrid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
+
+/* (웨이브1 통합) 커리어 레슨 목록: 한 줄 버튼 44px 이상, 완료는 초록 테두리와 ✓ 글자 */
+.j-career-lesson-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.j-career-lesson { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-height: 48px; width: 100%; text-align: left; padding: 8px 10px; }
+.j-career-lesson small { font-size: .74rem; color: #c9d1d9; font-weight: 400; }
+.j-career-lesson.is-done { border: 2px solid var(--green); }
+.j-career-lesson.is-done .j-career-lesson-t { color: #7ee787; }
+@media (max-width: 360px) { .j-career-lesson-list { grid-template-columns: 1fr; } }

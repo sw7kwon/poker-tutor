@@ -91,7 +91,10 @@ var GameState = (function() {
 
   // amount는 raise-to(이번 스트리트 총 베팅액) 기준.
   // 검증 실패 시 상태 불변 + actionError만 설정해 반환 (칩 이동 없음).
-  function applyHeroAction(state, action, amount) {
+  // opts.keepPlaying(클라우드 작업 I, 선택): 히어로가 폴드해도 남은 사람이 2명 이상이면 handOver를 세우지 않는다(빌런끼리 계속,
+  //   pendingQueue는 그대로라 applyVillainActions, advanceStreet, resolveShowdown이 Hero 없이 핸드를 끝낸다). 남은 사람이
+  //   1명이면 예전처럼 handOver. opts를 생략하면 기존 동작 그대로(폴드 즉시 handOver).
+  function applyHeroAction(state, action, amount, opts) {
     var s = _clone(state);
     delete s.actionError;
     amount = parseFloat(amount) || 0;
@@ -99,7 +102,9 @@ var GameState = (function() {
 
     if (action === 'fold') {
       s.folded['Hero'] = true;
-      s.handOver = true;
+      var keep = !!(opts && opts.keepPlaying);
+      var alive = keep ? s.names.filter(function(n) { return !s.folded[n]; }) : [];
+      if (!keep || alive.length <= 1) s.handOver = true;
     } else if (action === 'call' || action === 'check') {
       var toCall = Math.min(s.currentBet - (s.playerBets['Hero'] || 0), s.stacks['Hero']);
       toCall = Math.max(0, toCall);

@@ -1,0 +1,119 @@
+/* css/chips.css (클라우드 작업 K): 칩 그림. ui/chips.js(ChipsUI)가 만드는 요소만 꾸민다. 이미지 없이 CSS로만 그린다.
+   단위별 색과 가장자리 무늬(색맹 대비, 숫자는 윗면 칩에): 0.5 작은 회색(무늬 없음), 1 흰색(파란 점 8), 5 빨강(크림 점 6),
+   25 초록(흰 넓은 점 4), 100 검정(흰 가는 점 12), 500 보라(금색 넓은 점 2).
+   크기: 데스크톱 지름 16px, 폰(mobile.css와 같은 미디어 쿼리) 13px. 옆면 칩 두께 4px / 3px. */
+:root { --chip-d: 16px; --chip-h: 4px; --chip-font: 7px; }
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  :root { --chip-d: 13px; --chip-h: 3px; --chip-font: 6px; }
+}
+
+/* ── 더미와 기둥 ── */
+.chips-pile { display: inline-flex; align-items: flex-end; gap: 2px; vertical-align: bottom; line-height: 0; }
+.chips-pile.is-empty { min-width: var(--chip-d); min-height: var(--chip-d); }
+.chip-col { display: inline-flex; flex-direction: column-reverse; gap: 1px; width: var(--chip-d); flex: 0 0 auto;
+  --body: #f4f4f2; --edge: #3758a8; --ink: #1b1f26; --spot: 14deg; --gap: 45deg; --stripe: 3px; }
+.chip { display: block; width: var(--chip-d); height: var(--chip-h); border-radius: 2px; box-sizing: border-box;
+  background: repeating-linear-gradient(90deg, var(--edge) 0 1.5px, transparent 1.5px var(--stripe)), var(--body);
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.18); }
+/* 윗면 칩: 안쪽 링과 가장자리 점, 가운데 숫자 */
+.chip.chip-top { position: relative; height: var(--chip-d); border-radius: 50%;
+  background: radial-gradient(circle, var(--body) 0 57%, rgba(0,0,0,.38) 58% 62%, var(--body) 63% 100%);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 1px 1px rgba(0,0,0,.55); }
+.chip.chip-top::before { content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: repeating-conic-gradient(var(--edge) 0 var(--spot), transparent var(--spot) var(--gap));
+  -webkit-mask: radial-gradient(circle, transparent 0 66%, #000 67%); mask: radial-gradient(circle, transparent 0 66%, #000 67%); }
+.chip.chip-top b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: var(--chip-font); font-weight: 800; line-height: 1; color: var(--ink); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+.chip-col.u05 { --body: #8f99a4; --edge: transparent; --ink: #111; --stripe: 100px; }
+.chip-col.u05 .chip { height: calc(var(--chip-h) * .75); }
+.chip-col.u05 .chip.chip-top { height: calc(var(--chip-d) * .75); width: calc(var(--chip-d) * .75); margin: 0 auto; }
+.chip-col.u1   { --body: #f4f4f2; --edge: #3758a8; --ink: #1b1f26; --spot: 14deg; --gap: 45deg; --stripe: 3px; }
+.chip-col.u5   { --body: #d7393b; --edge: #f6e7c3; --ink: #fff;    --spot: 16deg; --gap: 60deg; --stripe: 4px; }
+.chip-col.u25  { --body: #2e9e48; --edge: #f4f4f2; --ink: #fff;    --spot: 30deg; --gap: 90deg; --stripe: 6px; }
+.chip-col.u100 { --body: #22262d; --edge: #e8e8e8; --ink: #fff;    --spot: 9deg;  --gap: 30deg; --stripe: 2.5px; }
+/* 검정 칩은 어두운 배경(바깥 좌석, 폴드한 좌석)에서 묻히므로 밝은 테두리를 더한다(로컬 확인 수정) */
+.chip-col.u100 .chip { box-shadow: inset 0 -1px 0 rgba(0,0,0,.35), 0 0 0 1px rgba(232,232,232,.55); }
+.chip-col.u100 .chip.chip-top { box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 0 1px rgba(232,232,232,.75), 0 1px 1px rgba(0,0,0,.55); }
+.chip-col.u500 { --body: #7d3fc1; --edge: #f8d66a; --ink: #fff;    --spot: 45deg; --gap: 180deg; --stripe: 8px; }
+.chips-more { font-size: .62rem; font-weight: 800; line-height: 1; color: #f2cc60; align-self: flex-end; margin-left: 1px; text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+
+/* ── 좌석 스택 기둥(.chips-seat는 좌석을 덮는 투명 층, 입력 통과. 기둥과 배지는 이 층 기준으로 놓는다) ── */
+.chips-seat { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+/* 데스크톱: 좌석 오른쪽 바깥 가운데. 왼쪽 열(CO)과 위쪽 왼쪽(HJ)은 왼쪽 바깥(이웃 좌석과 겹치지 않게) */
+.chips-stack { position: absolute; left: calc(100% + 4px); top: 50%; transform: translateY(-50%); z-index: 2; white-space: nowrap; line-height: 0; }
+.seat-hj .chips-stack { left: auto; right: calc(100% + 4px); }
+/* CO는 화면 왼쪽 끝이라 좌석 위 왼쪽 정렬 */
+.seat-co .chips-stack { left: 0; right: auto; top: auto; bottom: calc(100% + 4px); transform: none; }
+/* 반짝임: 늘면 초록, 줄면 붉게(투명도만 애니메이션) */
+.chips-stack::after { content: ''; position: absolute; inset: -3px; border-radius: 6px; opacity: 0; pointer-events: none; }
+.chips-stack.chips-up::after   { background: rgba(63,185,80,.6); animation: chips-flash .7s ease-out; }
+.chips-stack.chips-down::after { background: rgba(248,81,73,.6); animation: chips-flash .7s ease-out; }
+@keyframes chips-flash { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+
+/* 승자 배지(.winner 클래스가 있는 좌석에는 ChipsUI가 배지를 만들지 않는다) */
+.chips-win { position: absolute; left: 50%; top: -6px; transform: translate(-50%, -100%); z-index: 9; white-space: nowrap;
+  background: rgba(10,14,20,.94); border: 1px solid var(--gold); color: #f2cc60; font-size: .78rem; font-weight: 800; line-height: 1.3;
+  padding: 2px 8px; border-radius: 999px; box-shadow: 0 2px 8px rgba(0,0,0,.6); }
+.chips-win.chips-win-anim { animation: chips-pop .3s ease-out both; animation-delay: .26s; }
+@keyframes chips-pop { from { opacity: 0; transform: translate(-50%, -100%) scale(.6); } to { opacity: 1; transform: translate(-50%, -100%) scale(1); } }
+
+/* ── 벳 더미 층과 이동 층(.poker-table 안, 입력 통과) ── */
+.chips-layer { position: absolute; inset: 0; pointer-events: none; z-index: 5; overflow: visible; }
+.chips-bets, .chips-fx, .chips-fx-group { position: absolute; inset: 0; }
+/* 데스크톱은 위아래 좌석과 팟 사이가 좁아 칩 옆에 숫자(가로), 폰은 칩 아래 숫자(세로, 아래 미디어 쿼리) */
+.chips-bet, .chips-fly { position: absolute; display: flex; flex-direction: row; align-items: center; gap: 4px; transform: translate(-50%, -50%); }
+.chips-amt { font-size: .66rem; font-weight: 700; line-height: 1.3; color: #f2cc60; background: rgba(0,0,0,.6); border: 1px solid rgba(212,175,55,.6);
+  padding: 0 5px; border-radius: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chips-bet { animation: chips-in .2s ease-out; }
+@keyframes chips-in { from { opacity: 0; transform: translate(-50%, -50%) scale(.85); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+/* 칩이 켜져 있으면 기존 금색 알약 벳 숫자는 숨긴다(칩 더미가 같은 숫자를 보인다) */
+.poker-table:has(.chips-layer) .seat-bet { display: none; }
+
+/* 이동: transform과 opacity만, 260ms. --tx, --ty는 ChipsUI가 넣는다 */
+.chips-fly { z-index: 6; animation: chips-fly .26s cubic-bezier(.3,.7,.3,1) both; will-change: transform, opacity; }
+.chips-fly.chips-fly-late { animation-delay: .12s; }
+@keyframes chips-fly {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  75%  { opacity: 1; }
+  to   { transform: translate(calc(-50% + var(--tx, 0px)), calc(-50% + var(--ty, 0px))) scale(.9); opacity: 0; }
+}
+
+/* ── 중앙 팟(.pot-display-wrap 맨 앞) ── */
+.chips-pot { display: grid; grid-template-columns: auto auto; align-items: center; column-gap: 8px; row-gap: 0; }
+.chips-pot-piles { grid-row: 1 / span 2; display: flex; align-items: flex-end; gap: 10px; line-height: 0; }
+.chips-pot-pile.chips-side { position: relative; padding-left: 8px; }
+.chips-pot-pile.chips-side::before { content: ''; position: absolute; left: 2px; top: 10%; bottom: 10%; border-left: 1px dashed rgba(255,255,255,.35); }
+.chips-pot-label { font-size: 1.15rem; font-weight: 800; line-height: 1.1; color: var(--gold); text-shadow: 0 1px 4px rgba(0,0,0,.6); white-space: nowrap; }
+.chips-pot-label b { font-variant-numeric: tabular-nums; }
+.chips-pot-sub { font-size: .66rem; line-height: 1.3; color: #c9d1d9; white-space: nowrap; }
+.chips-pot.chips-bump .chips-pot-label { animation: chips-bump .3s ease-out; transform-origin: left center; }
+@keyframes chips-bump { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+/* 칩 팟이 있으면 기존 "POT: 0bb" 글자는 숨긴다(#pot-amount는 그대로 갱신된다) */
+.pot-display-wrap:has(.chips-pot) .pot-display { display: none; }
+
+/* ── 폰(세로): 좌석을 넘지 않게 자리 조정 ── */
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  .chips-pot { column-gap: 6px; }
+  .chips-pot-piles { gap: 6px; }
+  .chips-pot-label { font-size: .95rem; }
+  .chips-pot-sub { font-size: .6rem; }
+  .chips-amt { font-size: .6rem; }
+  .chips-win { font-size: .7rem; padding: 1px 6px; }
+  .chips-bet, .chips-fly { flex-direction: column; gap: 1px; }
+  /* 화면 가장자리라 옆에 자리가 없다: 아래 열(1, 5)은 좌석 위, 위 열(2, 4)은 좌석 아래(위는 승률 칩 버튼이 있다), 바깥쪽 정렬.
+     위 좌석(3)은 오른쪽 바깥 가운데, 히어로(0)는 오른쪽 바깥 아래(오른쪽 아래 좌석과 겹치지 않게. 벳 더미와 말풍선은 왼쪽과 위) */
+  .poker-table .seat[data-slot="1"] .chips-stack { left: auto; right: 0; top: auto; bottom: calc(100% + 2px); transform: none; }
+  .poker-table .seat[data-slot="2"] .chips-stack { left: auto; right: 0; top: calc(100% + 2px); bottom: auto; transform: none; }
+  .poker-table .seat[data-slot="4"] .chips-stack { left: 0; right: auto; top: calc(100% + 2px); bottom: auto; transform: none; }
+  .poker-table .seat[data-slot="5"] .chips-stack { left: 0; right: auto; top: auto; bottom: calc(100% + 2px); transform: none; }
+  .poker-table .seat[data-slot="3"] .chips-stack { left: calc(100% + 4px); right: auto; top: 50%; bottom: auto; transform: translateY(-50%); }
+  .poker-table .seat[data-slot="0"] .chips-stack { left: calc(100% + 4px); right: auto; top: auto; bottom: 4px; transform: none; }
+  /* 폰 승자 배지는 좌석 가운데(위에는 기둥이나 말풍선이 있다) */
+  .poker-table .seat .chips-win { top: 50%; transform: translate(-50%, -50%); }
+  @keyframes chips-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.6); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+}
+
+/* ── 모션 줄이기: JS가 이동과 반짝임을 만들지 않지만, 혹시 남은 것도 숨긴다 ── */
+html.reduce-motion .chips-fly { display: none; }
+@media (prefers-reduced-motion: reduce) { html:not(.motion-full) .chips-fly { display: none; } }

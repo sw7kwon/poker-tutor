@@ -106,7 +106,8 @@ var HUD = (function() {
       tbody.innerHTML = '<tr><td colspan="2">🙈 결정 후 공개 <span class="kb-hint">(H: 정답 보기)</span></td></tr>';
     } else if (ev.bestSource === 'chart' && ev.verdict) {
       // 프리플랍 차트 판정: EV 근사 숫자와 차트 ★가 모순되지 않도록 숫자를 숨김
-      tbody.innerHTML = '<tr class="best"><td colspan="2">📋 레인지 차트 기준 ★ ' + ev.verdict.label + '</td></tr>' +
+      // 표준 차트 티어(클라우드 E, verdict.tierLabel 'chart-std')면 '표준 차트 기준(참고)'
+      tbody.innerHTML = '<tr class="best"><td colspan="2">📋 ' + (ev.verdict.tierLabel === 'chart-std' ? '표준 차트 기준(참고)' : '레인지 차트 기준') + ' ★ ' + ev.verdict.label + '</td></tr>' +
         '<tr><td colspan="2">프리플랍 EV 근사는 참고용이라 숨겨요</td></tr>';
     } else {
       var betWord = (post && toCall === 0) ? '벳' : '레이즈';

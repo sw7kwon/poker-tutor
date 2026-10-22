@@ -47,7 +47,7 @@ var BackupUI = (function() {
     Object.keys(items).forEach(function(k) { if (_isObj(items[k])) see(items[k].last); });
     var b = (typeof Storage !== 'undefined' && Storage && typeof Storage.brief === 'function') ? Storage.brief(d) : { xp: 0, passed: 0, review: 0 };
     return { hands: hist.length, mistakes: mis.length, drills: Object.keys(items).length,
-      lastDate: isFinite(last) ? new Date(last).toISOString() : null, xp: b.xp, passed: b.passed, review: b.review };
+      lastDate: isFinite(last) ? new Date(last).toISOString() : null, xp: b.xp, passed: b.passed, review: b.review, career: b.career || null };
   }
 
   // device {ua, platform, standalone} → "Android, 삼성 인터넷 (설치 앱)"
@@ -84,6 +84,15 @@ var BackupUI = (function() {
     if (c && c.xp > 0) parts.push('여정 XP ' + c.xp);
     if (c && c.passed > 0) parts.push('통과 노드 ' + c.passed + '개');
     if (c && c.review > 0) parts.push('실수 복습 ' + c.review + '개');
+    return parts.join(', ');
+  }
+  // (웨이브1 통합) 커리어 기록 줄: Storage.brief().career { bankroll, sessions, trophies }, 없으면 ''
+  function _careerText(c) {
+    var k = c && c.career;
+    if (!_isObj(k)) return '';
+    var coins = Math.round((Number(k.bankroll) || 0) * 10) / 10;
+    var parts = ['자산 ' + coins.toLocaleString('ko-KR') + '코인', '세션 ' + (k.sessions || 0) + '회'];
+    if (k.trophies > 0) parts.push('트로피 ' + k.trophies + '개');
     return parts.join(', ');
   }
   function _kbText(kb) { return kb >= 1024 ? (Math.round(kb / 102.4) / 10) + ' MB' : kb + ' KB'; }
@@ -274,6 +283,7 @@ var BackupUI = (function() {
     var merged = (plans.merge && plans.merge.next) || Storage.mergeData(Storage.exportAll().data, obj.data);
     var mergedSum = summarize({ data: merged });
     var jf = _journeyText(fileSum), jm = _journeyText(mergedSum);
+    var cf = _careerText(fileSum), cm = _careerText(mergedSum);
     el.hidden = false;
     el.className = 'bk-preview';
     el.innerHTML =
@@ -283,15 +293,16 @@ var BackupUI = (function() {
         '<dt>내보낸 기기</dt><dd>' + _esc(deviceLabel(v.device)) + '</dd>' +
         '<dt>담긴 기록</dt><dd>' + _esc(_countsText(fileSum)) + '</dd>' +
         (jf ? '<dt>담긴 여정</dt><dd>' + _esc(jf) + '</dd>' : '') +
+        (cf ? '<dt>담긴 커리어</dt><dd>' + _esc(cf) + '</dd>' : '') +
         (fileSum.lastDate ? '<dt>마지막 기록</dt><dd>' + _esc(formatDate(fileSum.lastDate)) + '</dd>' : '') +
       '</dl>' +
       '<fieldset class="bk-modes"><legend>어떻게 가져올까요?</legend>' +
         '<label class="bk-mode"><input type="radio" name="bk-mode" value="merge" checked>' +
           '<span><b>병합 (권장)</b><small>이 기기 기록과 파일 기록을 합쳐요. 같은 기록은 한 번만 남기고, 핸드와 실수는 최근 200건까지 보관해요. ' +
-          '코칭, 띵킹 설정은 이 기기 것을 그대로 써요.<br>합친 결과: ' + _esc(_countsText(mergedSum)) + (jm ? '<br>합친 여정: ' + _esc(jm) : '') +
+          '코칭, 띵킹 설정은 이 기기 것을 그대로 써요.<br>합친 결과: ' + _esc(_countsText(mergedSum)) + (jm ? '<br>합친 여정: ' + _esc(jm) : '') + (cm ? '<br>합친 커리어: ' + _esc(cm) : '') +
           _spaceNote(plans.merge) + '</small></span></label>' +
         '<label class="bk-mode"><input type="radio" name="bk-mode" value="replace">' +
-          '<span><b>덮어쓰기</b><small>이 기기 기록을 지우고 파일 내용으로 바꿔요.<br>바꾼 결과: ' + _esc(_countsText(fileSum)) + (jf ? '<br>바꾼 여정: ' + _esc(jf) : '') +
+          '<span><b>덮어쓰기</b><small>이 기기 기록을 지우고 파일 내용으로 바꿔요.<br>바꾼 결과: ' + _esc(_countsText(fileSum)) + (jf ? '<br>바꾼 여정: ' + _esc(jf) : '') + (cf ? '<br>바꾼 커리어: ' + _esc(cf) : '') +
           _spaceNote(plans.replace) + '</small></span></label>' +
       '</fieldset>' +
       '<div class="bk-help bk-space" id="bk-space" role="status" aria-live="polite"></div>' +
@@ -371,7 +382,18 @@ var BackupUI = (function() {
       .then(function() { input.value = ''; });   // 같은 파일을 다시 골라도 change가 오도록
   }
 
-  function _exportJson() { return JSON.stringify(Storage.exportAll()); }
+  // 여정 저장은 지연 쓰기(PERF-6, Journey.flush)라 저장소 원문을 읽거나 바꾸기 직전에 대기 중인 쓰기를 끝낸다.
+  // 저장소를 직접 바꾼 직후에는 Journey._invalidate(캐시와 대기 쓰기를 버린다)로 옛 캐시가 가져온 기록을 덮지 않게 한다
+  function _journey(fn) {
+    var J = (typeof Journey !== 'undefined' && Journey) ? Journey : null;
+    if (J && typeof J[fn] === 'function') { try { J[fn](); } catch (e) { /* 백업에 영향 없음 */ } }
+    // (웨이브1 통합) 커리어 코어 캐시도 같이 버린다(가져온 poker_career를 옛 캐시가 다시 저장하지 않게)
+    if (fn === '_invalidate' && typeof CareerContract !== 'undefined' && CareerContract && typeof CareerContract.mod === 'function') {
+      var core = CareerContract.mod('core');
+      if (core && typeof core._invalidate === 'function') { try { core._invalidate(); } catch (e) { /* 백업에 영향 없음 */ } }
+    }
+  }
+  function _exportJson() { _journey('flush'); return JSON.stringify(Storage.exportAll()); }
 
   function _doExport() {
     try {
@@ -428,12 +450,14 @@ var BackupUI = (function() {
       ? '이 기기 기록에 파일 기록을 합칠까요?\n\n지금 상태는 자동으로 보관돼서, 잘못되면 "되돌리기"로 돌아갈 수 있어요.'
       : '이 기기 기록을 지우고 파일 내용으로 바꿀까요?\n\n지금 상태는 되돌리기용으로 한 번만 보관돼요.';
     if (typeof confirm === 'function' && !confirm(q)) return;
+    _journey('flush');                                 // 되돌리기 사본과 병합에 이 창의 대기 중인 여정 변경까지 담는다
     try {
       Storage.importAll(_pending.obj, mode);
     } catch (e) {
       _msg('err', '가져오지 못했어요: ' + (e && e.message) + '. 기존 기록은 그대로예요.');
       return;
     }
+    _journey('_invalidate');                           // 가져온 기록이 최신본: 새로고침 전까지 옛 캐시가 쓰이지 않게
     _pending = null;
     _msg('ok', '가져왔어요. 화면을 새로 불러올게요…');
     _reload();
@@ -459,9 +483,11 @@ var BackupUI = (function() {
     if (_gameActive()) { _msg('err', '게임 중에는 되돌릴 수 없어요. 메뉴에서 다시 열어 주세요.'); return; }
     var info = Storage.prevInfo ? Storage.prevInfo() : null;
     if (typeof confirm === 'function' && !confirm(_undoQuestion(info))) return;
+    _journey('flush');                                 // '되돌리기 취소'용 사본에 지금 기록을 온전히 담는다
     var ok = false;
     try { ok = Storage.restorePrev(); } catch (e) { ok = false; }
     if (!ok) { _msg('err', '되돌릴 기록이 없어요.'); _renderNow(); return; }
+    _journey('_invalidate');
     _msg('ok', '되돌렸어요. 화면을 새로 불러올게요…');
     _reload();
   }
@@ -479,6 +505,7 @@ var BackupUI = (function() {
   function open() {
     if (typeof document === 'undefined' || typeof Storage === 'undefined' || !Storage.exportAll) return;
     if (typeof Storage.expirePrev === 'function') { try { Storage.expirePrev(30); } catch (e) { /* 정리 실패는 열기에 영향 없음 */ } }
+    _journey('flush');                                 // '이 기기에 저장된 기록' 요약, 병합 미리보기, 되돌리기 안내가 대기 중인 여정 변경까지 읽게
     if (!_root || !_root.parentNode) _build();
     _pending = null;
     _msg('', '');

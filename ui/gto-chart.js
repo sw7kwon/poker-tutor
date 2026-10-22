@@ -386,6 +386,7 @@ var GtoChart = (function() {
       (post ? '<div class="gto-head-post">📌 지금은 ' + _esc(streetKor(o.street)) + ', 프리플랍 차트는 참고예요</div>' : '') +
       '<div class="gto-head-ctx' + (ro.preview ? ' is-preview' : '') + '">' + _esc(ro.ctx) + '</div>' +
       (ro.handHTML ? '<div class="gto-head-hand">' + (ro.action && !ro.hidden ? swatch(ro.action) : '') + '<span>' + ro.handHTML + '</span></div>' : '') +
+      (post || o.viewPos ? '' : _bluffHTML(model)) +
       (post ? '<div class="gto-guide">' + (o.guide ? _esc(o.guide) : '') + '</div>' : '') +
       '</div>';
     if (empty) {
@@ -417,6 +418,13 @@ var GtoChart = (function() {
       '<div class="gto-chart-legend">' + legendHTML(model) + '</div>' +
       stripHTML(model, heroPos, o.viewPos || null) +
       footHTML();
+  }
+  // 표준 티어 차트(키 'std|')의 3벳 블러프 후보 한 줄(설계 원문 4절 5번, 참고): GtoStd.bluffHints. 입문 차트와 오픈 차트는 빈 문자열
+  function _bluffHTML(model) {
+    if (!model || !/^std\|/.test(String(model.key || '')) || typeof GtoStd === 'undefined' || !GtoStd || typeof GtoStd.bluffHints !== 'function') return '';
+    var t = '';
+    try { t = GtoStd.bluffHints(model) || ''; } catch (e) { t = ''; }
+    return t ? '<div class="gto-head-bluff">🃏 ' + _esc(t) + ' (표준 차트 참고)</div>' : '';
   }
   function footHTML() {
     return '<div class="gto-chart-foot"><button type="button" class="gto-lab-btn">🗺 학습실에서 크게 보기</button></div>';

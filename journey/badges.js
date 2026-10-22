@@ -1,5 +1,5 @@
-// journey/badges.js (채우는 그룹: M6-COLLECT, 계약 H8)
-// 배지 20종(설계서 4.6절 1번 목록 순서 그대로)과 레벨 해금 외형(4.3절). 배지는 조건을 미리 알리지 않는 깜짝 인정형이라
+// journey/badges.js (채우는 그룹: M6-COLLECT, 계약 H8. 클라우드 F4가 커리어 배지 3종을 더함)
+// 배지 23종(설계서 4.6절 1번 목록 20종 순서 그대로 + 커리어 3종)과 레벨 해금 외형(4.3절). 배지는 조건을 미리 알리지 않는 깜짝 인정형이라
 // 화면에는 얻은 배지만 보이고(목록, 홈 카드, 수집), 문구는 한 일을 알려 주는 정보형이다(4.7절 4번, 통제형 문구 없음).
 // 무작위 보상은 없다(4.7절 3번): 배지와 외형은 전부 조건 해금이다.
 //
@@ -15,6 +15,8 @@
 //     'miniPick'    미니시즌이 끝났을 때 { hit }(H7)
 //     'identify'    은닉 좌석 유형 맞히기 제출 { node, correct, total }(H9)
 //     'backup'      기록 내보내기 성공(ui/backup-ui.js 1곳). 달 키('YYYY-MM')를 모은다
+//     'career'      (F4) 커리어 { session: true }(세션 끝), { venue: id }(그 장소에 앉음), { cash: true } | { tourney: { prize } }(입상).
+//                   CareerContract 'session:end'와 'tourney:end'도 onHome 때 한 번 구독해 같은 기록을 쌓는다(badgeMeta.career)
 //   check(now) → 새 배지 [{ id, name, text }](멱등: 같은 now로 다시 부르면 []). 코칭 L3 유지 시작 시각도 여기서 관찰한다.
 //   onHome(now)(H11 c): 외형 적용, check, 아직 알리지 않은 새 배지를 토스트 1번(정보형)
 //   homeCard(state, now)(H11 a) → { html } | null: 최근 3일 안에 얻었거나 지금 막 조건을 채운 배지(최대 3개)와 '🗂 수집 열기'
@@ -57,7 +59,11 @@ var Badges = (function() {
     { id: 'weekly-4', icon: '📅', name: '4주 연속 챌린지', text: '주간 챌린지를 4주 연속으로 완료했어요.' },
     { id: 'cards-30', icon: '🎬', name: '명장면 수집가', text: '명장면 카드를 30장 모았어요.' },
     { id: 'l3-30', icon: '🎯', name: '실전 30일', text: '코칭 실전(L3)으로 30일을 이어 왔어요.' },
-    { id: 'master', icon: '👑', name: '마스터', text: '마스터 승급 시험(S6)을 통과했어요.' }
+    { id: 'master', icon: '👑', name: '마스터', text: '마스터 승급 시험(S6)을 통과했어요.' },
+    // (F4) 커리어 배지 3종. 기록은 note('career', data)와 커리어 이벤트 버스(session:end, tourney:end)에서 쌓인다
+    { id: 'career-first', icon: '🎟', name: '커리어 첫걸음', text: '커리어 세션을 처음 끝까지 마쳤어요.' },
+    { id: 'career-cardroom', icon: '🍺', name: '카드룸 입성', text: '커리어에서 뒷마당을 벗어나 카드룸에 처음 앉았어요.' },
+    { id: 'career-cash', icon: '🥉', name: '토너먼트 입상', text: '커리어 토너먼트에서 처음으로 상금을 받았어요.' }
   ];
   var _byId = {};
   BADGES.forEach(function(b) { _byId[b.id] = b; });
@@ -65,6 +71,8 @@ var Badges = (function() {
   var NEED = { streak: 7, potodds: 20, think: 10, intent: 25, theater: 10, backups: 3, comebackGap: 8, paint: 0.9, combos: 50,
     identify: 4, weekly: 4, cards: 30, l3Days: 30 };
   var MASTER_BOSS = 's6-boss';
+  var CAREER_HOME = 'backyard';   // (F4) 첫 장소. 이 밖의 장소에 앉으면 '카드룸 입성'
+  var CAREER_VENUES_MAX = 20;
 
   // ── 외형(4.3절, JOURNEY_UNLOCKS) ──
   var LOOK_KINDS = ['tableColor', 'cardBack', 'castFrame', 'cardBorder'];
@@ -134,6 +142,10 @@ var Badges = (function() {
     if (!Array.isArray(M.backups)) M.backups = [];
     if (M.l3Since === undefined) M.l3Since = null;
     if (!Array.isArray(M.unseen)) M.unseen = [];
+    if (!_isObj(M.career)) M.career = { sessions: 0, venues: [], cashes: 0 };
+    M.career.sessions = Math.max(0, Math.floor(_n(M.career.sessions)));
+    M.career.cashes = Math.max(0, Math.floor(_n(M.career.cashes)));
+    if (!Array.isArray(M.career.venues)) M.career.venues = [];
     return M;
   }
   function _earned(st) {
@@ -191,6 +203,7 @@ var Badges = (function() {
     var daily = _isObj(J.daily) ? J.daily : {};
     var now = _n(ctx.now, NaN);
     var l3 = _ms(M.l3Since);
+    var car = _isObj(M.career) ? M.career : {};
     var C = {
       'first-lesson': ids.some(function(id) { var r = nodes[id]; return _isObj(r) && _isObj(r.lesson) && r.lesson.done === true; }),
       'streak-7': Math.max(_n(streak.best), _n(streak.cur)) >= NEED.streak,
@@ -211,7 +224,10 @@ var Badges = (function() {
       'weekly-4': weeklyRun(J.weekly) >= NEED.weekly,
       'cards-30': (Array.isArray(th.cards) ? th.cards.filter(function(c) { return _isObj(c) && c.id != null; }).length : 0) >= NEED.cards,
       'l3-30': isFinite(l3) && isFinite(now) && now - l3 >= NEED.l3Days * DAY,
-      'master': _passedReal(nodes[MASTER_BOSS])
+      'master': _passedReal(nodes[MASTER_BOSS]),
+      'career-first': _n(car.sessions) >= 1,
+      'career-cardroom': (Array.isArray(car.venues) ? car.venues : []).some(function(v) { return typeof v === 'string' && v && v !== CAREER_HOME; }),
+      'career-cash': _n(car.cashes) >= 1
     };
     return BADGES.filter(function(b) { return C[b.id] === true; }).map(function(b) { return b.id; });
   }
@@ -271,6 +287,27 @@ var Badges = (function() {
     if (lv !== null && lv !== undefined && isFinite(lv) && M.l3Since) { M.l3Since = null; return true; }
     return false;
   }
+  // (F4) 커리어 이벤트 버스 연결: 로드 순서와 무관하게 홈을 처음 그릴 때(onHome) 한 번 구독한다(core F1이 note('career')를 직접 불러도
+  // 첫 1회 조건이라 두 번 세어도 결과는 같다). 구독 해제는 _unwireCareer(테스트용).
+  var _careerOff = null;
+  function _wireCareer() {
+    if (_careerOff) return true;
+    var CC = _m('CareerContract');
+    if (!CC || typeof CC.on !== 'function') return false;
+    var offs = [];
+    var o1 = CC.on('session:end', function(p) {
+      var s = _isObj(p) && _isObj(p.session) ? p.session : {};
+      note('career', { session: true, venue: typeof s.venue === 'string' ? s.venue : null });
+    });
+    var o2 = CC.on('tourney:end', function(p) { if (_isObj(p) && _n(p.prize) > 0) note('career', { cash: true }); });
+    if (o1) offs.push(o1);
+    if (o2) offs.push(o2);
+    if (!offs.length) return false;
+    _careerOff = function() { offs.forEach(function(f) { try { f(); } catch (e) { /* 무시 */ } }); _careerOff = null; };
+    return true;
+  }
+  function _unwireCareer() { if (_careerOff) { _careerOff(); return true; } return false; }
+
   function check(now) {
     now = _now(now);
     var st = _state();
@@ -327,6 +364,14 @@ var Badges = (function() {
     } else if (kind === 'backup') {
       var mk = _monthKey(now);
       if (M.backups.indexOf(mk) < 0) { M.backups.push(mk); if (M.backups.length > BACKUP_MONTHS_MAX) M.backups = M.backups.slice(-BACKUP_MONTHS_MAX); }
+    } else if (kind === 'career') {
+      // (F4) { session: true }(세션 1회 끝), { venue: id }(그 장소에 앉음), { cash: true } 또는 { tourney: { prize > 0 } }(토너먼트 입상)
+      var CR = M.career;
+      if (data.session === true) CR.sessions += 1;
+      var ven = typeof data.venue === 'string' ? data.venue : null;
+      if (ven && CR.venues.indexOf(ven) < 0) { CR.venues.push(ven); if (CR.venues.length > CAREER_VENUES_MAX) CR.venues = CR.venues.slice(-CAREER_VENUES_MAX); }
+      var tp = _isObj(data.tourney) ? data.tourney : null;
+      if (data.cash === true || (tp && _n(tp.prize) > 0)) CR.cashes += 1;
     }
     // 기록이 바뀌지 않은 이벤트(모르는 kind, 배지와 무관한 퍼즐 유형)는 저장도 확인도 하지 않는다(퍼즐 문항마다 불리므로 가볍게)
     if (JSON.stringify(M) === before) return [];
@@ -358,6 +403,7 @@ var Badges = (function() {
   function onHome(now) {
     now = _now(now);
     applyLooks();
+    _wireCareer();
     check(now);
     var st = _state();
     if (!st) return [];
@@ -493,7 +539,8 @@ var Badges = (function() {
     evaluate: evaluate, context: context, coachLevel: coachLevel, weeklyRun: weeklyRun,
     note: note, check: check, onHome: onHome, homeCard: homeCard, list: list, toastText: toastText,
     looks: looks, lookClasses: lookClasses, applyLooks: applyLooks, setLook: setLook,
-    info: function(id) { var b = _byId[id]; return b ? { id: b.id, icon: b.icon, name: b.name, text: b.text } : null; }
+    info: function(id) { var b = _byId[id]; return b ? { id: b.id, icon: b.icon, name: b.name, text: b.text } : null; },
+    _wireCareer: _wireCareer, _unwireCareer: _unwireCareer
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

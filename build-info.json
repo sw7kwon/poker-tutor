@@ -1,8 +1,8 @@
 {
-  "version": "db97240-202610221526",
-  "sha": "db97240",
+  "version": "fe0d39f-202610222138",
+  "sha": "fe0d39f",
   "branch": "feat/journey",
-  "builtAt": "2026-10-22T06:26:30.652Z",
+  "builtAt": "2026-10-22T12:38:49.590Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",
@@ -15,6 +15,7 @@
     "css/cards.css",
     "css/career.css",
     "css/chart.css",
+    "css/chips.css",
     "css/collection.css",
     "css/dashboard.css",
     "css/history.css",
@@ -141,6 +142,7 @@
     "ui/animator.js",
     "ui/backup-ui.js",
     "ui/cards.js",
+    "ui/chips.js",
     "ui/coach-ui.js",
     "ui/gto-chart.js",
     "ui/history.js",

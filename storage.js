@@ -53,12 +53,13 @@ var Storage = (function() {
     return groups;
   }
   // ── 기록 백업/복원 (모바일 PWA 9차 A-4b) ──────────────────────────────
-  // 내보내기 파일 = {app:'poker-tutor', schema:2, exportedAt, appVersion, device, data:{9키: 값|null}}
+  // 내보내기 파일 = {app:'poker-tutor', schema:2, exportedAt, appVersion, device, data:{10키: 값|null}}
   // schema 1(6키) 파일도 그대로 가져온다(없는 여정 3키는 null). 가져오기 직전 상태는 PREV_KEY 1슬롯에 원문 그대로 보관
+  // 커리어 기록 poker_career(클라우드 F1, 설계 원문 5.2절 6번)는 schema 2 그대로 10번째 키로 들어간다(키가 없는 예전 파일은 null = 로컬 유지)
   var BACKUP_KEYS = ['poker_progress', 'poker_mistakes', 'poker_game_history', 'poker_drills', 'poker_coach', 'poker_thinking_mode',
-    'poker_journey', 'poker_journey_stats', 'poker_journey_settings'];
+    'poker_journey', 'poker_journey_stats', 'poker_journey_settings', 'poker_career'];
   var DATA_KEYS = ['poker_progress', 'poker_mistakes', 'poker_game_history', 'poker_drills',
-    'poker_journey', 'poker_journey_stats'];                                                 // 학습 기록
+    'poker_journey', 'poker_journey_stats', 'poker_career'];                                 // 학습 기록
   var SETTING_KEYS = ['poker_coach', 'poker_thinking_mode', 'poker_journey_settings'];       // 기기 설정
   var PREV_KEY = 'poker_backup_prev';
   var SCHEMA = 2;
@@ -107,7 +108,7 @@ var Storage = (function() {
   // 키별 형식 검사 → 오류 문구(초보자용) 또는 null
   var _LABEL = { poker_progress: '커리큘럼 진도', poker_mistakes: '실수 기록', poker_game_history: '핸드 기록',
     poker_drills: '드릴 기록', poker_coach: '코칭 설정', poker_thinking_mode: '띵킹 설정',
-    poker_journey: '여정 기록', poker_journey_stats: '여정 통계', poker_journey_settings: '여정 설정' };
+    poker_journey: '여정 기록', poker_journey_stats: '여정 통계', poker_journey_settings: '여정 설정', poker_career: '커리어 기록' };
   function _checkKey(k, v) {
     if (v == null) return null;
     var bad = _LABEL[k] + ' 형식이 올바르지 않아요';
@@ -135,6 +136,10 @@ var Storage = (function() {
       if (v.days != null && !_isObj(v.days)) return bad;
       if (v.weeks != null && !_isObj(v.weeks)) return bad;
       if (v.recent != null && !Array.isArray(v.recent)) return bad;
+    }
+    if (k === 'poker_career') {
+      if (v.bankroll != null && _num(v.bankroll) === null) return bad;
+      if (v.v != null && _num(v.v) === null) return bad;
     }
     return null;
   }
@@ -765,7 +770,66 @@ var Storage = (function() {
     return any ? keys : undefined;
   }
 
-  // local, incoming = {9키: 값|null} → 새 객체(입력 불변)
+  // ── 커리어 기록 병합(클라우드 F1, 설계 원문 5.2절 6번). 두 기기에서 따로 친 커리어를 합친다 ──
+  // 현재 상태 묶음(bankroll, venue, session, title, reputation과 같이 움직이는 region, stake, daily, property, events, challenges)은
+  // updatedAt이 늦은 쪽(같으면 로컬). trophies와 unlocked는 합집합(trophies는 id 기준, 중복은 로컬 기록), stats는 필드별 최대(byVenue, byRival,
+  // tourney는 키마다 필드별 최대, 합산하지 않음), log는 at 기준 합집합 최근 50개, story는 라이벌마다 stage 큰 쪽(같으면 로컬), lessons는 합집합(같은 레슨은
+  // 이른 완료 시각). createdAt은 이른 쪽, v는 큰 값, updatedAt은 늦은 쪽. 그 밖의 필드는 로컬 우선(파일에만 있으면 가져온다).
+  var CAREER_LOG_CAP = 50;                                      // journey/career/core.js LOG_CAP
+  var CAREER_LATEST = ['bankroll', 'venue', 'session', 'title', 'reputation', 'region', 'stake', 'daily', 'property', 'events', 'challenges'];
+  function _maxFields(a, b) {
+    var ao = _isObj(a), bo = _isObj(b);
+    if (!ao && !bo) return undefined;
+    var A = ao ? a : {}, Bv = bo ? b : {}, out = _overlay(A, Bv);
+    Object.keys(A).concat(Object.keys(Bv)).forEach(function(k) {
+      var x = A[k], y = Bv[k];
+      if (_isObj(x) || _isObj(y)) { if (_isObj(x) && _isObj(y)) out[k] = _maxFields(x, y); return; }
+      if (_num(x) !== null || _num(y) !== null) out[k] = _max(x, y);
+    });
+    return out;
+  }
+  function _mergeCareer(l, r) {
+    if (!_isObj(l)) return _clone(_isObj(r) ? r : null);
+    if (!_isObj(r)) return _clone(l);
+    var out = _overlay(l, r);
+    var later = _time(r.updatedAt) > _time(l.updatedAt) ? r : l;
+    CAREER_LATEST.forEach(function(k) { if (_has(later, k)) out[k] = _clone2(later[k]); });   // 늦은 쪽에 없으면 overlay 값(로컬 우선)
+    _put(out, 'v', _max(l.v, r.v));
+    var c1 = _time(l.createdAt), c2 = _time(r.createdAt);
+    if (isFinite(c2) && (!isFinite(c1) || c2 < c1)) out.createdAt = r.createdAt;
+    var u1 = _time(l.updatedAt), u2 = _time(r.updatedAt);
+    if (isFinite(u2) && (!isFinite(u1) || u2 > u1)) out.updatedAt = r.updatedAt;
+    _put(out, 'trophies', _unionList(l.trophies, r.trophies, _idKey));
+    if (_isObj(l.unlocked) || _isObj(r.unlocked)) {
+      var lu = _isObj(l.unlocked) ? l.unlocked : {}, ru = _isObj(r.unlocked) ? r.unlocked : {}, un = _overlay(lu, ru);
+      ['regions', 'venues'].forEach(function(k) {
+        if (!Array.isArray(lu[k]) && !Array.isArray(ru[k])) return;
+        var seen = Object.create(null), list = [];
+        (Array.isArray(lu[k]) ? lu[k] : []).concat(Array.isArray(ru[k]) ? ru[k] : []).forEach(function(id) {
+          if (typeof id !== 'string' || seen[id]) return;
+          seen[id] = 1; list.push(id);
+        });
+        un[k] = list;
+      });
+      out.unlocked = un;
+    }
+    _put(out, 'stats', _maxFields(l.stats, r.stats));
+    var lg = _unionList(l.log, r.log, function(e) { return String(e.at) + '|' + String(e.kind) + '|' + String(e.text); });
+    if (lg) out.log = _sortTail(lg, function(e) { return _time(e.at); }, CAREER_LOG_CAP);
+    _put(out, 'story', _mergeMap(l.story, r.story, function(b, a) { return (_num(b.stage) || 0) > (_num(a.stage) || 0); }));
+    if (_isObj(l.lessons) || _isObj(r.lessons)) {
+      var ll = _isObj(l.lessons) ? l.lessons : {}, rl = _isObj(r.lessons) ? r.lessons : {}, ls = {};
+      Object.keys(ll).concat(Object.keys(rl)).forEach(function(id) {
+        if (_has(ls, id)) return;
+        var a = _has(ll, id) ? ll[id] : null, b = _has(rl, id) ? rl[id] : null;
+        ls[id] = (a != null && b != null) ? (_time(b) < _time(a) ? b : a) : (a != null ? a : b);
+      });
+      out.lessons = ls;
+    }
+    return out;
+  }
+
+  // local, incoming = {10키: 값|null} → 새 객체(입력 불변)
   function mergeData(local, incoming) {
     local = _isObj(local) ? local : {}; incoming = _isObj(incoming) ? incoming : {};
     var out = {};
@@ -775,12 +839,13 @@ var Storage = (function() {
     out.poker_drills = _mergeDrills(local.poker_drills, incoming.poker_drills);
     out.poker_journey = _mergeJourney(local.poker_journey, incoming.poker_journey);
     out.poker_journey_stats = _mergeStats(local.poker_journey_stats, incoming.poker_journey_stats, _hiddenKeys(out.poker_journey));
+    out.poker_career = _mergeCareer(local.poker_career, incoming.poker_career);
     // 기기 설정: 로컬 유지(로컬에 없을 때만 파일 값)
     SETTING_KEYS.forEach(function(k) { out[k] = _clone(local[k] != null ? local[k] : (incoming[k] != null ? incoming[k] : null)); });
     return out;
   }
 
-  // 덮어쓰기: 학습 기록 4키는 파일대로(null=삭제, 키 자체가 없으면 로컬 유지), 설정 2키는 파일에 값이 있을 때만
+  // 덮어쓰기: 학습 기록 7키는 파일대로(null=삭제, 키 자체가 없으면 로컬 유지), 설정 3키는 파일에 값이 있을 때만
   function _replaceData(local, incoming) {
     var out = {};
     DATA_KEYS.forEach(function(k) {
@@ -813,18 +878,22 @@ var Storage = (function() {
   }
   function hasPrev() { return !!_prev(); }
 
-  // 기록 요약(되돌리기 확인 문구, 가져오기 미리보기): 여정 XP, 통과 노드, 실수 복습 항목, 핸드, 실수, 스트릭
+  // 기록 요약(되돌리기 확인 문구, 가져오기 미리보기): 여정 XP, 통과 노드, 실수 복습 항목, 핸드, 실수, 스트릭,
+  // 커리어(F1: career { bankroll, sessions, trophies }, 기록이 없으면 null. 미리보기 문구는 BackupUI가 붙인다)
   function brief(data) {
     var d = _isObj(data) ? data : {};
     var j = _isObj(d.poker_journey) ? d.poker_journey : {};
     var nodes = _isObj(j.nodes) ? j.nodes : {}, passed = 0;
     Object.keys(nodes).forEach(function(id) { if (_isObj(nodes[id]) && nodes[id].status === 'passed') passed++; });
+    var c = _isObj(d.poker_career) ? d.poker_career : null;
     return {
       xp: _num(j.xp) || 0, passed: passed,
       review: (_isObj(j.review) && _isObj(j.review.items)) ? Object.keys(j.review.items).length : 0,
       streak: _isObj(j.streak) ? (_num(j.streak.cur) || 0) : 0,
       hands: Array.isArray(d.poker_game_history) ? d.poker_game_history.length : 0,
-      mistakes: Array.isArray(d.poker_mistakes) ? d.poker_mistakes.length : 0
+      mistakes: Array.isArray(d.poker_mistakes) ? d.poker_mistakes.length : 0,
+      career: c ? { bankroll: _num(c.bankroll) || 0, sessions: _isObj(c.stats) ? (_num(c.stats.sessions) || 0) : 0,
+        trophies: Array.isArray(c.trophies) ? c.trophies.length : 0 } : null
     };
   }
   function _parseRaw(rawMap) {

@@ -60,9 +60,10 @@ var JourneyUI = (function() {
   var VIEW_TITLE = { dashboard: '📊 내 실력', weekly: '📅 주간 리포트', collection: '🗂 수집', placement: '📝 실력 확인 3분',
     settings: '⚙ 설정', rush: '⚡ 퍼즐 러시', theater: '🎭 속마음 극장' };
   VIEWS.rangeLab = 'RangeLabView'; VIEW_TITLE.rangeLab = '🗺 레인지 학습실';   // (P0, 다음 묶음 G5) 레인지 학습실(journey/views/range-lab.js)
+  VIEWS.career = 'CareerView'; VIEW_TITLE.career = '🎰 커리어';   // (웨이브1 통합 검증, D' 5번) 커리어 지도(journey/views/career.js, CareerMap이 그림)
   var HABITS = [ { id: '출근길', text: '출근길에' }, { id: '점심 후', text: '점심 먹고' }, { id: '자기 전', text: '자기 전에' } ];
   var SETTINGS_KEY = 'poker_journey_settings';
-  var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges', 'BackupUI'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서. BackupUI는 M7 P5(용량 90% 경고, 월간 백업 카드)
+  var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges', 'BackupUI', 'Career'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서. BackupUI는 M7 P5(용량 90% 경고, 월간 백업 카드), Career는 웨이브1(파사드 Career.homeCard, core가 없으면 null)
   var SUMMARY_HOME = '↩ 여정 홈으로';                        // (M6-P0, 계약 H11 d) 빠른 줄 자유 게임 세션 요약 정적 버튼
 
   var _inited = false;

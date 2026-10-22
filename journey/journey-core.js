@@ -29,6 +29,13 @@
 //     (최근 20)에 남긴다. 분량을 채워 자동으로 끝난 세션, 교체(replaced)나 다른 게임(other)으로 끝난 세션은 세지 않는다.
 //   checkNode(id, now) = 학습 노드 자동 통과 재판정(맞히기 제출 뒤), nextNode는 기다리기만 남은 노드(br.later, 다음 주 복기)도 뒤로 미룬다.
 // 로드 시 document, window, localStorage, setTimeout에 접근하지 않는다(전부 함수 안에서 typeof 가드).
+// PERF-6(클라우드 C'): 저장은 지연 쓰기다. save()는 메모리 캐시를 '쓸 것'으로 표시만 하고 DEFER_MS(300ms) 안의 연속 save()를 한 번의
+//   localStorage.setItem으로 묶는다(퍼즐 1문항의 XP, 배지, 레이팅, 활동 기록 5회가 1회로). 즉시 쓰는 때: flush()(visibilitychange hidden,
+//   pagehide, beforeunload, 백업 내보내기와 가져오기 직전), 지연을 쓸 수 없는 환경(document.visibilityState가 없는 node 러너, 테스트 주입
+//   저장소, setTimeout 없음). 쓸 때 원문이 마지막으로 쓴(읽은) 원문과 같으면 쓰지 않는다(홈을 다시 그리거나 복귀할 때의 빈 저장).
+//   _unsaved(마지막 쓰기 실패, 메모리 캐시가 유일한 최신본)와 _invalidateExternal(다른 창 저장 이벤트는 캐시를 버린다)의 뜻은 그대로다.
+//   다른 창의 storage 이벤트가 오면 이 창의 미기록 변경(최대 300ms)은 버린다(예전에도 다른 창의 저장이 이 창의 저장을 덮었다).
+//   앱이 갑자기 꺼져도 잃는 것은 마지막 수백 ms의 변경뿐이다.
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
 // "가용(available)" = 선행이 모두 통과이고 상태가 open 또는 done(마이그레이션으로 잠긴 채 done이 된 노드는 선행 통과 뒤 가용).
@@ -78,6 +85,12 @@ var Journey = (function() {
 
   var _cache = null;          // 상태 캐시(메모리 폴백 겸용)
   var _unsaved = false;       // 마지막 저장이 실패함(저장소 없음, 용량 초과): 메모리 캐시만 최신이라 바깥 이벤트로 비우면 진행이 사라진다
+  var DEFER_MS = 300;         // 같은 키 연속 save()를 묶는 지연(PERF-6)
+  var _dirty = false;         // 캐시에 아직 저장소에 쓰지 않은 변경이 있음(지연 쓰기 대기)
+  var _timer = null;          // 지연 쓰기 타이머 id
+  var _lastRaw = null;        // 마지막으로 저장소에 쓴(또는 읽은) 원문. 같은 원문은 다시 쓰지 않는다
+  var _deferOver = null;      // 테스트 주입 지연 ms(null = 환경 자동 판정, 0 = 즉시)
+  var _writes = 0;            // 실제 setItem 시도 횟수(테스트, 진단용)
   var _session = null;       // 세션 컨텍스트(메모리 전용, 새로고침하면 사라짐)
   var _todayRunning = false;  // 오늘의 5분 진행 중(메모리 전용)
   var _hand = null;           // 진행 중 핸드 메타(onNewHand)
@@ -119,9 +132,14 @@ var Journey = (function() {
     if (_storeOver) return _storeOver;
     try { return (typeof localStorage !== 'undefined' && localStorage) ? localStorage : null; } catch (e) { return null; }
   }
-  function _readJSON(key) {
+  function _readRaw(key) {
     var s = _store(); if (!s) return null;
-    try { var raw = s.getItem(key); return raw == null ? null : JSON.parse(raw); } catch (e) { return null; }
+    try { var raw = s.getItem(key); return raw == null ? null : String(raw); } catch (e) { return null; }
+  }
+  function _readJSON(key) {
+    var raw = _readRaw(key);
+    if (raw == null) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
   }
   function _writeJSON(key, val) {
     var s = _store(); if (!s) return false;
@@ -272,9 +290,12 @@ var Journey = (function() {
   function load() {
     if (_cache) return _cache;
     var now = Date.now();
-    var raw = _readJSON(KEY);
-    if (_isObj(raw) && _isObj(raw.nodes)) {
-      _cache = _normalize(_upgrade(raw), now);
+    var raw = _readRaw(KEY), obj = null;
+    if (raw != null) { try { obj = JSON.parse(raw); } catch (e) { obj = null; } }
+    _lastRaw = null;
+    if (_isObj(obj) && _isObj(obj.nodes)) {
+      _lastRaw = raw;                                        // 정규화로 바뀐 것이 없으면 save()가 다시 쓰지 않는다
+      _cache = _normalize(_upgrade(obj), now);
     } else {
       _cache = defaults(now);
       _migrateInto(_cache, now);
@@ -283,13 +304,56 @@ var Journey = (function() {
     return _cache;
   }
   function _st() { return _cache || load(); }
+
+  // ── 지연 쓰기(PERF-6) ──
+  // 지연 ms: 테스트 주입값 > 테스트 주입 저장소(테스트가 저장소 원문을 바로 읽는다)와 숨김 이벤트를 받을 수 없는 환경
+  // (document.visibilityState 없음 = node 러너)과 setTimeout 없음은 0(즉시) > DEFER_MS
+  function _deferMs() {
+    if (typeof _deferOver === 'number') return Math.max(0, _deferOver);
+    if (_storeOver) return 0;
+    if (typeof document === 'undefined' || !document || typeof document.visibilityState !== 'string') return 0;
+    if (typeof setTimeout !== 'function') return 0;
+    return DEFER_MS;
+  }
+  function _cancelTimer() {
+    if (_timer == null) return;
+    try { clearTimeout(_timer); } catch (e) {}
+    _timer = null;
+  }
+  // 지금 쓴다. 원문이 마지막으로 쓴(읽은) 것과 같으면 setItem을 부르지 않는다. → 저장소와 캐시가 같은가
+  function _writeNow() {
+    _dirty = false;
+    if (!_cache) return !_unsaved;
+    var s = _store();
+    if (!s) { _unsaved = true; return false; }
+    var raw;
+    try { raw = JSON.stringify(_cache); } catch (e) { _unsaved = true; return false; }
+    if (raw === _lastRaw) { _unsaved = false; return true; }
+    _writes++;
+    try { s.setItem(KEY, raw); _lastRaw = raw; _unsaved = false; return true; }
+    catch (e) { _unsaved = true; return false; }
+  }
+  function _onTimer() { _timer = null; if (_dirty || _unsaved) _writeNow(); }
+  // 캐시를 '쓸 것'으로 표시. 지연이 0이면 바로 쓰고, 아니면 DEFER_MS 뒤 한 번만 쓴다(타이머가 이미 있으면 그 타이머가 맡는다)
   function save(state) {
     if (_isObj(state)) _cache = state;
     if (!_cache) return;
-    _unsaved = !_writeJSON(KEY, _cache);
+    _dirty = true;
+    var ms = _deferMs();
+    if (!(ms > 0)) { _cancelTimer(); _writeNow(); return; }
+    if (_timer != null) return;
+    try { _timer = setTimeout(_onTimer, ms); }
+    catch (e) { _timer = null; _writeNow(); }
   }
+  // 대기 중인 쓰기를 지금 끝낸다(화면 숨김, 페이지 떠남, 백업 직전). 실패했던 쓰기도 다시 시도한다. → 저장소와 캐시가 같은가
+  function flush() {
+    _cancelTimer();
+    if ((_dirty || _unsaved) && _cache) return _writeNow();
+    return !_unsaved;
+  }
+  function _dropCache() { _cancelTimer(); _dirty = false; _cache = null; _lastRaw = null; }
   function reset() {
-    _cache = null; _session = null; _todayRunning = false; _hand = null; _lastPass = null; _lastTouch = null;
+    _dropCache(); _session = null; _todayRunning = false; _hand = null; _lastPass = null; _lastTouch = null;
     var s = _store();
     if (s) { try { s.removeItem(KEY); } catch (e) {} }
   }
@@ -1519,28 +1583,42 @@ var Journey = (function() {
 
   // ── 테스트 주입 ────────────────────────────────────
   // d = { nodes, stages, map, xp, unlocks } 일부만 줘도 된다. null이면 전역 데이터로 복귀. 캐시는 비운다.
-  function _setData(d) { _dataOver = _isObj(d) ? d : null; _idxSrc = null; _cache = null; _session = null; _todayRunning = false; }
-  // s = 저장소 객체(getItem/setItem/removeItem) | false(저장소 없음) | null(실제 localStorage). 캐시는 비운다.
-  function _setStore(s) { _storeOver = (s === false) ? false : (s || null); _cache = null; }
+  function _setData(d) { _dataOver = _isObj(d) ? d : null; _idxSrc = null; _dropCache(); _session = null; _todayRunning = false; }
+  // s = 저장소 객체(getItem/setItem/removeItem) | false(저장소 없음) | null(실제 localStorage). 캐시(와 대기 중인 쓰기)는 비운다.
+  function _setStore(s) { _storeOver = (s === false) ? false : (s || null); _dropCache(); }
+  // 지연 ms 주입(테스트): 숫자(0 = 즉시), null = 환경 자동 판정. 대기 중인 쓰기는 먼저 끝낸다
+  function _setDefer(ms) { flush(); _deferOver = (typeof ms === 'number' && isFinite(ms)) ? ms : null; }
+  function _writeCount() { return _writes; }
+  function _pendingWrite() { return _dirty; }
 
   // M7 DATA-01: 같은 출처의 창(탭)은 localStorage를 공유한다. 다른 창이 저장한 뒤 이 창이 오래된 메모리 캐시를 그대로 저장하면
   // 다른 창에서 쌓은 여정 전체를 덮어쓴다. 캐시를 비우면 다음 load()가 저장소를 다시 읽는다. 진행 중 세션(_session, _hand)은 메모리 그대로 둔다.
-  // Storage.importAll, restorePrev처럼 이 창이 저장소를 직접 바꾼 곳도 이 함수를 불러야 한다(같은 창에는 storage 이벤트가 안 온다).
-  function _invalidate() { _cache = null; }
+  // Storage.importAll, restorePrev처럼 이 창이 저장소를 직접 바꾼 곳(BackupUI)은 바꾼 직후 이 함수를 불러야 한다(같은 창에는 storage 이벤트가
+  // 안 온다). 대기 중이거나 실패했던 쓰기도 함께 버린다(저장소가 이제 최신본이라, 새로고침 전 beforeunload의 flush가 옛 캐시로 덮지 않게).
+  function _invalidate() { _dropCache(); _unsaved = false; }
   // 바깥 이벤트(다른 창 저장, 화면 복귀)로 비울 때: 이 창의 마지막 저장이 실패했으면(저장소 없음, 용량 초과) 메모리 캐시가 유일한 최신본이라
   // 비우지 않는다. 비우면 다음 load()가 예전 값(또는 기본값)을 읽어 앱을 오갈 때마다 진행이 되돌아간다.
-  function _invalidateExternal() { if (!_unsaved) _cache = null; }
+  // 대기 중인 쓰기(최대 300ms)는 버린다: 다른 창이 방금 저장했으므로 옛 캐시로 덮어쓰면 그 창의 기록이 사라진다.
+  function _invalidateExternal() { if (!_unsaved) _dropCache(); }
+  // 화면 복귀(visible, bfcache 복귀): 숨길 때 flush가 안 됐으면 이 창의 미기록 변경을 먼저 쓴 뒤 캐시를 비운다(다른 창이 그동안 저장했으면
+  // storage 이벤트가 이미 대기 변경을 버렸다)
+  function _onReturn() { flush(); _invalidateExternal(); }
   if (typeof window !== 'undefined' && window.addEventListener) {
     window.addEventListener('storage', function(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) _invalidateExternal(); });
-    window.addEventListener('pageshow', function(e) { if (e && e.persisted) _invalidateExternal(); });   // 뒤로가기 캐시(bfcache)에서 되살아남
+    window.addEventListener('pageshow', function(e) { if (e && e.persisted) _onReturn(); });   // 뒤로가기 캐시(bfcache)에서 되살아남
+    window.addEventListener('pagehide', function() { flush(); });                              // 떠나기(bfcache 진입 포함): 대기 쓰기 즉시
+    window.addEventListener('beforeunload', function() { flush(); });
   }
   if (typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('visibilitychange', function() { if (document.visibilityState === 'visible') _invalidateExternal(); });
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'hidden') flush();                                      // 앱 전환, 화면 끔: 대기 쓰기 즉시
+      else if (document.visibilityState === 'visible') _onReturn();
+    });
   }
 
   var api = {
     KEY: KEY, V: V,
-    load: load, save: save, reset: reset, defaults: defaults, migrate: migrate,
+    load: load, save: save, flush: flush, reset: reset, defaults: defaults, migrate: migrate,
     nodeStatus: nodeStatus, openNodes: openNodes, nextNode: nextNode,
     completeLesson: completeLesson, recordDrillSet: recordDrillSet, recordMissionHand: recordMissionHand,
     evaluateNode: evaluateNode, passNode: passNode, promote: promote,
@@ -1555,7 +1633,8 @@ var Journey = (function() {
     HIDDEN_NAMES: HIDDEN_NAMES.slice(), HIDDEN_ONE: HIDDEN_ONE, HIDDEN_TYPES: HIDDEN_TYPES.slice(),
     routePractice: routePractice, sessionFor: sessionFor, mapModel: mapModel, summary: summary, showFirstCard: showFirstCard,
     lastPass: lastPass, lastTouch: lastTouch, castList: _castList, node: _node,
-    _setData: _setData, _setStore: _setStore, _invalidate: _invalidate
+    _setData: _setData, _setStore: _setStore, _invalidate: _invalidate,
+    _setDefer: _setDefer, _writeCount: _writeCount, _pendingWrite: _pendingWrite
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

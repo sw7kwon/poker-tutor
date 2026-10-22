@@ -191,6 +191,20 @@ var Coach = (function() {
 
   function _bbNum(x) { return String(Math.round((x || 0) * 100) / 100); }
 
+  // 이유 문구의 '상위 약 n%': 입문은 Gto.GTO_RANGES 표(rangePct), 표준 티어(V.tierLabel 'chart-std')는 GtoStd.RANGES의 콤보 가중 빈도.
+  //   key 'rfi'(자리 at의 오픈 표) | 'vsLimpBB'. 표가 없으면 0
+  function _tablePct(V, key, at) {
+    try {
+      if (V && V.tierLabel === 'chart-std' && typeof GtoStd !== 'undefined' && GtoStd && GtoStd.RANGES && typeof GtoStd.freq === 'function') {
+        var sp = key === 'vsLimpBB' ? GtoStd.RANGES.vsLimpBB : (GtoStd.RANGES.rfi ? GtoStd.RANGES.rfi[at] : null);
+        return sp ? Math.round(GtoStd.freq(sp).total * 100) : 0;
+      }
+      var GR = (typeof Gto !== 'undefined' && Gto.GTO_RANGES) ? Gto.GTO_RANGES : null;
+      var arr = !GR ? null : key === 'vsLimpBB' ? GR.vsLimpBB : (GR.rfi ? GR.rfi[at] : null);
+      return arr ? Math.round(rangePct(arr) * 100) : 0;
+    } catch (e) { return 0; }
+  }
+
   function _chartWhy(V, pos, hint) {
     var hand = V.hand || '이 패';
     var lbl = V.label;
@@ -198,9 +212,7 @@ var Coach = (function() {
       var n = V.limpers || 1, sz = _bbNum(V.size) + 'bb';
       // 아이솔 기준 표(M4-P9): 림퍼 1명 = 내 자리 RFI 표, 2명 이상 = 한 칸 좁은 자리(V.isoPos) RFI 표, BB = vsLimpBB
       var isoAt = V.isoPos || pos;
-      var GR = (typeof Gto !== 'undefined' && Gto.GTO_RANGES) ? Gto.GTO_RANGES : null;
-      var isoArr = !GR ? null : pos === 'BB' ? GR.vsLimpBB : (GR.rfi ? GR.rfi[isoAt] : null);
-      var ip = isoArr ? Math.round(rangePct(isoArr) * 100) : 0;
+      var ip = _tablePct(V, pos === 'BB' ? 'vsLimpBB' : 'rfi', isoAt);
       var top = ip ? '(상위 약 ' + ip + '%)' : '';
       if (pos === 'BB') {
         if (V.action === 'raise') return '림퍼 ' + n + '명, BB에서 ' + hand + '는 아주 강한 패' + top + ' → ' + sz + '로 아이솔 레이즈';
@@ -218,8 +230,7 @@ var Coach = (function() {
     }
     if (V.spot === 'rfi') {
       if (pos === 'BB' && V.action === 'check') return '아무도 레이즈 안 했으니 공짜로 플랍을 봐요 → 체크';
-      var arr = (typeof Gto !== 'undefined' && Gto.GTO_RANGES && Gto.GTO_RANGES.rfi) ? Gto.GTO_RANGES.rfi[pos] : null;
-      var p = arr ? Math.round(rangePct(arr) * 100) : 0;
+      var p = _tablePct(V, 'rfi', pos);
       if (V.action === 'raise') {
         return pos + '에서 ' + hand + '는 오픈 레인지' + (p ? '(상위 약 ' + p + '%)' : '') + ' 안 → 레이즈';
       }
@@ -258,14 +269,35 @@ var Coach = (function() {
     return br.indexOf(h[0].rank) >= 0 && br.indexOf(h[1].rank) >= 0;
   }
 
+  // 표준 차트 티어(클라우드 E, GtoStd)가 켜져 있나: 설정 chartTier와 단계, 승급 시험과 미션 제외는 GtoStd.active가 판정한다.
+  //   opts.tier 'beginner'|'standard'로 강제할 수 있다(시뮬과 테스트용). 스텁(STUB)이면 늘 입문.
+  function _stdOn(state, opts) {
+    if (typeof GtoStd === 'undefined' || !GtoStd || GtoStd.STUB || typeof GtoStd.preflopHint !== 'function') return false;
+    if (opts && opts.tier === 'beginner') return false;
+    if (opts && opts.tier === 'standard') return true;
+    try { return typeof GtoStd.active === 'function' && GtoStd.active(state) === true; } catch (e) { return false; }
+  }
+  var _W_KOR = { raise: '레이즈', call: '콜', fold: '폴드' };
+  // 표준 차트의 섞는 손 문구: 'A5s는 표준 차트(참고)로 레이즈 50%, 콜 50%로 섞는 손'
+  function _mixWhy(V, w) {
+    var parts = ['raise', 'call', 'fold'].filter(function(k) { return w[k] > 0.0001; })
+      .map(function(k) { return _W_KOR[k] + ' ' + _pct(w[k]) + '%'; });
+    return (V.hand || '이 패') + '는 표준 차트(참고)로 ' + parts.join(', ') + '로 섞는 손';
+  }
+  function _isMixed(w) { return !!w && ['raise', 'call', 'fold'].filter(function(k) { return w[k] > 0.0001; }).length > 1; }
+
   function verdict(state, ev, eq, heroPos, opts) {
     var V = _base(state, ev, eq, heroPos);
     var pos = _heroPos(state, heroPos);
     if (!state) return _evVerdict(V, ev);
 
     if (state.street === 'preflop') {
-      var h = null;
-      if (typeof Gto !== 'undefined' && Gto.preflopHint) {
+      var h = null, std = _stdOn(state, opts);
+      if (std) {
+        try { h = GtoStd.preflopHint(state, pos); } catch (e) { h = null; }
+        if (!h) std = false;
+      }
+      if (!h && typeof Gto !== 'undefined' && Gto.preflopHint) {
         try { h = Gto.preflopHint(state, pos); } catch (e) { h = null; }
       }
       if (!h) return _evVerdict(V, ev);
@@ -275,6 +307,7 @@ var Coach = (function() {
       else if (h.action === 'check') m = ['check', 'call'];
       else m = V.toCall === 0 ? ['check', 'call'] : ['fold', 'fold'];
       V.action = m[0]; V.evKey = m[1]; V.source = 'chart';
+      if (std) V.tierLabel = 'chart-std';   // _chartWhy의 '상위 약 n%'가 표준 표 빈도를 쓰게 먼저 둔다
       var f = h.facing;
       // 림퍼 뒤(레이즈 없음, 팟 > 1.5bb)는 'vs_limp': 아이솔 판정, 개념은 오픈과 같은 'rfi'(s2-05)
       var iso = f === false && h.limpers > 0;
@@ -288,6 +321,24 @@ var Coach = (function() {
       V.label = _label(V.action, V.toCall, 'preflop');
       if (iso && V.alt) V.label += ' 또는 ' + _label(V.alt, V.toCall, 'preflop');   // BB: 둘 다 정답('체크 또는 레이즈')
       V.why = _clip(_chartWhy(V, pos, h), 70);
+      if (std) {
+        // 표준 티어(클라우드 E): 라벨 종류 'chart-std'(파란 칩 '이 앱 표준 차트 기준(참고)'), 빈도 w와 둘 다 정답 목록 ok.
+        //   섞는 손은 이유 문구를 빈도로 바꾸고, 빈도 0.25 이상인 두 번째 액션을 라벨에 '또는'으로 붙인다(grade가 둘 다 초록).
+        V.tierLabel = 'chart-std';
+        V.w = h.w || null;
+        V.ok = Array.isArray(h.ok) ? h.ok.slice() : null;
+        if (_isMixed(V.w)) {
+          var second = ['raise', 'call', 'fold'].filter(function(k) { return k !== category(V.action) && V.w[k] >= 0.25; })[0] || null;
+          if (second && !(iso && V.alt)) {
+            var alt2 = second === 'call' ? (V.toCall === 0 ? 'check' : 'call') : second === 'fold' ? (V.toCall === 0 ? 'check' : 'fold') : 'raise';
+            if (category(alt2) !== category(V.action)) {
+              if (iso) V.alt = alt2;
+              V.label += ' 또는 ' + _label(alt2, V.toCall, 'preflop');
+            }
+          }
+          V.why = _clip(_mixWhy(V, V.w), 70);
+        }
+      }
       return V;
     }
 
@@ -417,6 +468,14 @@ var Coach = (function() {
       return jr;
     }
     if (cat === vcat) return _res('green', 0, null, action, V.why);
+
+    // 표준 차트 티어(클라우드 E): 내가 고른 액션의 차트 빈도 w로 3분기. 0.25 이상이면 둘 다 정답(초록), 0보다 크고 0.25 미만이면
+    //   '가끔만 섞는 손'(노랑, 작은 실수, 패턴 없음), 0이면 아래 입문 패턴 규칙 그대로(큰 실수/작은 실수와 패턴).
+    if (V.source === 'chart' && V.tierLabel === 'chart-std' && V.w && typeof V.w[cat] === 'number') {
+      var wk = V.w[cat];
+      if (wk >= 0.25) return _res('green', 0, null, action, '표준 차트(참고)는 ' + _W_KOR[cat] + ' ' + _pct(wk) + '%로 섞는 손이라 둘 다 정답이에요');
+      if (wk > 0) return _res('yellow', -0.5, null, action, '가끔만 섞는 손이에요(표준 차트 ' + _W_KOR[cat] + ' ' + _pct(wk) + '%): 보통은 ' + V.label);
+    }
 
     // 벳 직면은 필요 승률과 비교한 승률(V.eqUsed, 다음 1장 또는 축소 레인지 기준)로 말한다. 예전 V(eqUsed 없음)는 V.eq
     var eqU = (V.eqUsed != null) ? V.eqUsed : V.eq;

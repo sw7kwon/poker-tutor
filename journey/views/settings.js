@@ -4,7 +4,8 @@
 // M6(계약 H6): 🧠 상대 카드의 '상대가 내 성향에 적응'(키 adaptive, 기본 켜기)은 VillainAdaptive.unlocked()가 true일 때만(S5 승급 시험 통과 뒤).
 // (P0, 다음 묶음 R3b) 🎓 코칭 보조 카드: '액션별 이길 확률(연구용)'(키 winChance, 기본 꺼짐)과 경고 문구. 게임 화면 슬라이더 읽기(RaiseInfo)가
 //   '내 승률' 칩(showEq)도 켜져 있을 때만 보이고, 승급 시험, 미션, 은닉 테이블, GTO 미러 측정 회차에서는 늘 숨긴다.
-//   클라우드 E가 '👀 보기' 카드에 프리플랍 차트 티어 행(chartTier)을 더한다.
+//   (클라우드 E, R4) '👀 보기' 카드의 '프리플랍 차트' 행(키 chartTier: auto(S3부터 표준) | beginner | standard, 기본 auto). 표준 티어는
+//   자유 게임 코칭과 차트 패널에만 쓰고 승급 시험과 미션은 늘 입문 차트다(GtoStd.active).
 //   html(settings, sup, opts)의 opts.adaptive(true/false)로 표시 여부를 직접 줄 수 있다(테스트용, 없으면 VillainAdaptive.unlocked()).
 //   효과음은 WebAudio, 진동은 navigator.vibrate가 없으면 그 줄을 숨긴다. 둘 다 기본 꺼짐.
 // 누르면 A11y.save(patch)로 바로 저장하고 적용한 뒤 다시 그린다. 맨 위 미리보기 줄(카드 4장, 차트 칸 3개)로 결과를 바로 본다.
@@ -14,7 +15,7 @@ var SettingsView = (function() {
   var SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   var RED = { h: 1, d: 1 };
   var PREVIEW = [['A', 's'], ['K', 'h'], ['Q', 'd'], ['J', 'c']];
-  var FALLBACK = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true };
+  var FALLBACK = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, chartTier: 'auto' };
   var _el = null;
 
   function _a11y(fn) { return (typeof A11y !== 'undefined' && A11y && typeof A11y[fn] === 'function') ? A11y : null; }
@@ -86,11 +87,16 @@ var SettingsView = (function() {
       _row('goal', '하루 목표', '오늘의 5분 길이가 달라져요(복습, 레슨, 재미 블록 수).',
         [5, 10, 15].map(function(m) { return _pick('goal', m, goal === m, m + '분'); })) + '</div>';
     var rm = (s.reduceMotion === true || s.reduceMotion === false) ? s.reduceMotion : null;
+    var tierNow = (s.chartTier === 'beginner' || s.chartTier === 'standard') ? s.chartTier : 'auto';
     var look = [
       _row('fontScale', '글자 크기', '앱 전체 글자가 커져요.',
         [100, 115, 130].map(function(n) { return _pick('fontScale', n, s.fontScale === n, n + '%'); })),
       _row('fourColor', '4색 덱', '♦는 파랑, ♣는 초록으로 보여 무늬를 헷갈리지 않아요.', _onOff('fourColor', s.fourColor, '보통', '4색')),
-      _row('cbChart', '색약용 차트', '차트 칸에 R(레이즈), C(콜), F(폴드) 글자를 같이 쓰고 밝기 차이를 키워요.', _onOff('cbChart', s.cbChart))
+      _row('cbChart', '색약용 차트', '차트 칸에 R(레이즈), C(콜), F(폴드) 글자를 같이 쓰고 밝기 차이를 키워요.', _onOff('cbChart', s.cbChart)),
+      // (클라우드 E, R4) 프리플랍 차트 티어: 자유 게임 코칭과 차트 패널만 바뀐다. 판정은 GtoStd.active
+      _row('chartTier', '프리플랍 차트', '표준은 공개 솔버 통념을 근사한 참고 차트예요. 승급 시험과 미션은 늘 입문 차트로 판정해요.',
+        [_pick('chartTier', 'auto', tierNow === 'auto', '자동(S3부터 표준)'), _pick('chartTier', 'beginner', tierNow === 'beginner', '입문'),
+          _pick('chartTier', 'standard', tierNow === 'standard', '표준')])
     ];
     var motion = [
       _row('reduceMotion', '카드 돌리기와 화면 효과', '줄이면 카드와 화면이 기다림 없이 바로 나타나요. 시스템 따름은 폰의 동작 줄이기 설정을 따라요.',
@@ -138,7 +144,7 @@ var SettingsView = (function() {
 
   var LIVE = { fontScale: '글자 크기를 바꿨어요', fourColor: '4색 덱을 바꿨어요', cbChart: '색약용 차트를 바꿨어요',
     reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요',
-    goal: '하루 목표를 바꿨어요', winChance: '액션별 이길 확률 설정을 바꿨어요' };
+    goal: '하루 목표를 바꿨어요', winChance: '액션별 이길 확률 설정을 바꿨어요', chartTier: '프리플랍 차트 설정을 바꿨어요' };
 
   // set(key, value): 바로 저장 + 적용 + 다시 그리기. 반환 = 저장된 설정
   // (UX-02) key 'goal'은 A11y가 아니라 Journey 상태(goal.minutes)에 저장. 반환은 { goal } (TodayUI.preview는 _cache.goal이 다르면 스스로 다시 계산)

@@ -303,6 +303,8 @@ var CoachUI = (function() {
   }
   function _basis(V, post) {
     var b = BASIS[(V && V.source) || 'ev'] || BASIS.ev;
+    // 표준 차트 티어(클라우드 E, V.tierLabel 'chart-std'): 입문 차트와 구분해 '표준 차트 기준(참고)'(RangeNotes.TAG_TEXT와 같은 말)
+    if (V && V.source === 'chart' && V.tierLabel === 'chart-std') b = ['표준 차트 기준(참고)', '표준 차트대로'];
     if (V && V.source === 'guide' && V.street && V.street !== 'flop') b = ['포스트플랍 가이드 기준', '가이드대로'];
     return b[post ? 1 : 0];
   }

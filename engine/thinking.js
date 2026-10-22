@@ -569,6 +569,31 @@ var Thinking = (function() {
       '한 번 쳤으니 됐어. 반격이 왔으니 계획대로 접는다.',
       function(c) { return _ro(c.h) + ' 레이즈까지 받을 순 없어. 폴드.'; },
       '내 벳에 레이즈가 왔어. 여기서 버티면 손해야. 접는다.'
+    ],
+    // ── 클라우드 작업 I: 리버 오버벳과 플랍 체크 뒤 턴 벳 계획의 걸음 ──
+    // 리버 오버벳 밸류(넛급, 강한 손): 팟보다 큰 벳으로 중간 손의 콜을 노린다
+    overbetValue: [
+      function(c) { return '리버, ' + _j(c.h, '이니', '니') + ' 팟보다 크게 친다. 중간 손이 받아 주면 최고야.'; },
+      function(c) { return '오버벳. ' + _ro(c.h) + ' 받을 만큼 크게 받는다.'; },
+      function(c) { return '마지막 벳은 팟보다 크게. ' + _j(c.h, '이면', '면') + ' 상대가 고민 끝에 콜해 줄 때가 있어.'; }
+    ],
+    // 리버 오버벳 블러프(빈손): 넛처럼 보이게 같은 크기로 친다(밸류 벳과 크기가 같아야 상대가 구별하지 못한다)
+    overbetBluff: [
+      '리버까지 빗나갔어. 팟보다 큰 벳이면 중간 손은 접을 거야.',
+      '오버벳 블러프. 넛처럼 보이게 크게 친다.',
+      '맞은 건 없지만 큰 벳 하나면 이야기가 돼. 팟보다 크게.'
+    ],
+    // 플랍 체크 뒤 턴 벳: 플랍은 체크로 넘긴다(어느 강도에도 맞는 말)
+    checkDelay: [
+      '플랍은 일단 체크. 한 스트리트 쉬고 턴에서 먼저 친다.',
+      '플랍은 넘기고 턴 카드를 본 뒤에 먼저 움직인다. 체크.',
+      function(c) { return '플랍은 넘긴다. ' + _ro(c.h) + ' 턴에서 먼저 칠 거야.'; }
+    ],
+    // 플랍 체크 뒤 턴 벳의 턴 리드(맞은 손): 한 템포 늦은 밸류 벳
+    leadTurn: [
+      function(c) { return '플랍은 쉬었어. ' + _ro(c.h) + ' 턴에서 먼저 ' + c.aw + '.'; },
+      function(c) { return '한 템포 늦은 벳. ' + _j(c.h, '이면', '면') + ' 지금 치는 게 플랍 벳보다 잘 통해.'; },
+      function(c) { return '턴에서 먼저 친다. ' + _ro(c.h) + ' 상대가 방심했을 때 받아내자.'; }
     ]
   };
 
@@ -579,6 +604,8 @@ var Thinking = (function() {
   //   계획 밖의 콜과 폴드 등), 프리플랍, opts.plan이 없으면 기존 규칙 그대로다(게임 문구 불변, j-thinking 17).
   //   값 { act: 'check'|'call'|'aggro'|'fold', intent, pool: 풀 이름 | fn(s, pst, ctx) → 풀 이름|null(null이면 기존 규칙),
   //        gen: true면 문장은 기존 규칙(그 의도가 keep 목록일 때만 계획 꼬리표), tag: 꼬리표 뒤에 붙는 말(예 '멈춤') }
+  //   클라우드 작업 I: 리버 오버벳(ro-*)은 리버의 밸류 오버벳(overbetValue)과 블러프 오버벳(overbetBluff)만 새 풀이고 앞 스트리트는
+  //   기존 규칙에 계획 꼬리표만 붙는다. 플랍 체크 뒤 턴 벳(db-*)은 플랍 체크(checkDelay)와 맞은 손의 턴 리드(leadTurn)가 새 풀이다.
   function _riv(name) { return function(s, pst) { return pst === 'river' ? name + 'River' : name; }; }
   function _valuePool(s, pst, x) { return pst === 'river' ? 'valueRiver' : (x.wet ? 'valueWet' : 'valueDry'); }
   var _HAS_HAND = { nut: true, strong: true, medium: true, 'weak-pair': true };
@@ -610,7 +637,40 @@ var Thinking = (function() {
     'barrel-stop': { act: 'check', intent: 'give-up', tag: '멈춤', pool: function(s, pst) { return s === 'air' ? (pst === 'river' ? 'checkAirRiver' : 'checkAir') : (pst === 'river' ? 'checkGiveUpRiver' : 'checkGiveUp'); } },
     'sp-bet': { act: 'aggro', gen: true, keep: { semibluff: true, bluff: true } },
     'sp-raise': { act: 'aggro', gen: true, keep: { semibluff: true, bluff: true } },
-    'sp-bluff': { act: 'aggro', gen: true, keep: { bluff: true } }
+    'sp-bluff': { act: 'aggro', gen: true, keep: { bluff: true } },
+    // ── 클라우드 작업 I: 리버 오버벳(ro-*)과 플랍 체크 뒤 턴 벳(db-*) ──
+    'ro-build': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return (s === 'nut' || s === 'strong') ? _valuePool(s, pst, x) : null; } },
+    'ro-semi': { act: 'aggro', gen: true, keep: { semibluff: true, bluff: true } },
+    'ro-small': { act: 'aggro', intent: 'pot-control', pool: function(s) { return _HAS_HAND[s] ? 'smallBet' : null; } },
+    'ro-wait': { act: 'check', gen: true, keep: { 'pot-control': true, 'give-up': true, trap: true } },
+    'ro-callwait': { act: 'call', intent: 'value', pool: function(s, pst) { return (s === 'nut' || s === 'strong') ? _riv('callValueWait')(s, pst) : null; },
+      gen: true, keep: { trap: true, 'call-odds': true } },
+    'ro-call': { act: 'call', gen: true, keep: { 'call-odds': true, curious: true, trap: true, value: true } },
+    'ro-draw-call': { act: 'call', gen: true, keep: { 'call-odds': true, curious: true } },
+    'ro-reraise': { act: 'aggro', intent: 'value', pool: _valuePool },
+    'ro-raise': { act: 'aggro', intent: 'value', pool: _valuePool },
+    // 오버벳 풀은 실제로 팟보다 크게 칠 때만(x.over). 스택이 짧아 올인이 팟보다 작으면 '팟보다 크게'가 틀리므로 리버 밸류 풀이나 기존 규칙
+    'ro-value': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return (s === 'nut' || s === 'strong') ? (pst === 'river' && x.over ? 'overbetValue' : _valuePool(s, pst, x)) : null; } },
+    'ro-bluff': { act: 'aggro', intent: 'bluff', pool: function(s, pst, x) { return pst === 'river' && s === 'air' && x.over ? 'overbetBluff' : null; },
+      gen: true, keep: { bluff: true } },
+    'ro-check': { act: 'check', intent: 'pot-control', pool: function(s, pst) { return _HAS_HAND[s] ? (pst === 'river' ? 'checkMidRiver' : 'checkMid') : null; } },
+    'ro-giveup': { act: 'check', intent: 'give-up', tag: '포기', pool: function(s, pst) { return s === 'air' ? (pst === 'river' ? 'checkAirRiver' : 'checkAir') : null; } },
+    'ro-fold': { act: 'fold', gen: true, keep: { 'give-up': true } },
+    'db-check': { act: 'check', intent: 'pot-control', pool: function(s, pst) { return pst === 'river' ? null : 'checkDelay'; } },
+    'db-call': { act: 'call', intent: 'value', pool: function(s, pst) { return (s === 'nut' || s === 'strong') ? _riv('callValueWait')(s, pst) : null; },
+      gen: true, keep: { trap: true, 'call-odds': true, curious: true } },
+    'db-raise': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return (s === 'nut' || s === 'strong') ? _valuePool(s, pst, x) : null; } },
+    'db-reraise': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return (s === 'nut' || s === 'strong') ? _valuePool(s, pst, x) : null; } },
+    'db-lead': { act: 'aggro', intent: 'value', pool: function(s, pst) { return pst === 'turn' && _HAS_HAND[s] && s !== 'weak-pair' ? 'leadTurn' : null; },
+      gen: true, keep: { value: true, bluff: true, semibluff: true } },
+    'db-lead-bluff': { act: 'aggro', gen: true, keep: { bluff: true, semibluff: true } },
+    'db-give': { act: 'check', intent: 'give-up', pool: function(s, pst) { return s === 'air' ? (pst === 'river' ? 'checkAirRiver' : 'checkAir') : (pst === 'river' ? 'checkGiveUpRiver' : 'checkGiveUp'); } },
+    'db-value': { act: 'aggro', intent: 'value', pool: function(s, pst, x) { return (s === 'nut' || s === 'strong') ? _valuePool(s, pst, x) : null; } },
+    'db-thin': { act: 'aggro', intent: 'value', pool: function(s, pst) { return pst === 'river' && _HAS_HAND[s] ? 'valueRiver' : null; } },
+    'db-bluff': { act: 'aggro', gen: true, keep: { bluff: true } },
+    'db-check-river': { act: 'check', intent: 'pot-control', pool: function(s, pst) { return _HAS_HAND[s] ? (pst === 'river' ? 'checkMidRiver' : 'checkMid') : null; } },
+    'db-giveup': { act: 'check', intent: 'give-up', pool: function(s, pst) { return s === 'air' ? (pst === 'river' ? 'checkAirRiver' : 'checkAir') : (pst === 'river' ? 'checkGiveUpRiver' : 'checkGiveUp'); } },
+    'db-fold': { act: 'fold', gen: true, keep: { 'give-up': true } }
   };
   function _actGroup(a) {
     if (a === 'fold' || a === 'check' || a === 'call') return a;
@@ -752,7 +812,9 @@ var Thinking = (function() {
       // 극장 계획 걸음이면 계획에 맞는 풀과 꼬리표(opts.plan은 극장 코어만 넘긴다)
       var pl = (opts.plan && typeof opts.plan === 'object' && opts.plan.step) ? opts.plan : null;
       if (pl) {
-        var pc = _planCase(pl, r, s, action, pst, { wet: wet, bet: !!(snap && (snap.haveBefore || 0) > 0) });
+        // over: 이번에 넣는 칩(raise-to에서 이미 넣은 몫을 뺀 것)이 직전 팟보다 큰가(리버 오버벳 문장용, 클라우드 작업 I 로컬 확인)
+        var put = (parseFloat(amount) || 0) - ((snap && snap.haveBefore) || 0);
+        var pc = _planCase(pl, r, s, action, pst, { wet: wet, bet: !!(snap && (snap.haveBefore || 0) > 0), over: pot > 0 && put > pot });
         if (pc) r = pc;
       }
       var c = {
@@ -981,37 +1043,41 @@ var Thinking = (function() {
   //   극장 AI(cast-ai, plans, cast)가 바뀌어 은행을 다시 만들면 이 표도 다시 잰다(tests/j-highlight.test.js 14가 은행 오독 비율을 본다).
   //   결정 26 재측정(2026-10-21, 엔진 빌런 프리플랍 레인지를 넓혀 극장 폴백 행동이 바뀜): 같은 방법으로 새 은행 500편(읽기 순간 3278)과
   //   은행 밖 100001~200000 중 점수 78 이상 582편(읽기 순간 3823)을 다시 쟀다. 읽는 비율 약 70% → 78%, 오독 약 33%(은행 밖 31%).
+  //   클라우드 작업 I 재측정(2026-10-22, 계획 2종 리버 오버벳과 플랍 체크 뒤 턴 벳 추가로 극장 AI가 바뀜): 같은 방법으로 새 은행 500편
+  //   (읽기 순간 3131)과 은행 밖 100001~200000 중 점수 78 이상 526편(읽기 순간 3399)을 다시 쟀다. 옛 표를 새 AI에 쓰면 읽는 비율 78.6%에
+  //   오독 31.3%, 새 표로는 읽는 비율 81.1%에 오독 31.1%(은행 31.7%, 은행 밖 30.6%). 새 계획의 걸음 가운데 플랍 체크 뒤 턴 벳의
+  //   플랍 콜(드로우와 약한 페어)과 턴 리드가 오독이 많아 리드 크기를 강한 손 65%, 나머지 50%로 나눴다(cast-ai.js delay_bet).
   var THEATER_READ_KEYS = ['allin', 'checkraise', 'raise', 'betBig', 'betSmall', 'betcall', 'call'];
   var THEATER_STREETS = ['flop', 'turn', 'river'];
   var THEATER_MIN_P = 45;
   var THEATER_READ_SRC = {
     TAG: {
-      allin: 's38 S55 S84', checkraise: 'S77 S67 a91', raise: 'S71 S76 S85', betBig: 'w36 S69 S98',
-      betSmall: 'W50 w41 M72', betcall: 'W56 S67 S73', call: 'M47 S45 S51'
+      allin: 'S50 S58 S89', checkraise: 'S78 S76 a93', raise: 's42 S76 S93', betBig: 's42 S78 S100',
+      betSmall: 'W45 W61 M76', betcall: 'W49 S61 S89', call: 'M49 S59 S59'
     },
     LAG: {
-      allin: 's38 S59 S70', checkraise: 'S76 S68 a94', raise: 's35 S76 S72', betBig: 'w43 W47 S84',
-      betSmall: 'A50 W52 M72', betcall: 'W68 W54 S74', call: 'w37 S53 S54'
+      allin: 'S50 S62 S71', checkraise: 'S68 S67 a93', raise: 'a36 S76 S71', betBig: 'S45 s39 S87',
+      betSmall: 'A49 W62 M76', betcall: 'W77 W50 S74', call: 's35 S46 S54'
     },
     Fish: {
-      allin: 's38 S53 S88', checkraise: 'S55 S48 a91', raise: 'S46 S76 S92', betBig: 'W67 S55 S100',
-      betSmall: 'W54 S60 M65', betcall: 'W61 S70 S79', call: 'm40 s40 S51'
+      allin: 'S50 S58 S88', checkraise: 'S53 S54 a93', raise: 'S55 S76 S94', betBig: 'W54 S72 S98',
+      betSmall: 'W52 s38 M69', betcall: 'W61 S66 S79', call: 'M46 s37 S54'
     },
     Nit: {
-      allin: 's38 S55 S100', checkraise: 'S78 S80 a91', raise: 'S45 S76 S100', betBig: 'W56 S71 S100',
-      betSmall: 'M70 w41 M72', betcall: 'm38 S60 S93', call: 'S50 S55 S71'
+      allin: 'S50 S58 S100', checkraise: 'S70 S75 a93', raise: 's42 S76 S100', betBig: 'W51 S86 S100',
+      betSmall: 'M65 W58 M76', betcall: 'M50 S50 S96', call: 'S62 S66 S74'
     },
     Mixed: {
-      allin: 's38 W53 S86', checkraise: 'S78 S80 a91', raise: 'w43 S76 S92', betBig: 'W58 S47 S95',
-      betSmall: 'W45 m36 S57', betcall: 'W70 S46 S82', call: 's36 S52 M47'
+      allin: 'S50 S58 S84', checkraise: 'S77 S70 a93', raise: 'W53 S76 S91', betBig: 'W49 S55 S94',
+      betSmall: 'A50 W62 M76', betcall: 'W66 S50 S84', call: 's37 S48 S51'
     },
     Station: {
-      allin: 's38 S58 S92', checkraise: 'S57 S53 a91', raise: 'w44 S76 S98', betBig: 'W86 S68 S100',
-      betSmall: 'W85 W52 M83', betcall: 'W80 S52 S79', call: 'w42 s37 s38'
+      allin: 'S50 S53 S92', checkraise: 'S59 S61 a93', raise: 's42 S63 S99', betBig: 'W82 S75 S99',
+      betSmall: 'W71 W66 M77', betcall: 'W75 S54 S85', call: 'w42 w37 s43'
     },
     NEUTRAL: {
-      allin: 's38 S55 S85', checkraise: 'S68 S62 a91', raise: 'S45 S76 S89', betBig: 'W60 S48 S95',
-      betSmall: 'W48 w41 M72', betcall: 'W66 S51 S79', call: 'm38 s42 S48'
+      allin: 'S50 S58 S86', checkraise: 'S65 S65 a93', raise: 's42 S76 S92', betBig: 'W51 S59 S96',
+      betSmall: 'W46 W58 M76', betcall: 'W65 S52 S83', call: 'm39 s41 S52'
     }
   };
   var THEATER_LETTER = { S: 'strong', M: 'medium', W: 'weak', A: 'air' };
