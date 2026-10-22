@@ -4,9 +4,12 @@
 // #m-dock[data-tab] + CSS(css/mobile.css)로 비활성 탭만 숨긴다 → 기존 JS(getElementById 접근)는 무수정.
 // 로드 시 DOM 접근 없음(node 테스트 러너 안전). app.js 훅은 모두 typeof 가드로 호출된다.
 // M4-P5: openTab(key) 추가(계약 T2, 극장이 띵킹 탭을 연다). 기존 동작은 그대로.
+// R7(G2 DOCK, 설계 6절 2번): 상단부는 판정 띠(#coach-line 44px), 리마인더 1줄, 띵킹 패널만(합 132px 이하).
+//   판정 상세(#last-verdict)와 체크리스트, 예측 카드(#coach-pre)는 본문 코칭 탭(#equity-overlay 안)으로 내려갔고 L2도 자동 펼침.
+//   openTab(key)는 공개 계약(G4 차트 시트, 극장, CoachUI.lineTap이 부른다).
 var MobileUI = (function() {
   var MQ = '(max-width: 600px), (orientation: portrait) and (max-width: 760px)';   // css/mobile.css와 같은 문자열
-  var TOP = ['last-verdict', 'coach-reminder', 'coach-pre', 'thinking-panel'];        // 항상 보이는 상단부
+  var TOP = ['coach-line', 'coach-reminder', 'thinking-panel'];                       // 항상 보이는 상단부(R7)
   var BODY = ['equity-overlay', 'gto-chart', 'thinking-feed', 'gto-commentary'];      // 탭 + 접기 본문
   var TABS = [
     { key: 'coach', label: '🎓 코칭' },
@@ -239,13 +242,19 @@ var MobileUI = (function() {
 
   function onHeroTurn(view, ctx) {
     if (!_active) return;
-    // 자동 펼침: L0(풀코칭) / GTO 2회차(힌트 회차)
-    if ((view && view.level === 0) || (ctx && ctx.gtoMode && ctx.gtoRound === 2)) { _tab = 'coach'; _collapsed = false; }
+    // 자동 펼침: L0(풀코칭), L2(예측 카드가 본문에 있음, R7), GTO 2회차(힌트 회차)
+    if (autoOpen(view, ctx)) { _tab = 'coach'; _collapsed = false; }
     _refresh();
     _raf(function() {
       var top = _dock && _dock.querySelector('.m-dock-top');
       if (top) top.scrollTop = 0;
     });
+  }
+
+  // 순수: 결정 차례에 코칭 탭을 자동으로 펼치는지(L0, L2, GTO 2회차). L1은 판정 띠 ▸ 체크리스트로 직접 연다, L3은 접힘
+  function autoOpen(view, ctx) {
+    var lv = view && view.level;
+    return lv === 0 || lv === 2 || !!(ctx && ctx.gtoMode && ctx.gtoRound === 2);
   }
 
   function onAfterDecision() { if (_active) _refresh(); }
@@ -265,7 +274,7 @@ var MobileUI = (function() {
   return {
     init: init, isMobile: function() { return _active; },
     onNewHand: onNewHand, onHeroTurn: onHeroTurn, onAfterDecision: onAfterDecision, onHandEnd: onHandEnd,
-    openTab: openTab,
+    openTab: openTab, autoOpen: autoOpen, TOP: TOP.slice(),
     _state: function() { return { active: _active, tab: _tab, collapsed: _collapsed, forced: _forced }; }
   };
 })();

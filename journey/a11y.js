@@ -13,8 +13,12 @@ var A11y = (function() {
   var KEY = 'poker_journey_settings';
   var SCALES = [100, 115, 130];
   // showEq: 게임 테이블 '내 승률' 칩(코칭 가림 해제 + 히어로 좌석 배지), showAllEq: '모두 승률'(카드 공개 상황의 좌석별 승률). 둘 다 기본 꺼짐
-  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false };
-  var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq'];
+  // (P0, 다음 묶음) showChart: '📋 차트' 칩(R1 큰 GTO 차트), winChance: 액션별 이길 확률(R3b, 연구용). 둘 다 기본 꺼짐.
+  //   chartTier: 프리플랍 차트 티어 'auto'(S3부터 표준) | 'beginner'(입문) | 'standard'(표준), 기본 'auto'. 판정은 GtoStd.active(클라우드 E)
+  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false,
+    showChart: false, winChance: false, chartTier: 'auto' };
+  var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq', 'showChart', 'winChance'];
+  var CHART_TIERS = ['auto', 'beginner', 'standard'];
   var MQ = '(prefers-reduced-motion: reduce)';
   // 진동 패턴(ms)과 비프(주파수 Hz, 길이 s). 짧게: 결과 알림용, 연속 재생으로 귀찮지 않게
   var VIB = { ok: 15, bad: [30, 40, 30], tap: 8, done: [20, 40, 60] };
@@ -55,6 +59,7 @@ var A11y = (function() {
     for (var i = 0; i < BOOL_KEYS.length; i++) out[BOOL_KEYS[i]] = !!src[BOOL_KEYS[i]];
     out.reduceMotion = _rm(src.reduceMotion);
     out.adaptive = _adaptive(src.adaptive);
+    out.chartTier = CHART_TIERS.indexOf(src.chartTier) >= 0 ? src.chartTier : DEFAULTS.chartTier;
     return out;
   }
 
@@ -166,7 +171,7 @@ var A11y = (function() {
   if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') window.addEventListener('DOMContentLoaded', init);
 
   var api = {
-    KEY: KEY, SCALES: SCALES.slice(), DEFAULTS: DEFAULTS,
+    KEY: KEY, SCALES: SCALES.slice(), DEFAULTS: DEFAULTS, CHART_TIERS: CHART_TIERS.slice(),
     load: load, save: save, apply: apply, reduced: reduced, fx: fx, supports: supports, normalize: normalize, init: init,
     _resetAudio: function() { _ac = null; }
   };

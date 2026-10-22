@@ -27,6 +27,10 @@
 <link rel="stylesheet" href="css/dashboard.css">
 <link rel="stylesheet" href="css/widgets.css">
 <link rel="stylesheet" href="css/collection.css">
+<link rel="stylesheet" href="css/chart.css">
+<link rel="stylesheet" href="css/career.css">
+<link rel="stylesheet" href="css/home-extra.css">
+<link rel="stylesheet" href="css/range-lab.css">
 <link rel="stylesheet" href="css/a11y.css">
 </head>
 <body>
@@ -53,7 +57,8 @@
 <div id="screen-villain-select" class="screen">
   <div class="villain-select-container">
     <div class="j-sub-top"><button type="button" class="j-back" aria-label="여정 홈으로" onclick="App.showMenu()">↩</button><h2>빌런 구성 선택</h2></div>
-    <div class="villain-options">
+    <!-- 옵션 5개: 데스크톱에서 한 줄이면 화면 끝에 붙어서 줄바꿈(3+2), 폰은 css/mobile-screens.css의 세로 목록 그대로 -->
+    <div class="villain-options" style="flex-wrap:wrap;justify-content:center;max-width:960px;margin-left:auto;margin-right:auto">
       <button class="villain-opt" onclick="App.selectVillains('headsup-tag')"
         title="TAG(타이트-어그레시브): 좋은 핸드만 골라서 강하게 치는 정석 스타일. 1:1이라 포지션, 레인지 기본기 연습에 좋아요">
         <span class="opt-title">헤즈업 TAG</span>
@@ -64,10 +69,15 @@
         <span class="opt-title">6인 풀링</span>
         <span class="opt-desc">TAG×2 / LAG / Fish / Nit (상대 5명)</span>
       </button>
+      <button class="villain-opt" onclick="App.selectVillains('sixmax-hidden')"
+        title="손님 5명의 유형(TAG, LAG, Fish, Nit, Station, Mixed 중 5개)이 숨겨져 있어요. 좌석 HUD 숫자로 정체를 추리하고, 세션이 끝나면 정답과 HUD 분류 일치 수를 보여 줘요">
+        <span class="opt-title">🎲 6인 랜덤(유형 숨김)</span>
+        <span class="opt-desc">손님A~E, 정체는 세션 끝에 공개</span>
+      </button>
       <button class="villain-opt" onclick="App.selectVillains('mixed')"
-        title="상대 스타일이 숨겨져 있어요. 플레이를 관찰해 타입(TAG/LAG/Fish/Nit)을 추리하는 핸드리딩 연습">
-        <span class="opt-title">Mixed 은닉</span>
-        <span class="opt-desc">Alex (타입 미공개)</span>
+        title="Alex는 스트리트마다 성향이 바뀌어요. 한 가지 유형으로 단정하지 말고 지금 스트리트의 행동을 보고 대응하는 1:1 연습">
+        <span class="opt-title">헤즈업 카멜레온(Mixed)</span>
+        <span class="opt-desc">Alex: 스트리트마다 성향이 바뀌는 1:1 상대</span>
       </button>
       <button class="villain-opt gto-mirror-opt" onclick="App.selectVillains('gto-mirror')"
         title="같은 카드를 3회 반복: 1회 혼자 → 2회 힌트 보며 → 3회 측정. 정답과 내 플레이의 EV 차이를 신호등으로 복기">
@@ -97,10 +107,11 @@
   <div id="m-rotate" class="m-rotate"><div>📱 세로로 돌려 주세요</div><button class="menu-btn secondary" onclick="document.documentElement.classList.add('allow-landscape')">그래도 계속</button></div>
   <!-- 테이블 -->
   <div class="table-area">
-    <!-- 승률 표시 칩(설정 저장: showEq, showAllEq) -->
+    <!-- 승률 표시 칩과 차트 칩(설정 저장: showEq, showAllEq, showChart) -->
     <div id="eq-chips">
       <button type="button" class="eq-chip" data-eq="mine" aria-pressed="false" onclick="App.toggleEq('mine')">내 승률</button>
       <button type="button" class="eq-chip" data-eq="all" aria-pressed="false" onclick="App.toggleEq('all')">모두 승률</button>
+      <button type="button" class="eq-chip" data-eq="chart" aria-pressed="false" onclick="App.toggleEq('chart')">📋 차트</button>
     </div>
     <div class="poker-table">
       <div class="table-felt">
@@ -129,6 +140,8 @@
     <button class="equity-toggle-btn" id="equity-toggle" onclick="App.toggleEquity()">📊 에쿼티</button>
     <!-- 에쿼티 패널 (기본 숨김) -->
     <div class="equity-panel" id="equity-overlay" style="display:none">
+      <!-- 판정 띠(R7, CoachUI가 채움): 추천, 먼저 판단, 예측 카드, 결정 뒤 정답 한 줄 -->
+      <div id="coach-line" class="coach-line" role="status" style="display:none"></div>
       <div id="last-verdict" class="last-verdict" style="display:none"></div>
       <div id="coach-reminder" class="coach-reminder" style="display:none"></div>
       <div id="coach-pre" class="coach-pre" style="display:none"></div>
@@ -175,6 +188,9 @@
         <input type="range" id="raise-slider" min="0" max="100" value="50" oninput="App.updateRaiseSlider()">
         <button type="button" class="raise-step" onclick="App.stepRaise(1)" aria-label="1bb 올리기">+</button>
       </div>
+      <!-- 슬라이더 눈금과 실시간 읽기 2줄(R3, RaiseInfo가 결정 때만 채움) -->
+      <div id="raise-ticks" class="raise-ticks" aria-hidden="true" style="display:none"></div>
+      <div id="raise-info" class="raise-info" style="display:none"></div>
       <div class="raise-bottom-row">
         <div class="raise-presets">
           <button onclick="App.setRaisePreset(0.33)">1/3팟</button>
@@ -268,13 +284,17 @@
 <!-- 포스트플랍 가이드 (villain.js의 _handStrength/_isBoardWet 의존 — AI 뒤에 로드) -->
 <script src="engine/postflop-guide.js"></script>
 <script src="engine/postflop-tables.js"></script>
+<script src="engine/gto-std.js"></script>
 <script src="engine/coach.js"></script>
 <!-- WP8 띵킹 프로세스 (villain.js·postflop-guide.js 의존) -->
 <script src="engine/thinking.js"></script>
+<script src="engine/win-chance.js"></script>
 <!-- UI -->
+<script src="ui/cards.js"></script>
 <script src="ui/table.js"></script>
 <script src="ui/hud.js"></script>
 <script src="ui/action-bar.js"></script>
+<script src="ui/raise-info.js"></script>
 <script src="ui/animator.js"></script>
 <script src="ui/coach-ui.js"></script>
 <!-- 커리큘럼 -->
@@ -292,6 +312,7 @@
 <script src="ui/history.js"></script>
 <!-- GTO 레인지 차트 -->
 <script src="ui/gto-chart.js"></script>
+<script src="ui/range-notes.js"></script>
 <!-- WP8 띵킹 프로세스 UI -->
 <script src="ui/thinking-ui.js"></script>
 <script src="ui/mobile-ui.js"></script>
@@ -337,6 +358,7 @@
 <script src="lessons/data/stage5b.js"></script>
 <script src="lessons/data/stage6.js"></script>
 <script src="lessons/data/stage6b.js"></script>
+<script src="lessons/data/career.js"></script>
 <script src="puzzles/puzzle-core.js"></script>
 <script src="puzzles/gen-basic.js"></script>
 <script src="puzzles/gen-math.js"></script>
@@ -344,6 +366,7 @@
 <script src="puzzles/gen-range.js"></script>
 <script src="puzzles/gen-read.js"></script>
 <script src="puzzles/gen-lesson.js"></script>
+<script src="puzzles/gen-advanced.js"></script>
 <script src="puzzles/seed-bank-data.js"></script>
 <script src="puzzles/puzzle-ui.js"></script>
 <script src="puzzles/puzzle-modes.js"></script>
@@ -354,11 +377,21 @@
 <script src="theater/theater-core.js"></script>
 <script src="theater/theater-ui.js"></script>
 <script src="ai/villain-adaptive.js"></script>
+<script src="journey/career/contract.js"></script>
+<script src="journey/career/balance.js"></script>
+<script src="journey/career/core.js"></script>
+<script src="journey/career/table.js"></script>
+<script src="journey/career/map-ui.js"></script>
+<script src="journey/career/rivals.js"></script>
+<script src="journey/career/events.js"></script>
+<script src="journey/career/tourney.js"></script>
 <script src="journey/views/dashboard.js"></script>
 <script src="journey/views/weekly.js"></script>
 <script src="journey/views/collection.js"></script>
 <script src="journey/views/placement.js"></script>
 <script src="journey/views/settings.js"></script>
+<script src="journey/views/career.js"></script>
+<script src="journey/views/range-lab.js"></script>
 <script src="journey/today-ui.js"></script>
 <script src="journey/journey-ui.js"></script>
 <!-- 앱 -->

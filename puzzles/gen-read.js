@@ -4,7 +4,7 @@
 //             판정은 VPIP와 PFR(표시값, % 정수)만 쓰는 H4 규칙(정본 ai/villain-tracker.js VillainTracker.classify, RULE).
 //             3벳과 AF는 그 분류에 어울리는 값으로 함께 보이는 보조 숫자다(판정에 쓰지 않는다).
 //             출제 제외: 표시값 VPIP, PFR를 각각 ±2%p 안에서 움직인 모든 정수 점(PFR ≤ VPIP)이 같은 분류가 아니면 내지 않는다
-//             (경계 2%p 안쪽 출제 안 함). 분류마다 실전에서 어색한 구석도 내지 않는다(정석은 VPIP 23~37이고 PFR/VPIP 0.45 이상).
+//             (경계 2%p 안쪽 출제 안 함). 분류마다 실전에서 어색한 구석도 내지 않는다(아래 _shape, 정석은 PFR/VPIP 0.45 이상).
 //             표시 숫자는 관찰 횟수(n, VPIP 수, PFR 수, 3벳 수, 포스트플랍 벳+레이즈 수, 콜 수)에서 트래커와 같은 반올림으로 낸다.
 //             verify(독립 경로): 횟수에서 표시값과 HUD 글자를 다시 만들고, 규칙을 따로 구현한 판정과 ±2%p 안정성을 다시 본다.
 //   prescribe 유형별 처방(approx 참고, rated false, once). H4 처방 표 그대로. 변형 class(분류 → 처방), hud(HUD → 처방),
@@ -45,7 +45,7 @@
   var CLASSES = ['tight', 'standard', 'loose-aggr', 'loose-passive'];
   var LABEL = { tight: '🧊 타이트', standard: '⚖ 정석', 'loose-aggr': '🔥 루즈-공격', 'loose-passive': '🐟 루즈-패시브' };
   var SHORT = { tight: '타이트', standard: '정석', 'loose-aggr': '루즈-공격', 'loose-passive': '루즈-패시브' };
-  var FALLBACK_RULE = { minN: 15, tightMax: 10, lpMin: 20, lpRatio: 0.35, laMin: 18, laRatio: 0.6 };
+  var FALLBACK_RULE = { minN: 15, tightMax: 14, lpMin: 30, lpRatio: 0.35, laMin: 28, laRatio: 0.6 };   // 트래커 RULE0와 같은 값(결정 26)
   var MARGIN = 2;           // 경계 2%p 안쪽은 내지 않는다
   function _rule() { var V = _VT(); return V ? V.RULE : FALLBACK_RULE; }
   function _label(cls) { var V = _VT(); return (V && V.CLASS_LABEL && V.CLASS_LABEL[cls]) || LABEL[cls]; }
@@ -92,9 +92,10 @@
 
   // ═══════════════════ 1. hudread(앱 정의) ═══════════════════
   // 분류별 생성 범위: VPIP %, PFR/VPIP, 3벳 %, AF. 실전에서 그 유형으로 읽히는 모양만(애매한 구석은 뺀다).
-  // VPIP 범위는 RULE에서 낸다(임계를 다시 정하면 VillainTracker.RULE 한 곳만 바꾸면 된다). 지금 기준(타이트 10, 루즈-공격 18, 루즈-패시브 20) 값:
-  //   타이트 2~7, 정석 13~15(주로, 비율 0.6~0.9, 교수 모양)와 26~40(가끔, 비율 0.42~0.52, 넓지만 공격 비율이 중간),
-  //   루즈-공격 21~40(비율 0.65~0.92), 루즈-패시브 23~50(비율 0.04~0.3)
+  // VPIP 범위는 RULE에서 낸다(임계를 다시 정하면 VillainTracker.RULE 한 곳만 바꾸면 된다). 지금 기준(결정 26: 타이트 14, 루즈-공격 28,
+  //   루즈-패시브 30) 값: 타이트 2~11, 정석 17~25(주로, 비율 0.6~0.9, 교수 모양)와 36~50(가끔, 비율 0.42~0.52, 넓지만 공격 비율이 중간),
+  //   루즈-공격 31~50(비율 0.65~0.92), 루즈-패시브 33~60(비율 0.04~0.3). 엔진 빌런 실측(바위 11, 교수 21~22, 불도저 33, 햇살 40,
+  //   콜마스터 47~48)이 모두 각 분류의 생성 범위 안에 들어온다.
   //   정석 낮은 쪽은 타이트 임계 + 3부터 루즈-공격 임계 - 3까지, 높은 쪽은 두 루즈 임계 중 큰 값 + 6부터(±2 안정성 여유)
   function _shape(cls) {
     var R = _rule(), m = MARGIN + 1;

@@ -979,37 +979,39 @@ var Thinking = (function() {
   //   숫자는 그 등급의 실측 비율(%)이다. 소문자는 비율이 45% 미만인 칸, 그리고 리버 체크레이즈(극장 AI에서는 3배럴 블러프만
   //   리버에 체크레이즈를 해서 빈손이 92%이지만 실전에서는 강한 손이 많은 줄이라 그렇게 가르치지 않는다).
   //   극장 AI(cast-ai, plans, cast)가 바뀌어 은행을 다시 만들면 이 표도 다시 잰다(tests/j-highlight.test.js 14가 은행 오독 비율을 본다).
+  //   결정 26 재측정(2026-10-21, 엔진 빌런 프리플랍 레인지를 넓혀 극장 폴백 행동이 바뀜): 같은 방법으로 새 은행 500편(읽기 순간 3278)과
+  //   은행 밖 100001~200000 중 점수 78 이상 582편(읽기 순간 3823)을 다시 쟀다. 읽는 비율 약 70% → 78%, 오독 약 33%(은행 밖 31%).
   var THEATER_READ_KEYS = ['allin', 'checkraise', 'raise', 'betBig', 'betSmall', 'betcall', 'call'];
   var THEATER_STREETS = ['flop', 'turn', 'river'];
   var THEATER_MIN_P = 45;
   var THEATER_READ_SRC = {
     TAG: {
-      allin: 'S67 S67 S91', checkraise: 'S79 S67 a90', raise: 's44 S81 S90', betBig: 'a35 S73 S96',
-      betSmall: 'w36 m34 M100', betcall: 'w44 S59 S64', call: 'M53 s44 S66'
+      allin: 's38 S55 S84', checkraise: 'S77 S67 a91', raise: 'S71 S76 S85', betBig: 'w36 S69 S98',
+      betSmall: 'W50 w41 M72', betcall: 'W56 S67 S73', call: 'M47 S45 S51'
     },
     LAG: {
-      allin: 'S67 S67 S66', checkraise: 'S74 S70 a94', raise: 's31 S81 S77', betBig: 's35 w42 S84',
-      betSmall: 'A53 a44 M68', betcall: 'W62 W52 S75', call: 's33 S61 S49'
+      allin: 's38 S59 S70', checkraise: 'S76 S68 a94', raise: 's35 S76 S72', betBig: 'w43 W47 S84',
+      betSmall: 'A50 W52 M72', betcall: 'W68 W54 S74', call: 'w37 S53 S54'
     },
     Fish: {
-      allin: 'S67 S67 S90', checkraise: 'S63 S58 a90', raise: 'S50 S81 S94', betBig: 'W63 S66 S100',
-      betSmall: 'W54 s44 M64', betcall: 'W58 S65 S83', call: 'm39 S45 S54'
+      allin: 's38 S53 S88', checkraise: 'S55 S48 a91', raise: 'S46 S76 S92', betBig: 'W67 S55 S100',
+      betSmall: 'W54 S60 M65', betcall: 'W61 S70 S79', call: 'm40 s40 S51'
     },
     Nit: {
-      allin: 'S67 S67 S96', checkraise: 'S81 S86 a90', raise: 's44 S81 S100', betBig: 'W52 S81 S100',
-      betSmall: 'M75 m34 M68', betcall: 'S53 S73 S88', call: 'S60 S79 S50'
+      allin: 's38 S55 S100', checkraise: 'S78 S80 a91', raise: 'S45 S76 S100', betBig: 'W56 S71 S100',
+      betSmall: 'M70 w41 M72', betcall: 'm38 S60 S93', call: 'S50 S55 S71'
     },
     Mixed: {
-      allin: 'S67 S67 S84', checkraise: 'S75 S71 a87', raise: 's44 S81 S90', betBig: 'w43 w41 S94',
-      betSmall: 'w44 m40 S65', betcall: 'W78 s43 S80', call: 'S46 S74 M53'
+      allin: 's38 W53 S86', checkraise: 'S78 S80 a91', raise: 'w43 S76 S92', betBig: 'W58 S47 S95',
+      betSmall: 'W45 m36 S57', betcall: 'W70 S46 S82', call: 's36 S52 M47'
     },
     Station: {
-      allin: 'S67 S67 S97', checkraise: 'S80 S65 a90', raise: 'w41 S81 S96', betBig: 'W77 S74 S100',
-      betSmall: 'W71 M49 M76', betcall: 'W71 S54 S82', call: 'w40 s41 s43'
+      allin: 's38 S58 S92', checkraise: 'S57 S53 a91', raise: 'w44 S76 S98', betBig: 'W86 S68 S100',
+      betSmall: 'W85 W52 M83', betcall: 'W80 S52 S79', call: 'w42 s37 s38'
     },
     NEUTRAL: {
-      allin: 'S67 S67 S86', checkraise: 'S74 S67 a90', raise: 's44 S81 S91', betBig: 'W52 S51 S95',
-      betSmall: 'w43 m34 M68', betcall: 'W61 S53 S79', call: 'm37 S48 S50'
+      allin: 's38 S55 S85', checkraise: 'S68 S62 a91', raise: 'S45 S76 S89', betBig: 'W60 S48 S95',
+      betSmall: 'W48 w41 M72', betcall: 'W66 S51 S79', call: 'm38 s42 S48'
     }
   };
   var THEATER_LETTER = { S: 'strong', M: 'medium', W: 'weak', A: 'air' };

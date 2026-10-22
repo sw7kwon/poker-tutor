@@ -59,6 +59,7 @@ var JourneyUI = (function() {
   var VIEWS = { dashboard: 'DashboardView', weekly: 'WeeklyView', collection: 'CollectionView', placement: 'PlacementView', settings: 'SettingsView' };
   var VIEW_TITLE = { dashboard: '📊 내 실력', weekly: '📅 주간 리포트', collection: '🗂 수집', placement: '📝 실력 확인 3분',
     settings: '⚙ 설정', rush: '⚡ 퍼즐 러시', theater: '🎭 속마음 극장' };
+  VIEWS.rangeLab = 'RangeLabView'; VIEW_TITLE.rangeLab = '🗺 레인지 학습실';   // (P0, 다음 묶음 G5) 레인지 학습실(journey/views/range-lab.js)
   var HABITS = [ { id: '출근길', text: '출근길에' }, { id: '점심 후', text: '점심 먹고' }, { id: '자기 전', text: '자기 전에' } ];
   var SETTINGS_KEY = 'poker_journey_settings';
   var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges', 'BackupUI'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서. BackupUI는 M7 P5(용량 90% 경고, 월간 백업 카드)
@@ -519,7 +520,10 @@ var JourneyUI = (function() {
       return '<button type="button" class="j-q' + (sn ? ' is-soon' : '') + '"' + (sn ? ' aria-label="' + q[2] + ', 준비 중"' : '') +
         ' onclick="JourneyUI.quick(\'' + q[0] + '\')"><span class="j-q-ic" aria-hidden="true">' + q[1] +
         '</span><span class="j-q-t">' + q[2] + '</span>' + (sn ? '<span class="j-q-soon" aria-hidden="true">곧</span>' : '') + '</button>';
-    }).join('') + '</nav>';
+    }).join('') +
+      // (P0, 다음 묶음 G5) 레인지 학습실: 빠른 줄 아래 한 줄 전체 버튼(css/range-lab.css .j-q-wide)
+      '<button type="button" class="j-q j-q-wide" onclick="JourneyUI.view(\'rangeLab\')"><span class="j-q-ic" aria-hidden="true">🗺</span>' +
+      '<span class="j-q-t">레인지 학습실</span></button>' + '</nav>';
   }
 
   function quick(name) {

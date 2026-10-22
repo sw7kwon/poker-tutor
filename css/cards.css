@@ -1,3 +1,25 @@
+/* css/cards.css: 카드 요소와 무늬 색 토큰(R8, 헬퍼 ui/cards.js)
+   토큰 규약(P0 고정, 이름은 바꾸지 않는다. 클라우드 H, B'도 이 이름을 유지):
+   --suit-*-light = 흰 카드 위 무늬 색(♠ #000, ♥ #c00, ♦ #1a5fd0, ♣ #11802d), 흰 배경 대비 4.5:1 이상
+   --suit-*-dark  = 어두운 배경 글자 무늬 색(♠ #e6edf3, ♥ #ff6b6b, ♦ #6ea8ff, ♣ #4cc764), 앱 배경 대비 4.5:1 이상
+   글자 기호(.suit, Cards.glyph와 Cards.colorize)는 늘 4색이다. 카드 요소(.card)의 4색은 설정 fourColor(a11y.css)를 따른다. */
+:root {
+  --suit-s-light: #000000;
+  --suit-h-light: #c00000;
+  --suit-d-light: #1a5fd0;
+  --suit-c-light: #11802d;
+  --suit-s-dark: #e6edf3;
+  --suit-h-dark: #ff6b6b;
+  --suit-d-dark: #6ea8ff;
+  --suit-c-dark: #4cc764;
+}
+.suit { font-weight: 700; white-space: nowrap; }
+.suit[data-suit="s"] { color: var(--suit-s-dark); }
+.suit[data-suit="h"] { color: var(--suit-h-dark); }
+.suit[data-suit="d"] { color: var(--suit-d-dark); }
+.suit[data-suit="c"] { color: var(--suit-c-dark); }
+/* 카드 안의 글자 기호는 카드 색 규칙(red/black, 4색 덱)을 따른다 */
+.card .suit { color: inherit; font-weight: inherit; }
 .card {
   width: 44px;
   height: 62px;

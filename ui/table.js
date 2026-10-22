@@ -3,6 +3,7 @@ var Table = (function() {
   var POSITIONS = ['UTG','HJ','CO','BTN','SB','BB'];
   var SUIT_SYM = { s:'♠', h:'♥', d:'♦', c:'♣' };
   var RED = { h:true, d:true };
+  function _hasCards() { return typeof Cards !== 'undefined' && Cards && typeof Cards.html === 'function'; }
 
   var _bubbleKey = null;   // 같은 핸드·스트리트면 render 후에도 말풍선(.seat-action) 보존
   var _boardKey = null;    // 같은 핸드에서 이미 그린 보드 장수(재렌더 시 deal 애니메이션 생략)
@@ -25,41 +26,41 @@ var Table = (function() {
     _bubbleKey = bKey;
     if (handKey !== _boardKey) { _boardKey = handKey; _boardDrawn = 0; }
     var boardEl = document.getElementById('board-cards');
-    boardEl.innerHTML = '';
-    (state.board||[]).forEach(function(c, i) {
-      var el = document.createElement('div');
-      el.className = 'card ' + (i >= _boardDrawn ? 'deal-anim ' : '') + (RED[c.suit] ? 'red' : 'black');
-      el.setAttribute('data-suit', c.suit);   // 4색 덱(a11y.css html.four-color)
-      el.textContent = (c.rank==='T'?'10':c.rank) + SUIT_SYM[c.suit];
-      boardEl.appendChild(el);
-    });
+    // 보드 카드: 공용 헬퍼(ui/cards.js, R8) 마크업. 새로 깔린 장만 deal-anim(Animator.dealBoard가 찾는다)
+    boardEl.innerHTML = (state.board||[]).map(function(c, i) {
+      return _cardFace(c, i >= _boardDrawn ? 'deal-anim' : '');
+    }).join('');
     _boardDrawn = Math.max(_boardDrawn, (state.board||[]).length);
     var seated = _seatPlayers(state);
     var slots = seatSlots(seated);
+    var maxStack = tableMaxStack(state, seated);
     POSITIONS.forEach(function(pos) {
       var seatEl = document.getElementById('seat-' + pos);
       if (!seatEl) return;
       var player = Object.values(seated).find(function(p){ return p.pos===pos; });
-      if (!player) { seatEl.innerHTML=''; seatEl.className='seat seat-'+pos.toLowerCase(); seatEl.setAttribute('data-slot', slots[pos]); return; }
+      if (!player) { seatEl.innerHTML=''; seatEl.className='seat seat-'+pos.toLowerCase(); seatEl.setAttribute('data-slot', slots[pos]); if (seatEl.style) seatEl.style.outline = ''; return; }
       var name = player.name;
       var isFolded = !!(state.folded&&state.folded[name]);
       var isHero = player.isHero;
-      seatEl.className = 'seat seat-'+pos.toLowerCase() + (isHero?' hero':'') + (isFolded?' folded':'');
+      var isWinner = isWinnerSeat(state, name);
+      seatEl.className = 'seat seat-'+pos.toLowerCase() + (isHero?' hero':'') + (isFolded?' folded':'') + (isWinner?' winner':'');
       seatEl.setAttribute('data-slot', slots[pos]);
+      // 승자 좌석 금색 테두리(outline은 배치에 영향 없음). 다음 그리기에서 지운다
+      if (seatEl.style) seatEl.style.outline = isWinner ? '2px solid #ffd700' : '';
       var cardsHtml = seatCardsHTML(state, name);
       var bet = state.playerBets&&state.playerBets[name]||0;
       var stack = (state.stacks&&state.stacks[name])||0;
-      var stackPct = Math.min(100, Math.max(0, stack)).toFixed(0);
-      var barColor = stack > 60 ? '#3d9e4a' : stack > 30 ? '#e3b341' : '#f85149';
+      var bar = stackBar(stack, maxStack);
       seatEl.innerHTML =
+        winnerBadgeHTML(state, name, slots[pos], _portraitLayout())+
         '<div class="seat-name">'+name+((isHero || state.hideTypes)?'':' <small style="color:#8b949e">('+player.type+')</small>')+'</div>'+
         (isHero ? '' : _hudHTML(name, !!state.hideTypes))+
         '<div class="seat-pos">'+pos+'</div>'+
-        '<div class="seat-stack">'+stack.toFixed(1)+'bb</div>'+
+        '<div class="seat-stack">'+stack.toFixed(1)+'bb</div>'+seatDeltaHTML(state, name)+
         (bet>0?'<div class="seat-bet">'+bet.toFixed(1)+'bb</div>':'')+
         '<div class="seat-cards">'+cardsHtml+'</div>'+
         seatEqHTML(state, name)+
-        '<div class="seat-stack-bar"><div class="seat-stack-fill" style="height:'+stackPct+'%;background:'+barColor+'"></div></div>';
+        '<div class="seat-stack-bar"><div class="seat-stack-fill" style="height:'+bar.pct+'%;background:'+bar.color+'"></div></div>';
       if (keptBubbles[pos]) seatEl.appendChild(keptBubbles[pos]);
     });
   }
@@ -73,9 +74,116 @@ var Table = (function() {
     return out;
   }
 
+  // 카드 앞면 1장: 공용 헬퍼 Cards.html(무늬 이름 aria-label, data-suit 4색). 헬퍼가 없으면 예전 마크업
   function _cardFace(c, extra) {
+    if (_hasCards()) { var h = Cards.html(c, { cls: extra || '' }); if (h) return h; }
+    return _legacyFace(c, extra);
+  }
+  function _legacyFace(c, extra) {
     return '<div class="card ' + (extra ? extra + ' ' : '') + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
       (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
+  }
+
+  // ── 스택 막대, 손익 배지, 승자 배지(R2, 순수 함수) ──
+  // 막대 분모: 앉은 사람 최대 스택과 100bb 중 큰 값(이월 스택이 100을 넘어도 비교가 된다). 색 기준은 bb 절대값 60/30
+  function tableMaxStack(state, seated) {
+    var mx = 100, st = (state && state.stacks) || {};
+    Object.keys(seated || (state && state.players) || {}).forEach(function(k) {
+      var v = Number(st[k]);
+      if (isFinite(v) && v > mx) mx = v;
+    });
+    return mx;
+  }
+  function stackBar(stack, maxStack) {
+    var s = Number(stack); if (!isFinite(s)) s = 0;
+    var m = Number(maxStack); if (!(m >= 100)) m = 100;
+    var pct = Math.min(100, Math.max(0, s / m * 100));
+    return { pct: pct.toFixed(0), color: s > 60 ? '#3d9e4a' : s > 30 ? '#e3b341' : '#f85149' };
+  }
+  function _fmt1(v) { return (Math.round(Math.abs(v) * 10) / 10).toFixed(1); }
+  // 세션 손익: state.buyin = { 이름: 세션 동안 사들인 칩(시작 100 + 리바이) }가 있을 때만(App이 채운다).
+  // 핸드 중에는 이번 핸드에 넣은 칩(totalContrib)을 더해 핸드 시작 기준으로, 정산 뒤(state.payouts 있음)는 스택 그대로 센다
+  function seatDelta(state, name) {
+    if (!state || !state.buyin || name == null) return null;
+    var base = Number(state.buyin[name]);
+    if (state.buyin[name] == null || !isFinite(base)) return null;
+    var stack = Number(state.stacks && state.stacks[name]) || 0;
+    var contrib = state.payouts ? 0 : (Number(state.totalContrib && state.totalContrib[name]) || 0);
+    return Math.round((stack + contrib - base) * 10) / 10;
+  }
+  // 손익 배지(|손익| 0.5bb 이상): 색 + 화살표 + 숫자. '▲+2.5' 초록, '▼-18' 빨강(10bb 이상은 정수로 짧게, 정확한 값은 title).
+  // 좌석 안 독립 요소(flex 0 0 auto): 폰 좌석은 스택 줄 옆에 들어가고 자리가 모자라면 다음 줄로, 데스크톱은 스택 아래 줄
+  function seatDeltaHTML(state, name) {
+    var d = seatDelta(state, name);
+    if (d == null || Math.abs(d) < 0.5) return '';
+    var up = d > 0, a = Math.abs(d);
+    var shown = a >= 10 ? String(Math.round(a)) : _fmt1(d);
+    return '<div class="seat-delta ' + (up ? 'up' : 'down') + '" title="이번 세션 손익 ' + (up ? '+' : '-') + _fmt1(d) + 'bb"' +
+      ' aria-label="이번 세션 손익 ' + (up ? '+' : '-') + _fmt1(d) + 'bb"' +
+      ' style="flex:0 0 auto;white-space:nowrap;font-weight:700;font-size:.9em;line-height:1.25;color:' + (up ? '#3fb950' : '#ff7b72') + '">' +
+      (up ? '▲+' : '▼-') + shown + '</div>';
+  }
+  // 승자: state.payouts = { 이름: 이번 핸드 순이익 bb }(App이 정산 뒤 그리기 사본에 넣는다)에서 0보다 큰 사람
+  function isWinnerSeat(state, name) {
+    if (!state || name == null) return false;
+    var p = state.payouts;
+    if (!p || typeof p !== 'object') return false;
+    var any = Object.keys(p).some(function(k) { return Number(p[k]) > 0.005; });
+    if (any) return Number(p[name]) > 0.005;
+    return state.winner === name;
+  }
+  // 폰 세로 배치(css/mobile.css data-slot 타원 배치)인지. MobileUI가 없으면(node, 초기화 전) false
+  function _portraitLayout() {
+    try { return typeof MobileUI !== 'undefined' && !!MobileUI && typeof MobileUI.isMobile === 'function' && !!MobileUI.isMobile(); } catch (e) { return false; }
+  }
+  // 승자 배지 '🏆 +12.5bb'(좌석 테두리에 띄움, 배치 밀림 없음). 폰 세로 배치(portrait)에서 slot 2, 3, 4는 화면 위쪽 줄이라
+  // 위 테두리에 두면 승률 칩 줄에 가려지므로 아래 테두리(테이블 안쪽)에 둔다. 데스크톱은 아래에 팟이 있어 늘 위 테두리
+  function winnerBadgeHTML(state, name, slot, portrait) {
+    if (!isWinnerSeat(state, name)) return '';
+    var v = Number(state.payouts && state.payouts[name]);
+    var amt = (isFinite(v) && v > 0.005) ? ' +' + _fmt1(v) + 'bb' : '';
+    var low = !!portrait && (slot === 2 || slot === 3 || slot === 4);
+    var place = low ? 'top:auto;bottom:0;transform:translate(-50%,78%);' : 'top:0;transform:translate(-50%,-78%);';
+    return '<div class="seat-win" aria-label="이번 핸드 승리' + amt + '" style="position:absolute;left:50%;' + place +
+      'z-index:6;white-space:nowrap;background:#ffd700;color:#1a1300;font-weight:800;font-size:.74rem;line-height:1.2;padding:1px 7px;' +
+      'border-radius:999px;box-shadow:0 0 10px rgba(255,215,0,.6);pointer-events:none">🏆' + amt + '</div>';
+  }
+  // 정산 화면이 자리 잡은 뒤(App이 결과 패널을 띄운 다음 부른다) 승자 배지를 다시 맞춘다. 결과 패널이 나오면 테이블이 위로 밀려
+  // 데스크톱 위쪽 줄 좌석의 배지가 문서 맨 위 밖으로 잘리고(스크롤로도 못 봄), 아래 중앙 좌석 배지는 보드 카드를 가릴 수 있다.
+  // 그런 배지만 좌석 안쪽 이름 아래 줄로 내린다(잘린 좌석은 보이는 첫 줄까지, 좌석 높이 안에서). 폰에서 스크롤로 가려진 것은 그대로.
+  // → 옮긴 배지 수. DOM이 없거나(node) 배지가 없으면 0
+  function _ovArea(a, b) {
+    return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  }
+  function fitWinnerBadges() {
+    var moved = 0;
+    try {
+      if (typeof document === 'undefined' || !document || typeof document.querySelectorAll !== 'function') return 0;
+      var badges = document.querySelectorAll('.seat-win');
+      if (!badges || !badges.length) return 0;
+      var sy = (typeof window !== 'undefined' && window && Number(window.scrollY)) || 0;
+      var avoid = [document.getElementById('board-cards'), document.querySelector('.pot-display-wrap')]
+        .filter(function(e) { return e && typeof e.getBoundingClientRect === 'function'; })
+        .map(function(e) { return e.getBoundingClientRect(); });
+      Array.prototype.forEach.call(badges, function(bd) {
+        var seat = bd.parentElement;
+        if (!seat || typeof bd.getBoundingClientRect !== 'function' || typeof seat.getBoundingClientRect !== 'function') return;
+        var r = bd.getBoundingClientRect();
+        var clipped = r.top + sy < 0;
+        var covers = avoid.some(function(a) { return _ovArea(r, a) > 40; });
+        if (!clipped && !covers) return;
+        var sr = seat.getBoundingClientRect();
+        var nameEl = seat.querySelector ? seat.querySelector('.seat-name') : null;
+        var y = nameEl && typeof nameEl.getBoundingClientRect === 'function' ? nameEl.getBoundingClientRect().bottom - sr.top : 0;
+        if (sr.top + sy + y < 2) y = 2 - (sr.top + sy);
+        y = Math.max(0, Math.min(y, sr.height - r.height));
+        bd.style.top = Math.round(y) + 'px';
+        bd.style.bottom = 'auto';
+        bd.style.transform = 'translate(-50%,0)';
+        moved++;
+      });
+    } catch (e) { return moved; }
+    return moved;
   }
 
   // 좌석 카드 칸 HTML(순수 함수, node 테스트용, M4 계약 T2).
@@ -87,7 +195,8 @@ var Table = (function() {
     if (!p || (state.spectator && p.isHero)) return '';
     var hole = state.holeCards && state.holeCards[name];
     if (!hole || hole.length !== 2 || !hole[0] || !hole[1]) return '';
-    if (p.isHero) return hole.map(function(c) { return _cardFace(c, 'hero-card'); }).join('');
+    // 히어로 카드는 예전 마크업 그대로(tests/j-theater-ui.test.js가 정확한 문자열을 고정. 단언을 바꾸면 Cards.html(c, {hero:true})로)
+    if (p.isHero) return hole.map(function(c) { return _legacyFace(c, 'hero-card'); }).join('');
     if (state.revealAll) return hole.map(function(c) { return _cardFace(c, 'face-up'); }).join('');
     if (state.folded && state.folded[name]) return '';
     return '<div class="card back"></div><div class="card back"></div>';
@@ -174,10 +283,7 @@ var Table = (function() {
       if (!cards || cards.length !== 2) return;
       var cardsEl = seatEl.querySelector('.seat-cards');
       if (!cardsEl) return;
-      cardsEl.innerHTML = cards.map(function(c) {
-        return '<div class="card fadein ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
-          (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
-      }).join('');
+      cardsEl.innerHTML = cards.map(function(c) { return _cardFace(c, 'fadein'); }).join('');
     });
   }
 
@@ -212,6 +318,8 @@ var Table = (function() {
     seatEl.appendChild(div);
   }
 
-  if (typeof module !== 'undefined') module.exports = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML };
-  return { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML };
+  var api = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML,
+    tableMaxStack, stackBar, seatDelta, seatDeltaHTML, isWinnerSeat, winnerBadgeHTML, fitWinnerBadges };
+  if (typeof module !== 'undefined') module.exports = api;
+  return api;
 })();

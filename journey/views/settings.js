@@ -2,6 +2,9 @@
 // ⚙ 설정 화면(SettingsView, 설계서 5.9절, 계약 C8): JourneyUI.view('settings')가 open(params, el)로 연다.
 // 항목 7개: 하루 목표(5/10/15분, POLISH UX-02: Journey 상태 goal.minutes에 저장), 글자 크기(100/115/130%), 4색 덱, 색약 차트, 움직임(시스템 따름/줄이기/보통), 효과음, 진동.
 // M6(계약 H6): 🧠 상대 카드의 '상대가 내 성향에 적응'(키 adaptive, 기본 켜기)은 VillainAdaptive.unlocked()가 true일 때만(S5 승급 시험 통과 뒤).
+// (P0, 다음 묶음 R3b) 🎓 코칭 보조 카드: '액션별 이길 확률(연구용)'(키 winChance, 기본 꺼짐)과 경고 문구. 게임 화면 슬라이더 읽기(RaiseInfo)가
+//   '내 승률' 칩(showEq)도 켜져 있을 때만 보이고, 승급 시험, 미션, 은닉 테이블, GTO 미러 측정 회차에서는 늘 숨긴다.
+//   클라우드 E가 '👀 보기' 카드에 프리플랍 차트 티어 행(chartTier)을 더한다.
 //   html(settings, sup, opts)의 opts.adaptive(true/false)로 표시 여부를 직접 줄 수 있다(테스트용, 없으면 VillainAdaptive.unlocked()).
 //   효과음은 WebAudio, 진동은 navigator.vibrate가 없으면 그 줄을 숨긴다. 둘 다 기본 꺼짐.
 // 누르면 A11y.save(patch)로 바로 저장하고 적용한 뒤 다시 그린다. 맨 위 미리보기 줄(카드 4장, 차트 칸 3개)로 결과를 바로 본다.
@@ -93,6 +96,9 @@ var SettingsView = (function() {
       _row('reduceMotion', '카드 돌리기와 화면 효과', '줄이면 카드와 화면이 기다림 없이 바로 나타나요. 시스템 따름은 폰의 동작 줄이기 설정을 따라요.',
         [_pick('reduceMotion', null, rm === null, '시스템 따름'), _pick('reduceMotion', true, rm === true, '줄이기'), _pick('reduceMotion', false, rm === false, '보통')])
     ];
+    var coach = '<div class="j-card"><div class="j-card-t">🎓 코칭 보조</div>' +
+      _row('winChance', '액션별 이길 확률(연구용)', '⚠ 거의 정답에 가까운 보조예요. 공부용으로만 켜고 실전 감각을 기를 때는 꺼 두세요. ' +
+        '켜도 게임 화면의 내 승률 칩이 켜져 있을 때만 보이고, 승급 시험과 미션에서는 늘 숨겨요.', _onOff('winChance', s.winChance === true)) + '</div>';
     var foe = showAdaptive ? '<div class="j-card"><div class="j-card-t">🧠 상대</div>' +
       _row('adaptive', '상대가 내 성향에 적응', '켜면 자유 게임과 미션에서 상대가 내 플레이 습관(벳, 콜, 폴드를 얼마나 자주 하는지)을 읽고 조금씩 맞춰 와요. ' +
         '승급 시험, 은닉 테이블, 극장, 연습에서는 원래 성향 그대로예요. 끄면 내 습관에 맞춰 바꾸지 않아요(이번 달 시즌에 바뀐 성향은 그대로예요).', _onOff('adaptive', s.adaptive !== false)) + '</div>' : '';
@@ -103,7 +109,7 @@ var SettingsView = (function() {
       '<div class="j-sub-top"><button type="button" class="j-back" aria-label="여정 홈으로" onclick="SettingsView.back()">↩</button>' +
       '<h2 class="j-sub-t">⚙ 설정</h2></div>' +
       _previewHTML() + goalCard +
-      '<div class="j-card"><div class="j-card-t">👀 보기</div>' + look.join('') + '</div>' +
+      '<div class="j-card"><div class="j-card-t">👀 보기</div>' + look.join('') + '</div>' + coach +
       '<div class="j-card"><div class="j-card-t">🎬 움직임</div>' + motion.join('') + '</div>' + foe +
       '<div class="j-card"><div class="j-card-t">🔔 소리와 진동</div>' +
         (fxRows.length ? '<div class="j-card-d">처음에는 꺼져 있어요. 켜면 바로 한 번 울려요.</div>' + fxRows.join('')
@@ -132,7 +138,7 @@ var SettingsView = (function() {
 
   var LIVE = { fontScale: '글자 크기를 바꿨어요', fourColor: '4색 덱을 바꿨어요', cbChart: '색약용 차트를 바꿨어요',
     reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요',
-    goal: '하루 목표를 바꿨어요' };
+    goal: '하루 목표를 바꿨어요', winChance: '액션별 이길 확률 설정을 바꿨어요' };
 
   // set(key, value): 바로 저장 + 적용 + 다시 그리기. 반환 = 저장된 설정
   // (UX-02) key 'goal'은 A11y가 아니라 Journey 상태(goal.minutes)에 저장. 반환은 { goal } (TodayUI.preview는 _cache.goal이 다르면 스스로 다시 계산)

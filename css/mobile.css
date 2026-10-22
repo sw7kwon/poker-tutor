@@ -100,11 +100,27 @@
 
   /* ── 학습 도크 #m-dock (ui/mobile-ui.js가 .table-area 바로 뒤에 삽입) ── */
   .m-dock { flex: 0 0 auto; background: #0d1117; border-top: 1px solid var(--hud-border); display: flex; flex-direction: column; }
-  /* 상단부 높이 상한: 테이블+탭 바+액션바를 뺀 남은 높이(최소 120px, 최대 38dvh) — 탭 바가 액션바 뒤로 숨지 않게, 넘치면 내부 스크롤 */
+  /* 상단부(R7): 판정 띠 44 + 리마인더 1줄 44 + 띵킹 패널, L0/L1(띵킹 꺼짐)은 132px 안에서 안쪽 스크롤 없음.
+     높이 상한은 테이블+탭 바+액션바(184px)를 뺀 남은 높이(최소 120px, 최대 38dvh), 띵킹 칩처럼 넘치면 내부 스크롤 */
   .m-dock-top {
     display: flex; flex-direction: column; gap: 6px; padding: 6px 10px 0; overflow-y: auto;
-    max-height: 38dvh; max-height: clamp(120px, calc(100dvh - var(--oval-w) * 1.3 - 315px - var(--safe-b)), 38dvh);
+    max-height: 38dvh; max-height: clamp(120px, calc(100dvh - var(--oval-w) * 1.3 - 331px - var(--safe-b)), 38dvh);
   }
+  .m-dock-top .coach-line .cl-text { font-size: 1rem; }
+  .m-dock-top .coach-line .cl-sub { font-size: .8rem; }
+  /* 리마인더: 1줄 말줄임, 누르면 펼침(CoachUI.toggleReminder) */
+  .m-dock-top .coach-reminder {
+    position: relative; box-sizing: border-box; min-height: 44px; padding: 4px 30px 4px 10px; border-radius: 8px;
+    font-size: .8rem; line-height: 1.45; cursor: pointer; display: flex; flex-direction: column; justify-content: center;
+  }
+  .m-dock-top .coach-reminder::after {
+    content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .9rem; color: #e3b341;
+  }
+  .m-dock-top .coach-reminder.cr-open::after { content: '▴'; }
+  .m-dock-top .coach-reminder:not(.cr-open) { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 34px; padding-top: 0; padding-bottom: 0; }
+  .m-dock-top .coach-reminder:not(.cr-open) .cr-line { display: inline; }
+  .m-dock-top .coach-reminder:not(.cr-open) .cr-line + .cr-line::before { content: '  |  '; }
+  .m-dock-top .coach-reminder.cr-open .cr-line + .cr-line { margin-top: 2px; }
   .m-dock-top > * { flex-shrink: 0; }
   .m-dock-top.is-empty { display: none; }
   .m-dock-tabs { display: flex; gap: 4px; padding: 4px 8px; }
@@ -128,6 +144,17 @@
   /* 패널 내부 */
   .m-dock #equity-overlay { border: none; background: transparent; padding: 0; gap: 8px; overflow: visible; }
   .m-dock .equity-bar-wrap { min-width: 0; }
+  .m-dock .equity-label { font-size: .8rem; }
+  .m-dock .equity-value { font-size: 1rem; width: auto; min-width: 48px; text-align: right; }
+  /* 본문 코칭 탭(R7): 승률 → 판정 상세 .85rem → 숫자 보기 ▸(EV 표 접힘) → 📖 용어 ▸ */
+  .m-dock #ev-fold { display: block; }
+  .m-dock #equity-overlay:not(.ev-open) #ev-table { display: none; }
+  .m-dock #equity-overlay .ev-table { width: 100%; font-size: .85rem; }
+  .m-dock #equity-overlay .ev-table td, .m-dock #equity-overlay .ev-table th { padding: 4px 6px; }
+  .m-dock .coach-pre { font-size: .85rem; }
+  .m-dock .coach-pre .cp-check li { margin-bottom: 4px; }
+  .m-dock .coach-pre .cp-grid { grid-template-columns: repeat(2, 1fr); }   /* L2 예측 격자 2x2, 칸 44px */
+  .m-dock .last-verdict .lv-extra, .m-dock .last-verdict .lv-pred { font-size: .82rem; }
   .m-dock .coaching-text { max-width: none; }
   .m-dock .beginner-explain { flex: none; }
   .m-dock #beginner-explain-body { overflow: visible; }
@@ -152,25 +179,37 @@
   .m-dock .coach-pre .cp-opt { min-height: var(--tap); font-size: .85rem; }
   .m-dock .coach-pre .cp-grid { gap: 6px; }
   .m-dock .cp-hint { min-height: var(--tap); font-size: .9rem; }
-  .m-dock .last-verdict { font-size: .88rem; }
+  .m-dock .last-verdict { font-size: .85rem; }
 
   /* ── 액션바: 하단 고정 그리드 ── */
   .action-bar {
     position: sticky; bottom: 0; z-index: 40; margin-top: auto; max-width: none; width: 100%;
     display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 6px; row-gap: 0;
-    grid-template-areas: "preset preset preset" "slider slider slider" "presets presets presets" "fold call raise";
-    padding: 8px 10px calc(8px + var(--safe-b));
+    grid-template-areas: "preset preset preset" "slider slider slider" "info info info" "presets presets presets" "fold call raise";
+    padding: 3px 10px calc(4px + var(--safe-b));
   }
+  /* 액션바 높이(R7): 윗선 1 + 위 3 + 슬라이더 44(눈금 띠 16은 트랙 아래에 겹침) + 읽기 2줄 28 + 4 + 프리셋 44 + 4 + 버튼 52 + 아래 4 = 184px */
+  #raise-ticks { grid-area: slider; align-self: end; height: 1rem; margin: 0 66px; }   /* 좌우 = 스텝 44 + 틈 8 + 손잡이 반폭 14 */
+  /* 읽기 2줄은 28px(기본). 좁은 폭에서 연구용 이길 확률까지 켜 줄이 접히면 값이 잘리지 않게 높이를 늘린다(위아래 잘림 금지) */
+  #raise-info {
+    grid-area: info; min-height: 1.75rem; margin: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 2px;
+    font-size: .78rem; line-height: .875rem;
+  }
+  #raise-info b, #raise-info strong { font-size: .9rem; }
+  /* 큰 값 글자(.9rem)와 '근사' 표가 줄 높이를 14px보다 키우지 않게(RaiseInfo 마크업 .ri-l, .ri-ap 기준, 2줄 = 28px 유지) */
+  #raise-info .ri-l { row-gap: 0; }
+  #raise-info b, #raise-info strong, #raise-info .ri-ap { line-height: 0; }
   .raise-controls, #raise-slider-section { display: contents; }   /* 인라인 display:none이면 숨김 그대로 */
   #gto-preset-row { grid-area: preset; margin-bottom: 6px; }
   .gto-preset-btn { min-height: 44px; }
   .gto-reason-toggle { width: 44px; height: 44px; }
-  .raise-slider-row { grid-area: slider; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .raise-slider-row { grid-area: slider; display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
   .raise-step {
     display: inline-flex; flex: 0 0 44px; width: 44px; height: 44px; align-items: center; justify-content: center; font-size: 1.3rem;
     background: #21262d; color: var(--text); border: 1px solid var(--hud-border); border-radius: 8px; cursor: pointer;
   }
-  #raise-slider { flex: 1; width: auto; min-width: 0; height: 44px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; }
+  /* 터치 높이 44px는 그대로, 트랙은 10px 위로(아래 padding): 트랙 아래 눈금 띠(#raise-ticks) 라벨을 손잡이가 덮지 않게(리뷰 수정) */
+  #raise-slider { flex: 1; width: auto; min-width: 0; height: 44px; margin: 0; padding: 0 0 10px; box-sizing: border-box; -webkit-appearance: none; appearance: none; background: transparent; }
   #raise-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #30363d; }
   #raise-slider::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none; width: 28px; height: 28px; margin-top: -11px; border-radius: 50%;
@@ -178,9 +217,10 @@
   }
   #raise-slider::-moz-range-track { height: 6px; border-radius: 3px; background: #30363d; }
   #raise-slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--gold); border: 2px solid #0d1117; }
-  .raise-bottom-row { grid-area: presets; display: flex; gap: 6px; align-items: stretch; margin-bottom: 6px; }
+  .raise-bottom-row { grid-area: presets; display: flex; gap: 6px; align-items: stretch; margin: 4px 0; }
   .raise-presets { flex: 1; min-width: 0; display: flex; gap: 4px; }
-  .raise-presets button { flex: 1 1 0; min-width: 40px; min-height: 44px; font-size: .82rem; padding: 0 2px; white-space: nowrap; border-radius: 6px; }
+  .raise-presets button { flex: 1 1 0; min-width: 40px; min-height: 44px; font-size: .9rem; font-weight: 600; color: var(--text); padding: 0 2px; white-space: nowrap; border-radius: 6px; }
+  .raise-presets button[data-preset="allin"] { color: #ff9b94; }
   .raise-amount-wrap { margin-left: 0; gap: 4px; }
   .raise-amount-input { width: 64px; height: 44px; font-size: 16px; padding: 0 4px; }
   .raise-pct { min-width: 0; font-size: .7rem; width: 3.6em; white-space: normal; line-height: 1.2; }
@@ -225,4 +265,6 @@
   html.allow-landscape #screen-game { overflow-y: auto; }
   html.allow-landscape .table-area { zoom: .6; flex: 0 0 auto; padding: 72px 20px 76px; }   /* 간이 배치(best-effort): 위아래로 튀어나온 좌석까지 보이게 */
   html.allow-landscape .action-bar { padding: 6px 10px; }
+  /* 간이 배치에서는 슬라이더 읽기 2줄과 눈금 띠를 접어 액션 버튼이 412px 높이 안에 들게 한다(읽기는 세로 화면에서 봐요) */
+  html.allow-landscape #raise-info, html.allow-landscape #raise-ticks { display: none !important; }
 }

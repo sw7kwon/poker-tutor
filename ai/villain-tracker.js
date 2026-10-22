@@ -1,16 +1,19 @@
 // ai/villain-tracker.js: 빌런별 성향 통계(VPIP/PFR/3벳/AF/벳폴드), 세션 단위 메모리 집계
 // localStorage 미사용. 히어로 액션은 추적하지 않음. 연습 핸드는 호출부(app)에서 제외.
 // M6-READ(계약 H4): HUD 4분류를 이 파일이 정본으로 가진다. 트래커 style 칩, hudread 퍼즐, S6 레슨과 보스가 같은 규칙을 쓴다.
-//   classify({ vpip, pfr, n }) → 이 순서로 'tight'(VPIP ≤ 10), 'loose-passive'(VPIP ≥ 20이고 PFR/VPIP < 0.35),
-//     'loose-aggr'(VPIP ≥ 18이고 PFR/VPIP ≥ 0.6), 'standard'(나머지). n < 15면 null(아직 모름). vpip, pfr는 % 정수(표시값).
+//   classify({ vpip, pfr, n }) → 이 순서로 'tight'(VPIP ≤ 14), 'loose-passive'(VPIP ≥ 30이고 PFR/VPIP < 0.35),
+//     'loose-aggr'(VPIP ≥ 28이고 PFR/VPIP ≥ 0.6), 'standard'(나머지). n < 15면 null(아직 모름). vpip, pfr는 % 정수(표시값).
 //   CLASS_LABEL: 🧊 타이트, ⚖ 정석, 🔥 루즈-공격, 🐟 루즈-패시브. stats(name).style = 라벨(hudText 형식은 그대로).
 //   CLASS_OF_TYPE: 은닉 정답 대응(Nit tight, TAG standard, LAG loose-aggr, Fish와 Station loose-passive).
 //   RULE: 임계 상수 한 곳(재보정이 필요하면 여기 RULE0만 바꾼다. classify가 api.RULE을 그때그때 읽고,
 //     puzzles/gen-read.js hudread의 생성 범위와 해설 문구도 같은 값에서 나온다).
 //   M6 통합 검증 재보정(로드맵 결정 21): 처음 값(타이트 20 이하, 루즈-패시브 40 이상, 루즈-공격 30 이상)은 엔진 빌런의 실제 6인
 //     숫자와 맞지 않아(은닉 테이블 실측 VPIP/PFR: Nit 6/5, TAG 13~15/11~14, LAG 19~23/16~21, Fish 33~36/3, Station 30~32/3)
-//     엔진 빌런을 이 규칙으로 맞히는 비율이 25% 안팎이었다(LAG, Station 0%대). 지금 값은 그 실측에 맞춘 이 앱의 기준이고
-//     (100핸드 관찰 좌석 정답 82~91%, 5좌석 중 4곳 이상 83~95%), tests/p8-reads-flow.test.js가 엔진 시뮬레이션으로 지킨다.
+//     엔진 빌런을 이 규칙으로 맞히는 비율이 25% 안팎이었고, 그 실측에 맞춰 10/20/18로 낮췄다.
+//   로드맵 결정 26(엔진 빌런 레인지 확장): ai/villain-profiles.js의 프리플랍 표를 실제 6-max 숫자 쪽으로 넓힌 뒤(실측 Nit 10~11/9,
+//     TAG 21~22/17~18, LAG 33~34/28~29, Fish 40~41/6~7, Station 47~48/4) 임계를 설계값 쪽으로 되돌렸다: 타이트 14 이하,
+//     루즈-공격 28 이상, 루즈-패시브 30 이상(비율 0.35, 0.6은 그대로). 100핸드 관찰 좌석 정답은 히어로가 늘 콜하면 약 92%(유형별 85% 이상),
+//     이 앱 차트대로 치면 약 87~90%(유형별 75% 이상), 5좌석 중 4곳 이상 78~95%. tests/p8-reads-flow.test.js가 엔진 시뮬레이션으로 지킨다.
 //   유형 가림(state.hideTypes)일 때 style 칩을 빼는 것은 표시 쪽(ui/table.js _hudHTML)이 맡는다(M4-P5).
 // M7-B(로드맵 결정 30): AF 표기 함수 afText(aggr, calls)를 한 곳에 둔다. 콜 0이고 벳, 레이즈가 있으면 '콜 없음', 둘 다 0이면 '-',
 //   아니면 소수 첫째 자리 반올림 숫자('0.5', '2'). 트래커 HUD short 줄과 맞히기 화면(journey/boss.js _afTxt)이 같이 쓴다.
@@ -18,8 +21,8 @@ var VillainTracker = (function() {
   var _sid = null;
   var _data = {}; // name -> { hands:{handKey:{vpip,pfr,tb}}, aggr, calls, folds, facing }
 
-  // 판별 임계(설계서 2.5절, 계약 H4, 엔진 실측 재보정). 단위: VPIP, PFR은 % 정수, 비율은 PFR/VPIP
-  var RULE0 = Object.freeze({ minN: 15, tightMax: 10, lpMin: 20, lpRatio: 0.35, laMin: 18, laRatio: 0.6 });
+  // 판별 임계(설계서 2.5절, 계약 H4, 엔진 실측 재보정, 결정 26). 단위: VPIP, PFR은 % 정수, 비율은 PFR/VPIP
+  var RULE0 = Object.freeze({ minN: 15, tightMax: 14, lpMin: 30, lpRatio: 0.35, laMin: 28, laRatio: 0.6 });
   var api = null;   // 아래에서 채운다(_rule이 api.RULE을 읽는다)
   var CLASSES = Object.freeze(['tight', 'standard', 'loose-aggr', 'loose-passive']);
   var CLASS_LABEL = Object.freeze({ tight: '🧊 타이트', standard: '⚖ 정석', 'loose-aggr': '🔥 루즈-공격', 'loose-passive': '🐟 루즈-패시브' });

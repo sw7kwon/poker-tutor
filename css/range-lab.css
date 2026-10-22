@@ -1,0 +1,205 @@
+/* css/range-lab.css (채우는 그룹: 로컬 G5 RANGE LAB. 설계 원문 docs/NEXT_BATCH_DESIGN.md '1+' 절 G5)
+   레인지 학습실 화면(.j-range-lab, journey/views/range-lab.js). 클래스는 rl- 접두. 칸 색은 table.css의 gto-raise, gto-call, gto-fold를
+   그대로 쓰고(색약용 R/C/F 글자는 a11y.css의 html.cb 규칙이 같이 붙는다) 크기만 여기서 키운다.
+   기준: 폰 412 세로에서 13x13 칸 29px 이상, 칸 글자 11px 이상, 눌리는 요소 44px 이상(작은 칸은 <i>이고 크게 보기 줄 버튼이 44px).
+   P0 규칙(지우지 말 것): 홈 빠른 줄의 '🗺 레인지 학습실' 버튼은 빠른 줄 격자 한 줄을 다 쓴다(6칸 격자 아래 넓은 버튼). */
+.j-quick .j-q.j-q-wide { grid-column: 1 / -1; flex-direction: row; gap: 8px; min-height: 48px; }
+.j-quick .j-q.j-q-wide .j-q-t { font-size: .85rem; font-weight: 700; color: var(--text); }
+.j-quick .j-q.j-q-wide { border-color: rgba(212, 175, 55, .45); }
+
+/* ── 뼈대 ── */
+.j-range-lab .j-sub-top { margin-bottom: 10px; }
+.rl-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+.rl-tab { min-height: 44px; min-width: 0; padding: 6px 4px; border-radius: var(--r-md, 10px); cursor: pointer; font: inherit; font-size: .9rem; font-weight: 700;
+  background: #161b22; color: var(--text-dim); border: 1px solid var(--hud-border); white-space: nowrap; }
+.rl-tab.is-on { color: var(--text); border: 2px solid var(--gold); background: rgba(212, 175, 55, .12); }
+.rl-tab:focus-visible, .rl-pick:focus-visible, .rl-z:focus-visible, .rl-nav:focus-visible, .rl-bar:focus-visible, .rl-tag:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.rl-body { display: flex; flex-direction: column; gap: 10px; }
+.rl-body .j-card { margin-top: 0; }
+
+/* ── 고르기 줄(상황, 자리, 오프너) ── */
+.rl-pickers { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid var(--hud-border); }
+.rl-row { display: flex; flex-direction: column; gap: 5px; }
+.rl-row-l { font-size: .78rem; color: var(--text-dim); }
+.rl-row-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rl-fold { min-height: 44px; min-width: 44px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--hud-border); background: #21262d; color: var(--text); font: inherit; font-size: .82rem; cursor: pointer; }
+.rl-row-sum { flex-direction: row; align-items: center; gap: 10px; }
+.rl-row-sum .rl-row-l { flex: 0 0 auto; }
+.rl-sum-btn { flex: 1 1 auto; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 12px; cursor: pointer;
+  background: #21262d; color: var(--text); border: 2px solid var(--gold); font: inherit; text-align: left; }
+.rl-sum-btn b { font-size: .98rem; white-space: nowrap; }
+.rl-sum-btn small { flex: 1 1 auto; min-width: 0; font-size: .74rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-sum-arrow { flex: 0 0 auto; font-size: .8rem; color: #f2cc60; white-space: nowrap; }
+.rl-sum-btn:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.rl-row-note { font-size: .86rem; color: #c9d1d9; min-height: 44px; display: flex; align-items: center; }
+.rl-row-hint { font-size: .78rem; color: #aab4be; line-height: 1.4; }
+.rl-pick { padding: 6px 12px; font-size: .88rem; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; line-height: 1.2; }
+.rl-pick small { font-size: .66rem; font-weight: 400; color: var(--text-dim); }
+.rl-pick.is-on small { color: #e6d9a8; }
+
+/* ── 표(13x13) ── */
+.rl-chart { display: flex; flex-direction: column; gap: 8px; padding: 10px 8px 10px; border-radius: var(--r-lg, 14px); background: #0b0f14; border: 1px solid var(--hud-border); }
+.rl-head { display: flex; flex-direction: column; gap: 3px; padding: 0 2px; }
+.rl-head-t { font-size: 1.02rem; font-weight: 700; color: var(--gold); }
+.rl-head-d { font-size: .84rem; line-height: 1.45; color: #c9d1d9; }
+.rl-grid { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 1px; width: 100%; max-width: 520px; margin: 0 auto; padding: 1px; background: #000; border-radius: 4px; }
+.rl-grid .rl-c, .rl-c {
+  aspect-ratio: 1 / 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden;
+  border-radius: 2px; font-style: normal; font-weight: 700; line-height: 1; letter-spacing: -.02em;
+  font-size: clamp(11px, 2.75vw, 13px); cursor: pointer; user-select: none; -webkit-user-select: none; position: relative;
+}
+.rl-grid .rl-c.is-p { font-weight: 800; }
+.rl-grid .rl-c.is-p::before { content: ''; position: absolute; inset: 0; border: 1px solid rgba(255, 255, 255, .22); border-radius: 2px; pointer-events: none; }
+.rl-grid .rl-c.is-row { box-shadow: inset 0 2px 0 rgba(240, 180, 41, .9), inset 0 -2px 0 rgba(240, 180, 41, .9); }
+.rl-grid .rl-c.is-kin { outline: 2px dotted rgba(255, 255, 255, .85); outline-offset: -3px; }
+/* 림퍼 뒤 BB 체크 칸 중 레이즈도 괜찮은 손(모델 cell.alt): 오른쪽 아래 ◢ 레이즈색 모서리(차트 시트의 gto-alt와 같은 표시). 색약 모드는 'C/R' 글자 */
+.rl-grid .rl-c.is-alt, .rl-sw.rl-c.is-alt, .rl-z.is-alt { background-image: linear-gradient(135deg, transparent 68%, var(--gc-raise, #2e9e48) 68%); }
+html.cb .rl-grid .rl-c.is-alt::after, html.cb .rl-z.is-alt::after { content: 'C/R'; }
+.rl-grid .rl-c.is-sel { box-shadow: inset 0 0 0 3px #ffd54a, 0 0 8px 2px rgba(255, 213, 74, .75); z-index: 1; animation: rl-glow .9s ease-out 1; }
+@keyframes rl-glow { 0% { box-shadow: inset 0 0 0 3px #fff7c2, 0 0 14px 6px rgba(255, 213, 74, .95); } 100% { box-shadow: inset 0 0 0 3px #ffd54a, 0 0 8px 2px rgba(255, 213, 74, .75); } }
+html.cb .rl-grid .rl-c::after { font-size: .72em; margin-top: 1px; }
+/* 세로 폰: 좌우 여백을 10px 줄이고 안쪽 여백을 2px로 두어 칸을 넓힌다(412px에서 칸 29.2px, 360px에서 25.2px) */
+@media (max-width: 480px) {
+  .rl-chart { margin-left: -10px; margin-right: -10px; padding-left: 2px; padding-right: 2px; border-radius: 10px; }
+  .rl-head { padding: 0 6px; }
+}
+
+/* ── 표 바로 아래 한 줄 읽기(고른 칸의 분류와 액션) ── */
+.rl-readout { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 10px; border-radius: 8px; background: #161b22; border: 1px solid rgba(255, 213, 74, .45);
+  font-size: .9rem; color: var(--text); line-height: 1.3; }
+.rl-readout b { font-size: 1.02rem; }
+.rl-readout span { color: #c9d1d9; }
+.rl-readout .rl-readout-a { color: var(--text); font-weight: 700; }
+.rl-readout small { margin-left: auto; font-size: .72rem; color: var(--text-dim); white-space: nowrap; }
+
+/* ── 범례, 라벨 칩 ── */
+.rl-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: center; font-size: .8rem; color: #c9d1d9; line-height: 1.35; }
+.rl-lg { display: inline-flex; align-items: center; gap: 5px; }
+.rl-lg b { color: var(--text); font-variant-numeric: tabular-nums; }
+.rl-lg small { color: var(--text-dim); font-size: .72rem; }
+.rl-lg-top { width: 100%; justify-content: center; color: var(--text-dim); font-size: .78rem; }
+.rl-sw { display: inline-flex; width: 14px; height: 14px; aspect-ratio: auto; border-radius: 3px; flex: 0 0 auto; font-size: 9px; }
+.rl-sw.rl-c { width: 14px; height: 14px; font-size: 0; cursor: default; }
+.rl-sw-big { width: 22px; height: 22px; font-size: 11px; }
+html.cb .rl-sw::after { font-size: 9px; }
+.rl-tagline { display: flex; justify-content: center; }
+.rl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: .74rem; font-weight: 700;
+  background: rgba(88, 166, 255, .14); color: #9ecbff; border: 1px solid rgba(88, 166, 255, .5); white-space: nowrap; }
+
+/* ── 크게 보기 줄(44px 버튼 13개) ── */
+.rl-zoom { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 10px; background: #161b22; border: 1px solid rgba(240, 180, 41, .55); }
+.rl-zhead { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rl-zt { flex: 1 1 auto; min-width: 0; font-size: .9rem; color: #f2cc60; }
+.rl-zt small { display: block; font-size: .72rem; color: var(--text-dim); }
+.rl-nav { flex: 0 0 auto; min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--hud-border); background: #21262d; color: var(--text); font: inherit; font-size: 1rem; cursor: pointer; }
+.rl-nav:disabled { opacity: .55; cursor: default; }
+.rl-zcells { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; }
+.rl-z { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 0; min-height: 48px; padding: 2px; aspect-ratio: auto;
+  border-radius: 8px; border: 2px solid transparent; font: inherit; font-size: .9rem; line-height: 1.1; cursor: pointer; }
+.rl-z b { font-weight: 800; }
+.rl-z small { font-size: .66rem; line-height: 1; min-height: .7em; }
+html.cb .rl-z small { display: none; }       /* 색약용은 ::after R/C/F가 대신 붙는다 */
+.rl-z.is-p { border-style: dashed; border-color: rgba(255, 255, 255, .35); }
+.rl-z.is-sel { border-color: #ffd54a; box-shadow: 0 0 0 2px rgba(255, 213, 74, .5); }
+
+/* ── 설명 카드 ── */
+.rl-note { border-color: rgba(212, 175, 55, .35); }
+.rl-note-empty .j-card-d { text-align: center; }
+.rl-note-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.rl-note-t { font-size: 1.05rem; color: var(--text); }
+.rl-note-act { display: inline-block; margin: 2px 0 6px; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: .95rem; background: #161b22; border: 1px solid var(--hud-border); }
+.rl-act-raise { color: #7ee2a0; } .rl-act-call { color: #d7ecd9; } .rl-act-fold { color: #ff9b9b; }
+.rl-note-p { margin: 0 0 6px; font-size: .9rem; line-height: 1.5; color: #e6edf3; }
+.rl-note-kin { margin-top: 2px; }
+
+/* ── 자리 비교 띠 ── */
+.rl-strip { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; margin: 6px 0 8px; }
+.rl-bar { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; min-height: 96px; min-width: 0; padding: 4px 2px;
+  border-radius: 8px; background: #161b22; border: 1px solid var(--hud-border); color: var(--text); font: inherit; cursor: pointer; }
+.rl-bar.is-on { border: 2px solid var(--gold); background: rgba(212, 175, 55, .12); }
+.rl-bar-pct { font-size: .74rem; font-variant-numeric: tabular-nums; color: #c9d1d9; }
+.rl-bar-track { display: flex; align-items: flex-end; width: 100%; max-width: 28px; height: 44px; border-radius: 4px; background: #0b0f14; overflow: hidden; }
+.rl-bar-track i { display: block; width: 100%; background: linear-gradient(180deg, #3fb950, #1e7d32); border-radius: 4px 4px 0 0; }
+.rl-bar.is-on .rl-bar-track i { background: linear-gradient(180deg, #ffd54a, #b8932b); }
+.rl-bar-k { font-size: .78rem; font-weight: 700; }
+.rl-bar-k small { display: block; font-size: .6rem; font-weight: 400; color: var(--text-dim); }
+
+/* ── 동작 버튼 줄 ── */
+.rl-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.rl-acts .j-btn { flex: 1 1 140px; }
+.rl-acts-top .j-btn { flex: 0 1 auto; }
+.rl-foot { text-align: center; }
+.rl-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.rl-tag { min-height: 44px; min-width: 52px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .2); font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; aspect-ratio: auto; }
+
+/* ── 비교 ── */
+.rl-cmp-rows { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid var(--hud-border); }
+/* 비교 격자: 둘 다 들어오는 칸과 둘 다 빠지는 칸은 살짝만 눌러 둔다(.5, .35는 글자 대비 2.4:1, 2.0:1로 떨어졌다, QA 실측. .95/.8이면 5:1 이상). 새 칸은 흰 테두리와 ✚로 구분 */
+.rl-grid-cmp .rl-c.is-both { opacity: .95; }
+.rl-grid-cmp .rl-c.is-out { opacity: .8; }
+.rl-grid-cmp .rl-c.is-new { box-shadow: inset 0 0 0 2px #fff; z-index: 1; }
+.rl-grid-cmp .rl-c.is-new::after { content: '✚'; position: absolute; top: 0; right: 1px; font-size: .55em; line-height: 1; color: #fff; }
+.rl-grid-cmp .rl-c.is-gone { background: repeating-linear-gradient(45deg, #8e2f2f 0 3px, #3a1414 3px 6px); color: #f6dede; }
+.rl-grid-cmp .rl-c.is-gone::after { content: '✖'; position: absolute; top: 0; right: 1px; font-size: .55em; line-height: 1; }
+/* 색약 모드: ✚, ✖ 표시가 R/C 글자(a11y.css html.cb .gto-*::after)를 덮지 않게 둘을 같이 적는다 */
+html.cb .rl-grid-cmp .rl-c.is-new::after, html.cb .rl-grid-cmp .rl-c.is-gone::after { position: static; font-size: .72em; }
+html.cb .rl-grid-cmp .rl-c.is-new.gto-raise::after { content: 'R✚'; } html.cb .rl-grid-cmp .rl-c.is-new.gto-call::after { content: 'C✚'; }
+html.cb .rl-grid-cmp .rl-c.is-gone.gto-raise::after { content: 'R✖'; } html.cb .rl-grid-cmp .rl-c.is-gone.gto-call::after { content: 'C✖'; }
+.rl-sw.is-both { opacity: .95; } .rl-sw.is-new { box-shadow: inset 0 0 0 2px #fff; }
+.rl-sw.is-gone { background: repeating-linear-gradient(45deg, #8e2f2f 0 3px, #3a1414 3px 6px); }
+.rl-pop { animation: rl-pop .6s cubic-bezier(.2, .9, .3, 1.3) 1; }
+@keyframes rl-pop { 0% { transform: scale(.2); opacity: 0; } 60% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+.rl-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; font-size: .82rem; color: var(--text-dim); }
+.rl-step { padding: 2px 8px; border-radius: 999px; background: #161b22; border: 1px solid var(--hud-border); }
+.rl-step.is-done { color: #7ee2a0; border-color: rgba(63, 185, 80, .5); }
+.rl-step.is-on { color: var(--text); font-weight: 700; border-color: var(--gold); background: rgba(212, 175, 55, .14); }
+.rl-step-arrow { opacity: .9; }
+
+/* ── 외우기(RangePaint 부품은 puzzle.css의 rp- 규칙을 그대로 쓴다) ── */
+.rl-paint-box { padding: 10px 8px; border-radius: var(--r-lg, 14px); background: #0b0f14; border: 1px solid var(--hud-border); }
+.rl-paint-box .rp { display: flex; flex-direction: column; gap: 8px; }
+.rl-paint-box .rp-grid { width: 100%; max-width: 520px; }
+.rl-paint-box .rp-c { font-size: clamp(11px, 2.75vw, 13px); }
+.rl-peek .rl-grid { opacity: .92; }
+@media (max-width: 480px) { .rl-paint-box { margin-left: -10px; margin-right: -10px; padding-left: 2px; padding-right: 2px; border-radius: 10px; } }
+
+/* ── 진도 ── */
+.rl-sum-row { display: flex; gap: 10px; margin: 8px 0; }
+.rl-sum-n { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; padding: 8px; border-radius: 10px; background: #161b22; border: 1px solid var(--hud-border); }
+.rl-sum-n b { font-size: 1.5rem; color: var(--gold); font-variant-numeric: tabular-nums; }
+.rl-sum-n small { font-size: .74rem; color: var(--text-dim); }
+.rl-pbs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rl-pb { padding: 10px 12px; border-radius: var(--r-lg, 14px); background: #11161d; border: 1px solid var(--hud-border); display: flex; flex-direction: column; gap: 6px; }
+.rl-pb.is-on { border-color: rgba(212, 175, 55, .55); }
+.rl-pb-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.rl-pb-k { font-size: .92rem; }
+.rl-pb-v { font-size: .84rem; color: #c9d1d9; font-variant-numeric: tabular-nums; }
+.rl-pb-v small { color: var(--text-dim); margin-left: 4px; }
+.rl-pb-track { height: 12px; border-radius: 6px; background: #21262d; overflow: hidden; }
+.rl-pb-track i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #1e7d32, #3fb950); }
+.rl-pb-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.rl-pb-btn { flex: 1 1 90px; min-height: 44px; padding: 6px 10px; font-size: .88rem; }
+
+/* ── 퀴즈 ── */
+.rl-quiz-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .84rem; color: var(--text-dim); }
+.rl-quiz-x { min-height: 44px; min-width: 44px; padding: 0; }
+.rl-quiz-sit { margin-top: 6px; font-size: .9rem; color: #c9d1d9; }
+.rl-quiz-hand { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 4px; }
+.rl-quiz-hand b { font-size: 2.2rem; color: var(--text); letter-spacing: -.02em; }
+.rl-quiz-hand small { font-size: .84rem; color: var(--text-dim); }
+.rl-quiz-q { font-size: 1rem; margin: 4px 0 8px; }
+.rl-quiz-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.rl-qa { flex: 1 1 100px; flex-direction: row; gap: 8px; min-height: 52px; font-size: 1rem; }
+.rl-quiz-res { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 1rem; background: #161b22; border: 1px solid var(--hud-border); }
+.rl-quiz-res.is-ok { color: #7ee2a0; border-color: rgba(63, 185, 80, .5); }
+.rl-quiz-res.is-bad { color: #ff9b9b; border-color: rgba(248, 81, 73, .5); }
+.rl-quiz-res b { color: var(--text); }
+.rl-quiz-big { font-size: 2rem; font-weight: 800; color: var(--gold); margin: 6px 0; font-variant-numeric: tabular-nums; }
+
+/* ── 데스크톱 ── */
+@media (min-width: 900px) {
+  #journey-root:has(.j-range-lab) { max-width: 640px; }
+  .rl-grid { max-width: 600px; }
+  .rl-grid .rl-c { font-size: 14px; }
+  .rl-paint-box .rp-grid { max-width: 600px; }
+}

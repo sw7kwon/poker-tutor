@@ -76,6 +76,10 @@ var ThinkingUI = (function() {
   function _esc(s) {
     return String(s).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
   }
+  // 무늬 기호 4색(R8, ui/cards.js): 이스케이프가 끝난 HTML 문자열에만 쓴다. thinking.js(극장 해시)는 글자만 내고 색은 여기서 입힌다
+  function _cz(html) {
+    return (typeof Cards !== 'undefined' && Cards && typeof Cards.colorize === 'function') ? Cards.colorize(html) : html;
+  }
   function _el(id) {
     return (typeof document !== 'undefined' && document && document.getElementById) ? document.getElementById(id) : null;
   }
@@ -224,7 +228,7 @@ var ThinkingUI = (function() {
     f.style.display = 'block';
     var line = document.createElement('div');
     line.className = 'thinking-line' + (cls ? ' ' + cls : '');
-    line.innerHTML = html;
+    line.innerHTML = _cz(html);
     f.appendChild(line);
     while (f.children.length > _view.feedLines) f.removeChild(f.children[0]);
     f.scrollTop = f.scrollHeight;
@@ -239,7 +243,9 @@ var ThinkingUI = (function() {
     var sr = seat.getBoundingClientRect(), ar = area.getBoundingClientRect();
     var b = document.createElement('div');
     b.className = 'thinking-bubble';
-    b.textContent = String(text).replace(/^💭 [^:]+: /, '💭 ');
+    var bt = String(text).replace(/^💭 [^:]+: /, '💭 ');
+    b.textContent = bt;
+    if (/[♠♥♦♣]/.test(bt)) b.innerHTML = _cz(_esc(bt));   // 무늬가 있을 때만 4색 글자(글자 내용은 같음)
     // 좁은 화면(세로 폰)에서는 폭을 줄이고 좌우 끝을 넘지 않게 클램프, 데스크톱은 220px 그대로
     var bw = Math.min(220, ar.width - 8);
     if (bw < 220) b.style.width = bw + 'px';
@@ -576,7 +582,7 @@ var ThinkingUI = (function() {
     if (_pro && typeof Thinking !== 'undefined' && Thinking.heroThoughtOptions) html += _stepsHTML();
     if (!html) { _hidePanel(); return; }
     _ensureStyle();
-    p.innerHTML = html;
+    p.innerHTML = _cz(html);
     p.style.display = 'block';
     p.onclick = _onPanelClick;
   }
@@ -653,6 +659,7 @@ var ThinkingUI = (function() {
       }
     });
     html += '</div></details>';
+    html = _cz(html);
     if (container.insertAdjacentHTML) container.insertAdjacentHTML('beforeend', html);
     else container.innerHTML = (container.innerHTML || '') + html;
   }

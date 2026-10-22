@@ -204,7 +204,7 @@ html.reduce-motion .pz-opt:active:not([aria-disabled="true"]) { transform: none;
 .rp--lesson .rp-grid { width: min(100%, 240px); }
 .rp--lesson .rp-c { font-size: .5rem; letter-spacing: -.04em; }
 .rp-c { display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; min-width: 0; overflow: hidden; border-radius: 2px;
-  background: #2b3138; color: #8b949e; font-style: normal; font-size: .58rem; font-weight: 600; line-height: 1; letter-spacing: -.02em; cursor: pointer;
+  background: #2b3138; color: #a5aeb8; font-style: normal; font-size: .58rem; font-weight: 600; line-height: 1; letter-spacing: -.02em; cursor: pointer;   /* #8b949e는 4.3:1, #a5aeb8은 5.8:1(is-p 4.9:1) */
   white-space: nowrap; word-break: normal; overflow-wrap: normal; }
 .rp-c.is-p { background: #353d47; }
 .rp-c.is-on { background: #2f6feb; color: #fff; font-weight: 800; }
@@ -215,7 +215,7 @@ html.reduce-motion .pz-opt:active:not([aria-disabled="true"]) { transform: none;
 .rp-zt { flex: 0 1 auto; min-width: 0; font-size: .9rem; color: #f2cc60; white-space: nowrap; }
 .rp-nav { flex: 0 0 auto; min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--hud-border); background: #21262d;
   color: var(--text); font: inherit; font-size: 1rem; cursor: pointer; touch-action: manipulation; }
-.rp-nav:disabled { opacity: .35; cursor: default; }
+.rp-nav:disabled { opacity: .55; cursor: default; }
 /* 412px에서 7칸 x 2줄, 좁은 화면은 칸 44px을 지키며 줄 수가 는다 */
 .rp-zcells { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 4px; touch-action: none; }
 .rp--lesson .rp-zcells { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 3px; }

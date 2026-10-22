@@ -1876,7 +1876,7 @@ var Boss = (function() {
         (ck ? '(' + ck + _wa(ck) + ' 같은 성향)' : '') + (o ? '. ' + _obsTxt(o) : '')) + '</li>';
     }).join('') + '</ul></div>';
   }
-  // 판별 기준 한 줄(s6-02 레슨과 같은 VillainTracker.RULE, 로드맵 결정 21의 엔진 실측 재보정 값). 트래커가 없으면 ''(M6 통합 검증)
+  // 판별 기준 한 줄(s6-02 레슨과 같은 VillainTracker.RULE, 로드맵 결정 21, 26의 엔진 실측 재보정 값). 트래커가 없으면 ''(M6 통합 검증)
   function _idRuleTxt() {
     var V = _m('VillainTracker'), R = V && V.RULE;
     if (!R || !isFinite(R.tightMax) || !isFinite(R.lpMin) || !isFinite(R.laMin)) return '';
@@ -1913,7 +1913,7 @@ var Boss = (function() {
       '<div class="j-block-d">' + _esc((mix ? '이 테이블에는 ' + mix + '이 앉아 있어요(누가 누구인지는 비밀). 좌석끼리 숫자를 나란히 비교해 보세요. '
         : '아래 같은 테이블 캐스트(성향을 아는 상대)의 누적 숫자와 나란히 비교해 보면 쉬워요. ') +
         'VPIP는 팟에 들어온 비율, PFR이 VPIP보다 한참 낮으면 콜 위주(패시브), AF가 높으면 벳과 레이즈가 많아요. 햇살과 콜마스터처럼 콜이 많은 상대는 둘 다 루즈-패시브예요.' +
-        _idRuleTxt() + ' 100핸드 안팎에서는 정석과 루즈-공격의 경계가 자주 바뀌어요.') + '</div></div>');
+        _idRuleTxt() + ' 경계 근처 숫자면 더 지켜봐요.') + '</div></div>');
     if (!asg) {
       body.push('<div class="j-card"><div class="j-card-t">아직 숨은 좌석을 본 적이 없어요</div><div class="j-card-d">' + _esc(nd.kind === 'boss'
         ? '승급 시험을 시작하고 숨은 테이블에서 실전을 치면 관찰이 쌓여요.'

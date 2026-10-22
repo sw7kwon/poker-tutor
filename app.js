@@ -18,6 +18,7 @@ var App = (function() {
   var _sessionId = null; // selectVillains()에서 Date.now() — saveHandHistory meta로 전파
   var _practice = null;  // 활성 시: { seed, heroPos, config, attempts:[{n,delta}], resume:{...}|null }
   var _sessionNet = 0;
+  var _buyin = null;     // 세션 동안 좌석별로 사들인 칩(시작 스택 + 리바이). 좌석 손익 배지(Table .seat-delta)의 기준. GTO 미러와 연습은 null
   // 결정 전 계산 체인(승률 MC → 판정 → HUD)을 다음 프레임으로 미루는 순번. 새 핸드, 다음 핸드, 히어로 액션마다 올려 묵은 결과를 버린다
   var _calcSeq = 0;
   var _pendingCalc = null;  // 다음 프레임 대기 중인 계산 체인. heroAction이 먼저 들어오면 동기로 끝내 지난 결정의 판정으로 채점하지 않는다
@@ -35,22 +36,32 @@ var App = (function() {
   function _bossOn() {
     try { return !!(typeof Boss !== 'undefined' && Boss && typeof Boss.active === 'function' && Boss.active()); } catch (e) { return false; }
   }
+  // 칩 data-eq → 설정 키(P0: 'chart' = 📋 차트 칩, showChart)
+  function _chipKey(kind) { return kind === 'all' ? 'showAllEq' : kind === 'chart' ? 'showChart' : 'showEq'; }
   function syncEqChips() {
     if (typeof document === 'undefined' || !document.querySelectorAll) return;
-    var s = _eqSettings();
+    var s = _eqSettings(), boss = _bossOn();
     var chips = document.querySelectorAll('.eq-chip');
     for (var i = 0; i < chips.length; i++) {
-      var k = chips[i].getAttribute('data-eq') === 'all' ? 'showAllEq' : 'showEq';
+      var kind = chips[i].getAttribute('data-eq'), k = _chipKey(kind);
       chips[i].setAttribute('aria-pressed', s[k] ? 'true' : 'false');
+      // 승급 시험 중 차트 칩은 비활성 표시(누르면 안내 토스트, disabled는 클릭 자체가 막혀 쓰지 않는다)
+      if (kind === 'chart') chips[i].setAttribute('aria-disabled', boss ? 'true' : 'false');
     }
   }
   function toggleEq(kind) {
     if (typeof A11y === 'undefined' || !A11y || typeof A11y.save !== 'function') return;
+    if (kind === 'chart' && _bossOn()) { _showToast('승급 시험 중에는 차트를 볼 수 없어요'); return; }
     var s = _eqSettings();
-    var key = (kind === 'all') ? 'showAllEq' : 'showEq';
+    var key = _chipKey(kind);
     var p = {}; p[key] = !s[key];
     A11y.save(p);
     syncEqChips();
+    // 📋 차트 칩: 판정, 승률 체인은 다시 돌리지 않고 차트만 다시 그린다(GtoChart.refresh, G4. 첫 켜기 토스트와 폰 차트 탭 열기도 G4)
+    if (kind === 'chart') {
+      if (typeof GtoChart !== 'undefined' && GtoChart && typeof GtoChart.refresh === 'function') { try { GtoChart.refresh(); } catch (e) {} }
+      return;
+    }
     // 핸드가 끝난 뒤(쇼다운 카드 표시 중)와 극장 관전 중에는 게임 테이블을 다시 그리지 않는다(renderShowdown이 패치한 공개 카드, 극장 화면이 지워진다)
     var sg = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('screen-game') : null;
     var theater = !!(sg && sg.classList && sg.classList.contains('th-on'));
@@ -71,7 +82,13 @@ var App = (function() {
     if (typeof Nav !== 'undefined' && Nav.onShow) Nav.onShow(id);
   }
 
+  // 커리어(P0 훅, F2): 게임을 떠나면 아직 열린 커리어 세션을 정산한다(멱등). 커리어 게임 중일 때만
+  function _careerLeave() {
+    if (_villainConfig === 'career' && !_practice && typeof Career !== 'undefined' && Career && typeof Career.leaveSession === 'function') Career.leaveSession();
+  }
+
   function showMenu() {
+    _careerLeave();
     // 여정 진행 중(오늘의 5분, 미션/보스)이면 메뉴 대신 여정 홈 또는 진행 중 블록으로
     if (typeof Journey !== 'undefined' && Journey.active && Journey.active() && typeof JourneyUI !== 'undefined' && JourneyUI.resume) { JourneyUI.resume(); return; }
     showScreen('screen-menu');
@@ -103,7 +120,8 @@ var App = (function() {
     _heroPos = 'BTN';
     _sessionId = Date.now();
     _practice = null;
-    _sessionNet = 0; if (typeof VillainTracker !== 'undefined') VillainTracker.reset(_sessionId);
+    _sessionNet = 0; _buyin = null; if (typeof VillainTracker !== 'undefined') VillainTracker.reset(_sessionId);
+    if (config === 'career' && typeof Career !== 'undefined' && Career) _carryoverStacks = Career.stacksFor(); // 커리어(P0 훅, F2): 이어 칠 스택
     // 초보자 코칭 패널(에쿼티 오버레이) 전 모드 기본 표시 — 원하면 📊 버튼으로 접기
     var panel = document.getElementById('equity-overlay');
     var toggleBtn = document.getElementById('equity-toggle');
@@ -123,6 +141,9 @@ var App = (function() {
     _state.handNum = _round;
     _state.round = _gtoMode ? _gtoRound : 0;
     _state.seatEq = null;
+    // 유형 숨김 좌석(spec.hidden, 6인 랜덤과 커리어 카지노 공통)이 하나라도 있으면 (유형) 라벨, HUD 칩, 말버릇을 가린다
+    if (playersSpec.some(function(p) { return p && p.hidden; })) _state.hideTypes = true;
+    _trackBuyin(_state);
     _calcSeq++; _pendingCalc = null;
     syncEqChips();
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onNewHand(_state); // WP8
@@ -167,12 +188,15 @@ var App = (function() {
       var js = Journey.playersSpec(config, _heroPos, _POS);
       if (js) return js;
     }
+    // 커리어(P0 훅, F2): 장소의 라이벌 좌석. 모듈이 없으면 null → 아래 분기(빈 좌석)
+    if (config === 'career' && typeof Career !== 'undefined' && Career) { var cs = Career.playersSpec(_heroPos, _POS); if (cs) return cs; }
     if (config === 'headsup-tag') {
       return [{ type: 'TAG', name: 'Mike', pos: _heroPos === 'BTN' ? 'BB' : 'BTN' }];
     }
     if (config === 'mixed') {
       return [{ type: 'Mixed', name: 'Alex', pos: _heroPos === 'BTN' ? 'BB' : 'BTN' }];
     }
+    if (config === 'sixmax-hidden') return _hiddenSpec(_heroPos, _sessionId);
     if (config === 'sixmax' || config === 'gto-mirror') {
       // 6-max: 6개 시트(0~5)에 고정 착석, 버튼이 매 핸드 이동
       // heroSeat=3 고정, btnSeat = (6 - heroIdx) % 6
@@ -191,8 +215,102 @@ var App = (function() {
     return [];
   }
 
+  // ── 6인 랜덤(유형 숨김, R2): 유형 6종에서 5개를 세션 id 시드로 섞어 손님A~E(spec.hidden) 좌석에 앉힌다. 순수, 같은 세션 id면 같은 배정 ──
+  var HIDDEN6_TYPES = ['TAG', 'LAG', 'Fish', 'Nit', 'Station', 'Mixed'];
+  var HIDDEN6_NAMES = ['손님A', '손님B', '손님C', '손님D', '손님E'];
+  var HIDDEN6_SEATS = [0, 1, 2, 4, 5];   // sixmax와 같은 고정 좌석(히어로는 3번 좌석), 버튼은 매 핸드 이동
+  function _hiddenTypes(seed) {
+    var rnd = (typeof Drills !== 'undefined' && Drills && typeof Drills.rng === 'function') ? Drills.rng(Math.floor(Number(seed) || 1) >>> 0) : null;
+    if (!rnd) { var a = (Math.floor(Number(seed) || 1) >>> 0) || 1; rnd = function() { a = (a * 1103515245 + 12345) >>> 0; return a / 4294967296; }; }
+    var t = HIDDEN6_TYPES.slice();
+    for (var i = t.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var x = t[i]; t[i] = t[j]; t[j] = x; }
+    return t.slice(0, 5);
+  }
+  function _hiddenSpec(heroPos, seed) {
+    var heroIdx = _POS.indexOf(heroPos); if (heroIdx < 0) heroIdx = _POS.indexOf('BTN');
+    var btnSeat = (6 - heroIdx) % 6;
+    var types = _hiddenTypes(seed);
+    return HIDDEN6_SEATS.map(function(seat, k) {
+      return { type: types[k], name: HIDDEN6_NAMES[k], pos: _POS[(seat - btnSeat + 3 + 6) % 6], hidden: true };
+    });
+  }
+  // 세션 요약의 정체 공개 줄(순수): 좌석별 실제 유형과 HUD 분류(VillainTracker.stats(name).cls) 일치 수.
+  // statsOf(name) → { n, cls } | null. Mixed(카멜레온)는 정답 분류가 없어 일치 수에서 뺀다
+  var TYPE_KOR = { TAG: 'TAG(정석)', LAG: 'LAG(공격)', Fish: 'Fish(콜 많음)', Nit: 'Nit(아주 타이트)', Station: 'Station(콜만)', Mixed: 'Mixed(카멜레온)' };
+  function _hiddenRevealHTML(spec, statsOf) {
+    if (!Array.isArray(spec) || !spec.length) return '';
+    var VT = (typeof VillainTracker !== 'undefined' && VillainTracker) ? VillainTracker : null;
+    var CLS = (VT && VT.CLASS_OF_TYPE) || {};
+    var LABEL = (VT && VT.CLASS_LABEL) || {};
+    var hit = 0, judged = 0;
+    var rows = spec.map(function(p) {
+      var s = null;
+      try { s = statsOf ? statsOf(p.name) : null; } catch (e) { s = null; }
+      var want = CLS[p.type] || null, got = s && s.cls ? s.cls : null;
+      var mark;
+      if (!want) mark = '분류 없음(성향이 계속 바뀌어요)';
+      else if (!got) mark = '❔ 관찰 부족' + (s && s.n ? '(' + s.n + '핸드)' : '');
+      else { judged++; if (got === want) { hit++; mark = '✅ HUD ' + (LABEL[got] || got); } else mark = '❌ HUD ' + (LABEL[got] || got); }
+      return '<li><b>' + p.name + '</b> = ' + (TYPE_KOR[p.type] || p.type) + ', ' + mark + '</li>';
+    }).join('');
+    return '<div class="hidden-reveal" style="margin-top:.6rem;padding:.6rem .7rem;border:1px solid #30363d;border-radius:8px;background:#161b22;text-align:left">' +
+      '<div style="font-weight:700;color:#e3b341;margin-bottom:.3rem">🎭 손님 정체 공개</div>' +
+      '<ul style="margin:0;padding-left:1.1rem;font-size:.85rem;line-height:1.6;color:#e6edf3">' + rows + '</ul>' +
+      '<div style="font-size:.85rem;margin-top:.3rem;color:#c9d1d9">' +
+      (judged ? 'HUD 분류가 맞은 자리 ' + hit + ' / ' + judged + (judged < spec.length ? '(15핸드 이상 본 자리만 셌어요)' : '') :
+        'HUD 분류는 15핸드 이상 본 자리부터 채점해요. 이번엔 아직 없어요(0 / 0)') + '</div></div>';
+  }
+
+  // ── 좌석 손익 기준(사들인 칩). 처음 본 이름은 핸드 시작 스택(블라인드 포함)으로 등록하고, 그리기용으로 state.buyin에 사본을 둔다 ──
+  function _trackBuyin(st) {
+    if (!st || _gtoMode || _practice) return;
+    if (!_buyin) _buyin = {};
+    var out = {};
+    (st.names || Object.keys(st.stacks || {})).forEach(function(n) {
+      if (_buyin[n] == null) _buyin[n] = Math.round((((st.stacks && st.stacks[n]) || 0) + ((st.totalContrib && st.totalContrib[n]) || 0)) * 100) / 100;
+      out[n] = _buyin[n];
+    });
+    st.buyin = out;
+  }
+  // 캐시게임 리바이(순수, R2): 히어로는 100bb 미만이면 100으로, 빌런은 20bb 미만일 때만 100으로(그 외 스택 이월).
+  // → { stacks, topups: {이름: 더한 칩} }. 입력은 바꾸지 않는다
+  var REBUY_HERO = 100, REBUY_VILLAIN_MIN = 20;
+  function _rebuyStacks(stacks) {
+    var out = {}, topups = {};
+    Object.keys(stacks || {}).forEach(function(n) {
+      var v = Number(stacks[n]);
+      var low = n === 'Hero' ? !(v >= REBUY_HERO) : !(v >= REBUY_VILLAIN_MIN);
+      if (low) { out[n] = 100; topups[n] = Math.round((100 - (isFinite(v) ? Math.max(0, v) : 0)) * 100) / 100; }
+      else out[n] = v;
+    });
+    return { stacks: out, topups: topups };
+  }
+  // 히어로 폴드 뒤에도 핸드 진행(R2, 엔진 무수정): 엔진은 히어로 폴드에 handOver를 세운다. 연습이 아니고 관전이 아니며
+  // 폴드 안 한 빌런이 2명 이상이면 handOver를 되돌리고 heroOut 표시. 바꿨으면 true(st를 직접 고친다)
+  function _foldContinue(st, practice) {
+    if (!st || practice || st.spectator || !st.handOver || !(st.folded && st.folded.Hero)) return false;
+    var live = (st.names || Object.keys(st.players || {})).filter(function(n) { return n !== 'Hero' && !st.folded[n]; });
+    if (live.length < 2) return false;
+    st.handOver = false;
+    st.heroOut = true;
+    return true;
+  }
+  // 핸드 순이익(순수): 정산 뒤 스택 - 핸드 시작 스택. 승자 배지(Table payouts)용
+  function _handNet(stacksAfter, startStacks) {
+    var out = {};
+    Object.keys(startStacks || {}).forEach(function(n) {
+      out[n] = Math.round((((stacksAfter && stacksAfter[n]) || 0) - (startStacks[n] || 0)) * 100) / 100;
+    });
+    return out;
+  }
+
   // 적응형 빌런과 시즌 캐스트 변형(M6-READ, 계약 H6): 오버레이가 있으면 { decide }, 없거나 제외(연습, 은닉, 보스, 관전)면 undefined = 원래 경로
   function _villainOpts() {
+    // 커리어(P0 훅, F2): 라이벌 성향 오버레이 { decide }. null이면 아래 기존 경로
+    if (_villainConfig === 'career' && _state && typeof Career !== 'undefined' && Career) {
+      var co = Career.villainOpts({ state: _state, sessionId: _sessionId, practice: !!_practice });
+      if (co) return co;
+    }
     if (typeof VillainAdaptive === 'undefined' || !VillainAdaptive.opts || !_state) return undefined;
     return VillainAdaptive.opts({ state: _state, mode: _villainConfig, practice: !!_practice, sessionId: _sessionId }) || undefined;
   }
@@ -200,6 +318,8 @@ var App = (function() {
   function _processVillainActions() {
     if (_state.street === 'showdown') { _showResult(); return; }
     var result = GameState.applyVillainActions(_state, _villainOpts());
+    // 유형 숨김 테이블: 엔진 말버릇(phrase)은 유형마다 달라 정체가 드러나므로 지운다(말풍선은 액션만)
+    if (_state.hideTypes) result.villainActions.forEach(function(a) { if (a) a.phrase = null; });
     if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount, a); }); // WP8 (액션 전 상태, a에 potBefore 등 스냅샷)
     _state = result.newState;
     if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, result.villainActions);
@@ -223,12 +343,12 @@ var App = (function() {
     }
   }
 
-  // ── 올인 런아웃 공개(TABLE-03a): 폴드 안 한 좌석 2명 이상, 칩이 남은 사람은 많아야 1명(더 벳이 오갈 수 없음), 히어로 폴드 아님, 핸드 종료 아님 ──
+  // ── 올인 런아웃 공개(TABLE-03a): 폴드 안 한 좌석 2명 이상, 칩이 남은 사람은 많아야 1명(더 벳이 오갈 수 없음), 핸드 종료 아님 ──
   // 칩이 남은 사람에게 콜 금액이 남아 있으면(올인을 마주한 상태) 진짜 결정이 남은 것이므로 공개하지 않는다(히어로 폴드 뒤 빌런 진행 포함).
   // 결정 대기 중에는 히어로가 유일한 칩 보유자일 때만(아무도 콜할 수 없는 빈 결정) 공개. 리버 5장도 쇼다운 전까지 유지(뒷면 깜빡임 방지). 순수 판정
+  // 히어로가 폴드한 뒤 빌런끼리 이어 가는 핸드(R2 폴드 뒤 진행)도 빌런끼리 전원 올인이면 공개한다
   function _allInRunout(st) {
     if (!st || st.handOver) return false;
-    if (st.folded && st.folded.Hero) return false;
     var names = st.names || Object.keys(st.players || {}), live = 0, withChips = 0, holder = null;
     var cb = st.currentBet || 0, bets = st.playerBets || {};
     for (var i = 0; i < names.length; i++) {
@@ -278,7 +398,9 @@ var App = (function() {
         el.textContent = '승률 ' + (pre ? '≈' : '') + Math.round(out[nm] * 100) + '%';
         patched++;
       });
-      if (!patched) _renderTable();
+      // 핸드가 끝났으면 다시 그리지 않는다: 정산 그리기(승자 배지, renderShowdown 공개 카드)에는 승률 배지 자리가 없어서
+      // 다시 그리면 정산 화면이 지워진다(모션 줄이기면 런아웃이 이 지연 작업보다 먼저 끝난다)
+      if (!patched && !(_state && _state.handOver)) _renderTable();
     });
     return null;
   }
@@ -385,7 +507,9 @@ var App = (function() {
       _patchHeroSeatEq(eq, eqOn);
       HUD.update(eq, ev, _state, _gtoMode ? _gtoRound : 0, view);
       if (typeof GtoChart !== 'undefined') {
-        if (view.hide) GtoChart.hide();
+        // P0 계약(G4): 새 API(shownForDecision이 있는 GtoChart)는 가림(view.hide)이어도 늘 부르고 객체 인자로 넘긴다. 옛 API는 예전 호출 그대로
+        if (typeof GtoChart.shownForDecision === 'function') GtoChart.update(_state, _heroPos, { gtoMode: _gtoMode, gtoRound: _gtoRound, view: view, boss: _bossOn() });
+        else if (view.hide) GtoChart.hide();
         else GtoChart.update(_state, _heroPos, _gtoMode);
       }
       // 라운드 2(가이드): 프리플랍=GTO 레인지 룩업, 포스트플랍=전략 가이드(P5)
@@ -469,6 +593,9 @@ var App = (function() {
     // 결정 전 계산 체인이 아직 다음 프레임 대기 중이면 지금 동기로 끝낸다(_lastEV, _lastVerdict가 지난 결정의 값으로 채점되는 일 방지)
     if (_pendingCalc) { var flush = _pendingCalc; _pendingCalc = null; flush(); }
     _calcSeq++; // 아직 안 끝난 결정 전 계산 체인은 폐기
+    // 이 결정에 차트가 보였나(📋 차트 칩, G4 GtoChart.shownForDecision). 보였으면 힌트 결정(Journey hint, XP 절반)
+    var chartShown = false;
+    if (typeof GtoChart !== 'undefined' && GtoChart && typeof GtoChart.shownForDecision === 'function') { try { chartShown = !!GtoChart.shownForDecision(); } catch (e) { chartShown = false; } }
 
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onHeroAction(_state, action); // WP8
     var pre = _state;
@@ -493,6 +620,8 @@ var App = (function() {
     var V = _lastVerdict;
     var g = (V && typeof Coach !== 'undefined') ? Coach.grade(V, n.intended, _lastEV, pre) : null;
     _state = next;
+    // 폴드 뒤에도 빌런 2명 이상이 남았으면 핸드를 끝까지(빌런끼리) 이어 간다. 연습 모드는 지금처럼 즉시 종료
+    if (n.action === 'fold') _foldContinue(_state, !!_practice);
     var dec = null;
     if (_lastEV && _state.decisions.length > 0) {
       dec = _state.decisions[_state.decisions.length - 1];
@@ -503,6 +632,7 @@ var App = (function() {
       dec.gtoRound = _gtoMode ? _gtoRound : 0;
       dec.hidden = !!(_lastView && _lastView.hide);
       dec.eqShown = !!(_lastView && _lastView.eqShown); // '내 승률' 칩으로 승률을 보고 결정했는지(참고용, 레이팅 무관)
+      if (chartShown) dec.chartShown = true; // 차트를 보고 결정(힌트, 참고용). 기록 크기를 아끼려고 참일 때만 쓴다
       dec.intended = n.intended;
       if (V && g) {
         dec.bestEV = _lastEV[V.evKey] || 0;
@@ -583,7 +713,7 @@ var App = (function() {
         eq: _lastEQ, view: _lastView, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound,
         sessionId: _sessionId, dec: dec });
     }
-    if (typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) });
+    if (typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) || chartShown });
     if (typeof MobileUI !== 'undefined' && MobileUI.onAfterDecision) MobileUI.onAfterDecision();
     if (_state.handOver) {
       _showResult();
@@ -646,6 +776,7 @@ var App = (function() {
     document.getElementById('raise-amount').value = amount.toFixed(1);
     var pct = maxTo > 0 ? (amount / maxTo * 100).toFixed(0) : 0;
     document.getElementById('raise-stack-pct').textContent = '스택의 ' + pct + '%';
+    if (typeof RaiseInfo !== 'undefined' && RaiseInfo && typeof RaiseInfo.onAmount === 'function') RaiseInfo.onAmount(amount); // R3 슬라이더 읽기(G3)
   }
 
   function updateRaiseSlider() {
@@ -760,6 +891,7 @@ var App = (function() {
     var slider = document.getElementById('raise-slider');
     var min = _state.minRaise, max = maxTo;
     slider.value = max > min ? ((amount - min) / (max - min)) * 100 : 0;
+    if (typeof RaiseInfo !== 'undefined' && RaiseInfo && typeof RaiseInfo.onAmount === 'function') RaiseInfo.onAmount(amount); // R3 슬라이더 읽기(G3)
   }
 
   // 레이즈 금액 ±1bb 스테퍼 (세로 폰 액션바의 −/+ 버튼) — 범위는 민레이즈~올인
@@ -817,11 +949,15 @@ var App = (function() {
     } else {
       _seed = Math.floor(Math.random() * 1000000);
       _carryoverStacks = _state ? JSON.parse(JSON.stringify(_state.stacks)) : null;
-      // 캐시게임 자동 리바이: 100bb 미만이면 100bb로 탑업(100 초과는 유지)
-      if (_carryoverStacks) {
-        Object.keys(_carryoverStacks).forEach(function(n) {
-          if (!(_carryoverStacks[n] >= 100)) _carryoverStacks[n] = 100;
-        });
+      // 커리어(P0 훅, F2): 리바이 전에 Career가 정한다. end면 세션 요약, stacks면 그 스택, null이면 아래 기본 리바이
+      var cbn = (_villainConfig === 'career' && !_practice && typeof Career !== 'undefined' && Career) ? Career.beforeNextHand(_carryoverStacks) : null;
+      if (cbn && cbn.end) { showSessionSummary(); return; }
+      if (cbn && cbn.stacks && typeof cbn.stacks === 'object') _carryoverStacks = cbn.stacks;
+      // 캐시게임 자동 리바이(R2): 히어로는 100bb 미만이면 100으로, 빌런은 20bb 미만일 때만 100으로(나머지는 이월, 스택 변화가 보인다)
+      else if (_carryoverStacks) {
+        var rb = _rebuyStacks(_carryoverStacks);
+        _carryoverStacks = rb.stacks;
+        if (_buyin) Object.keys(rb.topups).forEach(function(n) { if (_buyin[n] != null) _buyin[n] = Math.round((_buyin[n] + rb.topups[n]) * 100) / 100; });
       }
     }
     if (_buildPlayersSpec(_villainConfig).length === 1) {
@@ -843,9 +979,16 @@ var App = (function() {
     (_state.names || Object.keys(_state.stacks || {})).forEach(function(n) {
       startStacks[n] = ((_state.stacks && _state.stacks[n]) || 0) + ((_state.totalContrib && _state.totalContrib[n]) || 0);
     });
+    var wasRunout = _allInRunout(_state);   // 전원 올인 런아웃으로 이미 앞면이면 정산 그리기에서도 앞면 유지(깜빡임 방지)
     var result = GameState.resolveShowdown(_state);
     _state = result.newState;
+    _state.seatEq = null;
     var heroNet = Math.round((((_state.stacks && _state.stacks.Hero) || 0) - (startStacks.Hero || 0)) * 100) / 100;
+    // 정산 뒤 다시 그린다(R2 칩 고정 버그): 스택은 팟을 받은 값, 팟 0, 승자 좌석 '🏆 +순이익' 배지. 엔진 _state는 그대로, 그리기 사본만
+    // 좌석 앞 베팅 칩(playerBets)은 팟으로 모여 승자에게 갔으므로 그리기 사본에서 비운다
+    var settled = Object.assign({}, _state, { winner: result.winner, payouts: _handNet(_state.stacks, startStacks), playerBets: {} });
+    if (wasRunout) settled.revealAll = true;
+    Table.render(settled);
     Table.renderShowdown(result);
     // 총평과 '▶ 다음 핸드'를 먼저(350ms), 기록 저장(여정 XP, 운 미터, 히스토리)은 지역 스냅샷으로 한 틱 뒤에(모션 줄이기면 즉시)
     var reducedMotion = false;
@@ -858,6 +1001,7 @@ var App = (function() {
       if (typeof CoachUI !== 'undefined' && CoachUI.onHandEnd) CoachUI.onHandEnd({decisions:decisionsSnap, practice:!!_practice, gtoMode:_gtoMode, gtoRound:_gtoRound, sessionId:_sessionId});
       later(function() {
         if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, heroFolded: !!(st.folded && st.folded.Hero) });
+        if (mode === 'career' && !practice && typeof Career !== 'undefined' && Career) Career.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, startStacks: startStacks, heroPos: heroPos, sessionId: sessionId, round: round, heroFolded: !!(st.folded && st.folded.Hero) }); // 커리어(P0 훅, F2)
         if (typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: res, state: st, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, sessionId: sessionId, hu: (st.names || []).length === 2, heroFolded: !!(st.folded && st.folded.Hero) }); // 운 미터(M5-HUD, F1)
       });
       _renderHandSummary(result);
@@ -895,6 +1039,8 @@ var App = (function() {
         });
         if (_gtoMode && _gtoRound === 3) _renderGtoLoopReport();
       }
+      // 결과 패널이 자리 잡은 뒤 승자 배지 위치 보정(데스크톱 위쪽 줄 잘림, 보드 가림). 강제 레이아웃 1회
+      if (typeof Table !== 'undefined' && Table && typeof Table.fitWinnerBadges === 'function') Table.fitWinnerBadges();
     }, 350);
   }
 
@@ -1150,9 +1296,13 @@ var App = (function() {
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onHandEnd(_state, result); // WP8 리플레이 append
   }
 
+  // 어두운 배경 글자 카드(핸드 총평, 세션 요약): 공용 헬퍼 Cards.glyph(무늬 4색 .suit, R8). 헬퍼가 없으면 예전 2색
   function _renderCards(cards) {
     var SYM = { s:'♠', h:'♥', d:'♦', c:'♣' }, RED = { h:true, d:true };
+    var hasGlyph = typeof Cards !== 'undefined' && Cards && typeof Cards.glyph === 'function';
     return (cards||[]).map(function(c) {
+      var g = hasGlyph ? Cards.glyph(c) : '';
+      if (g) return '<b>' + g + '</b>';
       var r = c.rank==='T'?'10':c.rank;
       return '<span style="color:'+(RED[c.suit]?'#f85149':'#e6edf3')+';font-weight:bold">'+r+SYM[c.suit]+'</span>';
     }).join(' ');
@@ -1252,6 +1402,11 @@ var App = (function() {
         '칩 손익에는 운이 섞여 있어요.</div>';
     }
     if (statsEl && typeof HeroStats !== 'undefined' && HeroStats.renderSession) HeroStats.renderSession(statsEl, { sessionId: _sessionId, hands: _sessionHands.length }); // 거울 HUD 칩, 이번 세션 운 미터(M5-HUD)
+    if (statsEl && _villainConfig === 'career' && typeof Career !== 'undefined' && Career) { var chtml = Career.sessionEnd({ hands: _sessionHands.slice(), net: st.net, sessionId: _sessionId, stats: st }); if (chtml) statsEl.insertAdjacentHTML('afterbegin', chtml); } // 커리어 정산 카드(P0 훅, F2가 HTML을 만든다)
+    if (statsEl && _villainConfig === 'sixmax-hidden') { // 6인 랜덤(유형 숨김): 세션이 끝나면 손님 정체와 HUD 분류 일치 수를 공개
+      var rv = _hiddenRevealHTML(_hiddenSpec('BTN', _sessionId), function(n) { return (typeof VillainTracker !== 'undefined' && VillainTracker.stats) ? VillainTracker.stats(n) : null; });
+      if (rv) statsEl.insertAdjacentHTML('beforeend', rv);
+    }
     if (statsEl && typeof VillainAdaptive !== 'undefined' && VillainAdaptive.summaryLine) { var adl = VillainAdaptive.summaryLine(_sessionId); if (adl) statsEl.insertAdjacentHTML('beforeend', '<div class="adapt-line" style="font-size:0.8rem;color:#c9d1d9;margin-top:0.4rem">' + String(adl).replace(/[&<>"]/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }) + '</div>'); } // 적응형 빌런, 시즌 한 줄(M6-READ, H6)
     if (!st.decisions) {
       handsEl.innerHTML = '<div style="text-align:center;color:#8b949e;padding:1rem">평가할 결정이 없었어요</div>';
@@ -1294,6 +1449,7 @@ var App = (function() {
   function showSessionSummary() {
     if (!_sessionHands.length) { showMenu(); return; }
     _renderSessionSummary();
+    _careerLeave();
     showScreen('screen-session-summary');
     _state = null; // 종료한 세션이 연습 resume으로 되살아나지 않게
   }
@@ -1366,6 +1522,14 @@ var App = (function() {
     _curriculumSpotKey: _curriculumSpotKey,
     _villainOpts: _villainOpts,
     _allInRunout: _allInRunout,
+    // R2(테이블 고침) 순수 함수: 리바이, 폴드 뒤 진행, 6인 랜덤 배정과 정체 공개, 핸드 순이익
+    _rebuyStacks: _rebuyStacks,
+    _foldContinue: _foldContinue,
+    _hiddenSpec: _hiddenSpec,
+    _hiddenTypes: _hiddenTypes,
+    _hiddenRevealHTML: _hiddenRevealHTML,
+    _handNet: _handNet,
+    _renderCards: _renderCards,
     // 테스트용: 실제 핸드를 시작한 시험이 뒤 테스트에 게임 상태를 남기지 않도록 비운다(M7 FLOW-02 시험)
     _resetForTest: function() { _state = null; _practice = null; _gtoMode = false; }
   };

@@ -69,3 +69,76 @@
   background: #21262d; color: var(--text); border: 1px solid var(--hud-border);
   border-radius: 4px; padding: 4px 6px; font-size: 0.85rem;
 }
+
+/* ── R7(G2 DOCK): 판정 띠 #coach-line(CoachUI가 채움), 패널 순서, 접기 버튼 ── */
+.coach-line { display: flex; align-items: stretch; gap: 6px; flex-shrink: 0; }
+.coach-line .cl-main {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px; box-sizing: border-box; border: 1px solid var(--hud-border); border-left: 4px solid #8b949e;
+  border-radius: 8px; background: #161b22; color: var(--text); font: inherit; text-align: left;
+}
+.coach-line button.cl-main { cursor: pointer; }
+.coach-line button.cl-main:focus-visible, .coach-line .cl-hint:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.coach-line .cl-text { flex: 0 1 auto; min-width: 0; font-size: .95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coach-line .cl-sub { flex: 1 1 0; min-width: 0; font-size: .8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.coach-line .cl-go { flex: none; margin-left: auto; font-size: 1.05rem; font-weight: 700; color: var(--text); }
+.coach-line .cl-hint {
+  flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border: 1px dashed var(--gold); border-radius: 8px;
+  background: transparent; color: var(--gold); font-size: 1.15rem; cursor: pointer;
+}
+/* 데스크톱 패널(폭 260px) 안에서는 한 줄 말줄임 대신 접어 쓴다: 추천과 크기 + ▸ 한 줄, 기준은 아랫줄(세로 폰 도크는 1줄 44px 그대로) */
+.equity-panel > .coach-line .cl-main { flex-wrap: wrap; row-gap: 0; padding-top: 5px; padding-bottom: 5px; }
+.equity-panel > .coach-line .cl-text { flex: 1 1 0; white-space: normal; }
+.equity-panel > .coach-line .cl-sub { order: 3; flex: 1 0 100%; }
+/* 추천(L0, 💡 뒤): 금색 1rem 굵게 */
+.coach-line.cl-rec .cl-main { border-color: rgba(212,175,55,.55); border-left-color: var(--gold); background: rgba(212,175,55,.10); }
+.coach-line.cl-rec .cl-text { color: var(--gold); font-size: 1rem; }
+.coach-line.cl-rec .cl-sub { color: #c9b26a; }
+/* 먼저 판단(L1), 예측(L2): 파랑 띠, 실전(L3): 회색 띠 */
+.coach-line.cl-think .cl-main, .coach-line.cl-pred .cl-main { border-left-color: var(--blue); }
+.coach-line.cl-real .cl-main { border-left-color: #8b949e; }
+/* 결정 뒤 신호등(색 + 아이콘 + 글자) */
+.coach-line.cl-green .cl-main  { border-left-color: #52b75e; background: rgba(82,183,94,.10); }
+.coach-line.cl-green .cl-text  { color: #52b75e; }
+.coach-line.cl-yellow .cl-main { border-left-color: #e3b341; background: rgba(227,179,65,.10); }
+.coach-line.cl-yellow .cl-text { color: #e3b341; }
+.coach-line.cl-red .cl-main    { border-left-color: #f85149; background: rgba(248,81,73,.10); }
+.coach-line.cl-red .cl-text    { color: #ff7b72; }
+.coach-line.cl-green .cl-sub, .coach-line.cl-yellow .cl-sub, .coach-line.cl-red .cl-sub { color: var(--text); }
+
+/* 데스크톱 패널: 판정 상세가 펼쳐진 채로 쌓이므로(설명 몸통 스크롤 대신) 패널 자체를 스크롤. 세로 폰 도크는 mobile.css가 overflow: visible */
+.equity-panel { overflow-y: auto; overscroll-behavior: contain; }
+/* 패널 순서: 판정 띠 → (리마인더) → 승률 → 판정 상세(결정 뒤 판정, 결정 전 체크리스트와 예측, 설명) → 숫자 보기(EV 표) → 용어 */
+.equity-panel > #coach-line      { order: 0; }
+.equity-panel > #coach-reminder  { order: 1; }
+.equity-panel > .equity-bar-wrap { order: 2; }
+.equity-panel > #last-verdict    { order: 3; }
+.equity-panel > #coach-pre       { order: 4; }
+.equity-panel > #coaching-text   { order: 5; }
+.equity-panel > #beginner-explain { display: contents; }
+.equity-panel #beginner-explain-body { order: 5; flex-shrink: 0; }
+.equity-panel > #gto-hint, .equity-panel > #practice-trend { order: 6; }
+/* 다음 결정이 오면 지난 판정은 '지난 결정' 머리말을 달고 지금 판정 상세 뒤로(CoachUI가 lv-prev를 붙임) */
+.equity-panel > #last-verdict.lv-prev { order: 6; }
+.last-verdict.lv-prev::before { content: '↩ 지난 결정'; display: block; font-size: .78rem; color: var(--text-dim); margin-bottom: 2px; }
+.equity-panel > #ev-fold  { order: 7; }
+.equity-panel > #ev-table { order: 8; }
+.equity-panel #gl-fold { order: 9; }
+.equity-panel .beginner-glossary { order: 10; }
+.equity-panel .bx-line { font-size: .85rem; line-height: 1.45; color: var(--text); }
+.equity-panel .bx-line b { color: var(--gold); }
+.equity-panel .bx-rec { font-weight: 600; }
+.equity-panel .bx-rec b { font-size: .95rem; }
+/* 접기 버튼(HUD가 끼움): 숫자 보기는 폰에서만 보임(데스크톱은 EV 표 늘 펼침), 용어는 둘 다 접힘이 기본 */
+.hud-fold {
+  flex-shrink: 0; min-height: 44px; width: 100%; padding: 0 10px; text-align: left; cursor: pointer;
+  background: #161b22; color: var(--text); border: 1px solid var(--hud-border); border-radius: 8px; font-size: .85rem; font-weight: 600;
+}
+.hud-fold[aria-expanded="true"] { border-color: rgba(212,175,55,.6); }
+#ev-fold { display: none; }
+.equity-panel:not(.gl-open) .beginner-glossary { display: none; }
+.equity-panel .beginner-glossary { margin-top: 0; opacity: 1; font-size: .8rem; color: var(--text); border-top: none; padding-top: 0; line-height: 1.5; }
+/* 판정 상세 보조 줄과 예측 보기: 값이 담긴 줄은 흐린 회색 대신 본문색(흐린 회색은 라벨만), 글자 하한 .78rem */
+.last-verdict .lv-extra, .last-verdict .lv-pred { color: var(--text); }
+.coach-pre .cp-opt { font-size: .78rem; }
+.coach-pre .cp-hint-used { font-size: .78rem; }

@@ -8,8 +8,8 @@
 //
 // s56Hud {vpip, pfr, n} (main 'cls', 칩 'appdef' = 이 앱의 분류 기준, 설계서 8.2절 3번)
 //   HUD 4분류(로드맵 M6 계약 H4, 트래커, hudread, 레슨, 보스 공통 규칙). vpip, pfr = HUD 퍼센트(0~100, pfr ≤ vpip), n = 관찰 핸드 수.
-//   이 순서로: 'tight'(VPIP ≤ 10), 'loose-passive'(VPIP ≥ 20이고 PFR ÷ VPIP < 0.35), 'loose-aggr'(VPIP ≥ 18이고 PFR ÷ VPIP ≥ 0.6),
-//   'standard'(나머지). n < 15면 'unknown'(H4의 null, 아직 모름). 임계는 엔진 빌런 실측에 맞춘 값(로드맵 결정 21, ai/villain-tracker.js RULE0).
+//   이 순서로: 'tight'(VPIP ≤ 14), 'loose-passive'(VPIP ≥ 30이고 PFR ÷ VPIP < 0.35), 'loose-aggr'(VPIP ≥ 28이고 PFR ÷ VPIP ≥ 0.6),
+//   'standard'(나머지). n < 15면 'unknown'(H4의 null, 아직 모름). 임계는 엔진 빌런 실측에 맞춘 값(로드맵 결정 21, 26, ai/villain-tracker.js RULE0).
 //   → cls, clsKo('🧊 타이트' | '⚖ 정석' | '🔥 루즈-공격' | '🐟 루즈-패시브' | '❔ 아직 모름'), vpip, pfr, n,
 //     ratio(PFR ÷ VPIP 소수 둘째 자리 문자열, '0.15', VPIP 0이면 '0.00'), gap(= vpip - pfr).
 //   calc: H4의 if 순서. VillainTracker.classify(H4, M6-READ 구현)가 있으면 그것으로 분류한다(머지 뒤에는 트래커와 레슨이
@@ -65,9 +65,9 @@
     } else if (c.n < MIN_N) cls = 'unknown';
     else {
       var ratio = v > 0 ? p / v : 0;
-      if (v <= 10) cls = 'tight';
-      else if (v >= 20 && ratio < 0.35) cls = 'loose-passive';
-      else if (v >= 18 && ratio >= 0.6) cls = 'loose-aggr';
+      if (v <= 14) cls = 'tight';
+      else if (v >= 30 && ratio < 0.35) cls = 'loose-passive';
+      else if (v >= 28 && ratio >= 0.6) cls = 'loose-aggr';
       else cls = 'standard';
     }
     return { cls: cls, clsKo: KO[cls], vpip: v, pfr: p, n: c.n, ratio: _two(v > 0 ? p / v : 0), gap: Math.round((v - p) * 100) / 100 };
@@ -80,9 +80,9 @@
     // 판정 표: [조건, 분류] 중 처음 맞는 것(H4 순서), n이 모자라면 맨 앞에서 아직 모름
     var table = [
       [c.n < MIN_N, 'unknown'],
-      [v <= 10, 'tight'],
-      [v >= 20 && 100 * p < 35 * v, 'loose-passive'],
-      [v >= 18 && 10 * p >= 6 * v, 'loose-aggr'],
+      [v <= 14, 'tight'],
+      [v >= 30 && 100 * p < 35 * v, 'loose-passive'],
+      [v >= 28 && 10 * p >= 6 * v, 'loose-aggr'],
       [true, 'standard']
     ];
     var cls = table.filter(function(row) { return row[0]; })[0][1];
@@ -160,18 +160,19 @@
   var ok = [];
   ok.push(LC.defineCalc('s56Hud', {
     calc: hudCalc, verify: hudVerify, main: 'cls', chip: 'appdef',
-    // 손으로 확인한 값(H4, 재보정 임계 10/20/18): VPIP 55, PFR 8 → 55 ≥ 20이고 8 ÷ 55 = 0.145 < 0.35 → 루즈-패시브.
-    //   VPIP 34, PFR 26 → 34 > 10, 26 ÷ 34 = 0.765(0.35 이상이라 루즈-패시브 아님), 34 ≥ 18이고 0.765 ≥ 0.6 → 루즈-공격.
-    //   VPIP 6, PFR 5 → 6 ≤ 10 → 타이트. VPIP 14, PFR 12 → 10 초과, 20 미만, 18 미만 → 어느 조건도 아님 → 정석.
-    //   VPIP 45, PFR 20 → 20 ÷ 45 = 0.44(0.35 이상, 0.6 미만) → 정석(H4 순서 그대로). VPIP 16, PFR 2 → 20 미만이라 루즈-패시브 아님 → 정석.
-    //   10핸드 → 아직 모름.
+    // 손으로 확인한 값(H4, 결정 26 임계 14/30/28): VPIP 55, PFR 8 → 55 ≥ 30이고 8 ÷ 55 = 0.145 < 0.35 → 루즈-패시브.
+    //   VPIP 34, PFR 26 → 34 > 14, 26 ÷ 34 = 0.765(0.35 이상이라 루즈-패시브 아님), 34 ≥ 28이고 0.765 ≥ 0.6 → 루즈-공격.
+    //   VPIP 6, PFR 5 → 6 ≤ 14 → 타이트. VPIP 14, PFR 12 → 14 ≤ 14 → 타이트(경계 포함). VPIP 22, PFR 18 → 14 초과, 30 미만, 28 미만
+    //   → 어느 조건도 아님 → 정석. VPIP 45, PFR 20 → 20 ÷ 45 = 0.44(0.35 이상, 0.6 미만) → 정석(H4 순서 그대로).
+    //   VPIP 29, PFR 5 → 30 미만이라 루즈-패시브 아님, 비율 0.17이라 루즈-공격도 아님 → 정석. 10핸드 → 아직 모름.
     cases: [
       { c: { vpip: 55, pfr: 8, n: 120 }, want: { cls: 'loose-passive', clsKo: '🐟 루즈-패시브', ratio: '0.15', gap: 47 } },
       { c: { vpip: 34, pfr: 26, n: 150 }, want: { cls: 'loose-aggr', ratio: '0.76' } },
       { c: { vpip: 6, pfr: 5, n: 200 }, want: { cls: 'tight', clsKo: '🧊 타이트' } },
-      { c: { vpip: 14, pfr: 12, n: 80 }, want: { cls: 'standard', clsKo: '⚖ 정석', ratio: '0.86' } },
+      { c: { vpip: 14, pfr: 12, n: 80 }, want: { cls: 'tight', clsKo: '🧊 타이트', ratio: '0.86' } },
+      { c: { vpip: 22, pfr: 18, n: 80 }, want: { cls: 'standard', clsKo: '⚖ 정석', ratio: '0.82' } },
       { c: { vpip: 45, pfr: 20, n: 60 }, want: { cls: 'standard' } },
-      { c: { vpip: 16, pfr: 2, n: 60 }, want: { cls: 'standard' } },
+      { c: { vpip: 29, pfr: 5, n: 60 }, want: { cls: 'standard' } },
       { c: { vpip: 60, pfr: 5, n: 10 }, want: { cls: 'unknown', clsKo: '❔ 아직 모름' } }
     ],
     qNums: function(c) { return [c.vpip, c.pfr, c.n]; }

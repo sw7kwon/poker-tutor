@@ -21,7 +21,9 @@ var HistoryUI = (function() {
     if (result === 'win') return '<span class="' + (baseCls ? baseCls + ' ' : '') + 'hh-win">승</span>';
     return '<span class="' + (baseCls ? baseCls + ' ' : '') + 'hh-loss">패</span>';
   }
-  var MODE_KOR = { 'headsup-tag': '헤즈업 TAG', 'sixmax': '6인 풀링', 'mixed': 'Mixed 은닉', 'gto-mirror': 'GTO 미러' };
+  var MODE_KOR = { 'headsup-tag': '헤즈업 TAG', 'sixmax': '6인 풀링', 'mixed': 'Mixed 은닉', 'gto-mirror': 'GTO 미러',
+    'sixmax-hidden': '6인 랜덤(유형 숨김)',
+    'career': '커리어' };
 
   // ── DOM 렌더 ──
 

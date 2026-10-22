@@ -287,6 +287,115 @@ var CoachUI = (function() {
     return { cls: 'lv-' + light, line1: line1, line2: G.why ? String(G.why) : '' };
   }
 
+  // ── 판정 띠 #coach-line(R7, 설계 6절 2번): 도크 상단부 맨 위 한 줄(44px). 순수 함수 ──
+  // o = { phase:'pre'|'post', level, hintUsed, V(Coach.verdict), ev(EV.calcOptions + 판정), G(Coach.grade), action, quiet }
+  // → { cls, text, sub, go(▸ 펼침 표시), hint(💡 버튼) } | null
+  //   pre, L0(또는 💡 정답 보기 뒤): '★ 추천 레이즈 7.5bb' + '레인지 차트 기준'(금색)
+  //   pre, L1: '🤔 먼저 판단해 보세요' + '체크리스트', L2: '🔮 예측 카드' + '먼저 맞혀 보세요', L3: '🎲 실전' + '보조 없이 결정해요'(▸ 없음)
+  //   post, 초록: '🟢 정답! 레이즈' + '차트대로', 노랑과 빨강: '🟡 아쉬운 콜' + '추천 폴드'(신호등 색), L3 초록은 '🟢 정답!'만
+  var BASIS = {
+    chart: ['레인지 차트 기준', '차트대로'], potodds: ['팟 오즈 기준', '팟 오즈대로'],
+    guide: ['플랍 가이드 기준', '가이드대로'], ev: ['EV 기준', 'EV대로']
+  };
+  var EVKEY_KOR = { fold: '폴드', call: '콜', raise_half: '레이즈', raise_pot: '레이즈', allin: '올인' };
+  function _amtText(v) {
+    return (typeof v === 'number' && isFinite(v) && v > 0) ? (Math.round(v * 10) / 10) + 'bb' : '';
+  }
+  function _basis(V, post) {
+    var b = BASIS[(V && V.source) || 'ev'] || BASIS.ev;
+    if (V && V.source === 'guide' && V.street && V.street !== 'flop') b = ['포스트플랍 가이드 기준', '가이드대로'];
+    return b[post ? 1 : 0];
+  }
+  // 플랍 가이드 벳(공짜 스팟)의 크기: 가이드 이유 문장의 '(크기: 팟의 33% 정도)', '(크기: 팟의 66% 이상)'을 그대로 따른다.
+  // ev.raiseHalfAmt(팟 절반)를 쓰면 '33% 정도'와 어긋난다(리뷰 수정). 33%는 프리셋 '1/3'과 같은 금액(팟 / 3). 문장이 없으면 크기 없이
+  function _guideBetText(V, ev) {
+    var m = /팟의 (\d+)% ?(이상|정도)?/.exec(String((V && V.why) || ''));
+    var pot = V && V.pot;
+    if (!m || !(typeof pot === 'number' && pot > 0)) return '';
+    var pct = parseInt(m[1], 10);
+    var amt = pct === 33 ? pot / 3 : pot * pct / 100;
+    if (typeof ev.allinAmt === 'number' && ev.allinAmt > 0) amt = Math.min(amt, ev.allinAmt);
+    amt = Math.max(1, amt);
+    var t = _amtText(amt);
+    if (!t) return '';
+    return m[2] === '이상' ? t + ' 이상(팟 ' + pct + '%)' : t + '(팟 ' + (pct === 33 ? '1/3' : pct + '%') + ')';
+  }
+  // 추천 문구: 판정 라벨 + 크기(레이즈는 표준 사이즈 금액, 콜은 콜 금액, 플랍 가이드 벳은 가이드 크기). '콜 또는 레이즈'처럼 둘 다 정답이면 크기 없이
+  function recText(V, ev) {
+    ev = ev || {};
+    var key = (V && V.evKey) || ev.bestAction;
+    var label = (V && V.label) || EVKEY_KOR[key] || '';
+    if (!label) return '';
+    if (label.indexOf('또는') >= 0) return label;
+    var amt = '';
+    if (key === 'raise_half' && V && V.source === 'guide' && !(V.toCall > 0)) amt = _guideBetText(V, ev);
+    else if (key === 'raise_half') amt = _amtText(ev.raiseHalfAmt);
+    else if (key === 'raise_pot') amt = _amtText(ev.raisePotAmt);
+    else if (key === 'allin') amt = _amtText(ev.allinAmt);
+    else if (key === 'call' && V && V.toCall > 0) amt = _amtText(V.toCall);
+    return label + (amt ? ' ' + amt : '');
+  }
+  function lineFor(o) {
+    o = o || {};
+    var V = o.V || (o.ev && o.ev.verdict) || null, lv = typeof o.level === 'number' ? o.level : 1;
+    if (o.phase === 'post') {
+      var G = o.G;
+      if (!G) return null;
+      var light = ICON[G.light] ? G.light : 'yellow';
+      if (light === 'green') {
+        if (o.quiet) return { cls: 'cl-green', text: '🟢 정답!', sub: '', go: true, hint: false };
+        return { cls: 'cl-green', text: '🟢 정답! ' + _actionKor(o.action, V), sub: _basis(V, true), go: true, hint: false };
+      }
+      var loss = lossLabel(G);
+      return { cls: 'cl-' + light, text: ICON[light] + ' ' + (G.title || ''), sub: (V && V.label ? '추천 ' + V.label : '') + (loss ? ' ' + loss : ''),
+        go: true, hint: false };
+    }
+    if (lv === 0 || o.hintUsed) {
+      var rt = recText(V, o.ev);
+      if (!rt) return null;
+      return { cls: 'cl-rec', text: '★ 추천 ' + rt, sub: _basis(V, false), go: true, hint: false };
+    }
+    if (lv === 1) return { cls: 'cl-think', text: '🤔 먼저 판단해 보세요', sub: '체크리스트', go: true, hint: true };
+    if (lv === 2) return { cls: 'cl-pred', text: '🔮 예측 카드', sub: '먼저 맞혀 보세요', go: true, hint: true };
+    return { cls: 'cl-real', text: '🎲 실전', sub: '보조 없이 결정해요', go: false, hint: true };
+  }
+  var _line = null;   // 마지막으로 그린 판정 띠(lineFor 결과), 테스트와 디버깅용
+  function _renderLine(L) {
+    _line = L || null;
+    var el = _el('coach-line');
+    if (!el) return;
+    if (!L) { el.style.display = 'none'; el.innerHTML = ''; el.className = 'coach-line'; return; }
+    var inner = '<span class="cl-text">' + _cz(_esc(L.text)) + '</span>' +
+      (L.sub ? '<span class="cl-sub">' + _cz(_esc(L.sub)) + '</span>' : '') +
+      (L.go ? '<span class="cl-go" aria-hidden="true">▸</span>' : '');
+    var html = L.go
+      ? '<button type="button" class="cl-main" onclick="CoachUI.lineTap()" aria-label="' + _esc(L.text + (L.sub ? ', ' + L.sub : '') + ', 자세히 보기') + '">' + inner + '</button>'
+      : '<div class="cl-main">' + inner + '</div>';
+    if (L.hint) html += '<button type="button" class="cl-hint cp-hint" onclick="CoachUI.showHint()" aria-label="정답 보기" title="정답 보기 (H)">💡</button>';
+    el.className = 'coach-line ' + L.cls;
+    el.innerHTML = html;
+    el.style.display = '';
+  }
+  // ▸: 세로 폰이면 도크 코칭 탭을 펼치거나(이미 펼쳐 있으면 접기), 데스크톱이면 코칭 패널을 열고 상세로 스크롤
+  function lineTap() {
+    if (typeof MobileUI !== 'undefined' && MobileUI && typeof MobileUI.isMobile === 'function' && MobileUI.isMobile()) {
+      var ms = (typeof MobileUI._state === 'function') ? MobileUI._state() : null;
+      if (ms && ms.tab === 'coach' && !ms.collapsed) MobileUI.openTab(null);
+      else MobileUI.openTab('coach');
+      return 'mobile';
+    }
+    var ov = _el('equity-overlay');
+    if (ov && ov.style && ov.style.display === 'none' && typeof App !== 'undefined' && App && typeof App.toggleEquity === 'function') App.toggleEquity();
+    var tgt = null;
+    ['last-verdict', 'coach-pre', 'beginner-explain-body'].some(function(id) {
+      var e = _el(id);
+      if (e && e.style && e.style.display !== 'none' && e.innerHTML) { tgt = e; return true; }
+      return false;
+    });
+    if (tgt && typeof tgt.scrollIntoView === 'function') { try { tgt.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+    return 'desktop';
+  }
+
   // ── DOM 헬퍼 ──
   function _el(id) {
     return (typeof document !== 'undefined' && document.getElementById) ? document.getElementById(id) : null;
@@ -295,6 +404,10 @@ var CoachUI = (function() {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
+  }
+  // 무늬 기호 4색(R8, ui/cards.js). 이스케이프한 문자열에만 쓴다
+  function _cz(html) {
+    return (typeof Cards !== 'undefined' && Cards && typeof Cards.colorize === 'function') ? Cards.colorize(html) : html;
   }
   function _hideEl(id) {
     var el = _el(id);
@@ -356,6 +469,8 @@ var CoachUI = (function() {
     _hideEl('last-verdict');
     _hideEl('coach-pre');
     _hideEl('coach-reminder');
+    _remOpen = false;
+    _renderLine(null);
     _updateToggleLabel();
   }
 
@@ -390,8 +505,30 @@ var CoachUI = (function() {
     var r = _pickReminder(ctx);
     if (r) lines.push('🧠 주의: 최근 「' + r.P.label + '」 ' + r.n + '회 | ' + r.P.rule);
     if (!lines.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
-    el.innerHTML = lines.map(function(l) { return '<div>' + _esc(l) + '</div>'; }).join('');
+    el.innerHTML = lines.map(function(l) { return '<div class="cr-line">' + _cz(_esc(l)) + '</div>'; }).join('');
     el.style.display = '';
+    // R7: 세로 폰 도크 상단부에서는 1줄 말줄임(css/mobile.css), 누르면 펼침/접힘. 데스크톱은 늘 전부 보임
+    if (el.setAttribute) {
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('aria-expanded', _remOpen ? 'true' : 'false');
+      el.setAttribute('title', '눌러서 ' + (_remOpen ? '접기' : '펼치기'));
+    }
+    if (el.classList) el.classList.toggle('cr-open', _remOpen);
+    el.onclick = toggleReminder;
+    el.onkeydown = function(e) { if (e && (e.key === 'Enter' || e.key === ' ')) { toggleReminder(); if (e.preventDefault) e.preventDefault(); } };
+  }
+
+  var _remOpen = false;   // 리마인더 펼침(핸드마다 접힘으로 시작)
+  function toggleReminder(force) {
+    _remOpen = (typeof force === 'boolean') ? force : !_remOpen;
+    var el = _el('coach-reminder');
+    if (el && el.classList) el.classList.toggle('cr-open', _remOpen);
+    if (el && el.setAttribute) {
+      el.setAttribute('aria-expanded', _remOpen ? 'true' : 'false');
+      el.setAttribute('title', '눌러서 ' + (_remOpen ? '접기' : '펼치기'));
+    }
+    return _remOpen;
   }
 
   function _hintBtnHTML() {
@@ -467,9 +604,20 @@ var CoachUI = (function() {
     // '내 승률' 칩(A11y showEq)이 켜져 있고 보스 시험이 아니면 승률은 이미 보이므로 예측 질문에서 뺀다(팟 오즈만, Q 번호 자동)
     if (_showEqOn()) { _predOpts.eq = null; _predAns.eq = null; }
     _renderReminder(ctx);
+    _markPrevVerdict();
     _renderPre();
+    _renderLine(lineFor({ phase: 'pre', level: view.level, V: ctx.verdict, ev: ctx.ev }));
     _firstDecision = false;
     return view;
+  }
+
+  // 다음 결정이 오면 지난 판정(#last-verdict)은 '지난 결정'으로 표시해 지금 판정 상세 뒤로 내린다(CSS order).
+  // 지금 추천이 먼저 보이게(R7 6절 3번). afterDecision이 className을 새로 쓰므로 lv-prev는 자동으로 풀린다
+  function _markPrevVerdict() {
+    var el = _el('last-verdict');
+    if (!el || typeof el.className !== 'string' || /(^| )lv-prev( |$)/.test(el.className)) return;
+    if (el.className.indexOf('last-verdict') < 0) return;   // 한 번도 판정이 없었으면 그대로
+    el.className += ' lv-prev';
   }
 
   function _pick(q, idx) {
@@ -501,6 +649,7 @@ var CoachUI = (function() {
       }
     }
     _renderPre();
+    _renderLine(lineFor({ phase: 'pre', level: (_view && _view.level) || 1, hintUsed: true, V: c.verdict, ev: c.ev }));
   }
 
   function _predLines() {
@@ -523,8 +672,9 @@ var CoachUI = (function() {
     _hideEl('coach-pre');
     if (ctx.dec && typeof ctx.dec === 'object') ctx.dec.hintUsed = _hintUsed;
     var G = ctx.grade, V = ctx.verdict;
-    if (!G || !V) return;
+    if (!G || !V) { _renderLine(null); return; }
     var view = ctx.view || _view || viewFor(_st.level, ctx);
+    _renderLine(lineFor({ phase: 'post', G: G, V: V, action: ctx.action, quiet: !!view.quiet }));
     var vt = verdictText(G, V, ctx.action);
     var el = _el('last-verdict');
     if (el) {
@@ -532,11 +682,11 @@ var CoachUI = (function() {
       if (view.quiet && G.light === 'green') {
         html = '<div class="lv-line1">🟢</div>';
       } else {
-        html = '<div class="lv-line1">' + _esc(vt.line1) + '</div>';
-        if (vt.line2) html += '<div class="lv-line2">' + _esc(vt.line2) + '</div>';
+        html = '<div class="lv-line1">' + _cz(_esc(vt.line1)) + '</div>';
+        if (vt.line2) html += '<div class="lv-line2">' + _cz(_esc(vt.line2)) + '</div>';
         if (view.level >= 1) {
           explainLines(V).forEach(function(l) {
-            if (vt.line2.indexOf(l) === -1) html += '<div class="lv-extra">' + _esc(l) + '</div>';
+            if (vt.line2.indexOf(l) === -1) html += '<div class="lv-extra">' + _cz(_esc(l)) + '</div>';
           });
         }
         _predLines().forEach(function(l) { html += '<div class="lv-pred">' + _esc(l) + '</div>'; });
@@ -686,7 +836,9 @@ var CoachUI = (function() {
     onNewHand: onNewHand, beforeDecision: beforeDecision, afterDecision: afterDecision,
     onHandEnd: onHandEnd, currentGoal: currentGoal, showHint: showHint, setLevel: setLevel,
     snapshot: snapshot, restore: restore,
-    handleKey: handleKey, _pick: _pick, _reload: _reload
+    handleKey: handleKey, _pick: _pick, _reload: _reload,
+    lineFor: lineFor, recText: recText, lineTap: lineTap, toggleReminder: toggleReminder,
+    _line: function() { return _line; }, _remOpen: function() { return _remOpen; }
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
