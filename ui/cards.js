@@ -1,16 +1,20 @@
-// ui/cards.js (P0 구현, 설계 원문 docs/NEXT_BATCH_DESIGN.md 7절 R8)
+// ui/cards.js (P0 구현, 클라우드 H가 확장. 설계 원문 docs/NEXT_BATCH_DESIGN.md 7절 R8)
 // 카드와 무늬 기호를 그리는 공용 헬퍼. 무늬 기호 렌더가 table.js, scene-render.js, puzzle-ui.js 등 여러 곳에 흩어져
 // red/black 2색만 쓰던 것을 한 곳으로 모은다. 색은 css/cards.css의 :root 토큰(--suit-*-light, --suit-*-dark).
-//   Cards.html(card, { tag:'div'|'span', cls, hero }) → '<div class="card <cls> red|black" data-suit="s" role="img" aria-label="스페이드 10">10♠</div>'
+//   Cards.html(card, { tag:'div'|'span', cls, hero, box })
+//     → '<div class="card <cls> red|black" data-suit="s" role="img" aria-label="스페이드 10"><span class="card-rank">10</span><span class="card-pip">♠</span></div>'
 //     red/black 클래스는 기존 카드 CSS(.card.red, .card.black)와 4색 덱(html.four-color .card[data-suit])을 그대로 쓰기 위해 남긴다.
+//     랭크와 무늬를 따로 감싸(card-rank .95em, card-pip 1.15em, css/cards.css) 2색 모드에서도 무늬 모양으로 구분한다. textContent는 '10♠' 그대로.
 //     hero: true면 'hero-card'(금테) 클래스를 붙인다. cls는 공백으로 나뉜 클래스 이름(영숫자, -, _)만 받는다.
-//   Cards.glyph(card) → '<span class="suit" data-suit="s">10♠</span>'(어두운 배경 글자용, 늘 4색)
+//     box: false면 기본 클래스를 'card'(흰 카드 상자) 대신 'card-face'로 쓴다. 자기 상자 CSS를 가진 작은 카드(퍼즐 pz-card, 운 미터 hs-card)가
+//       색 규칙(red/black, 4색 덱 토큰)만 가져다 쓰는 용도. 색은 .card와 같은 토큰(흰 바탕 --suit-*-light).
+//   Cards.glyph(card, { cls }) → '<span class="suit" data-suit="s">10♠</span>'(어두운 배경 글자용, 늘 4색). cls는 뒤에 덧붙는 클래스(기록 hist-card 등).
 //   Cards.colorize(escapedText) → 이미 이스케이프된 문자열 안의 '(10|[2-9TJQKA])([♠♥♦♣])'와 단독 무늬 기호를
 //     <span class="suit" data-suit="x">로 감싼다. 태그 안(속성)과 이미 감싼 .suit 구간은 건드리지 않는다(두 번 불러도 같다).
 //     글자는 그대로 둔다(T♠는 T♠, 10♠는 10♠).
 //   Cards.name(card) → '스페이드 10'(화면 읽기 프로그램용 이름)
 //   card 입력: { rank, suit } 객체 또는 문자열('Ts', '10s', 'As'). 랭크 'T'는 화면에 '10'으로 쓴다. 잘못된 입력은 '' 반환.
-// 규약: 로드 시 DOM 접근 없음, 순수 문자열 함수만. 시그니처는 고정(클라우드 H는 확장만).
+// 규약: 로드 시 DOM 접근 없음, 순수 문자열 함수만. 시그니처는 고정(P0 인자는 그대로, H는 opts 키와 glyph의 opts만 더했다).
 var Cards = (function() {
   var SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   var BY_SYM = { '♠': 's', '♥': 'h', '♦': 'd', '♣': 'c' };
@@ -45,24 +49,30 @@ var Cards = (function() {
     return p ? SUIT_KOR[p.suit] + ' ' + _rankText(p.rank) : '';
   }
 
+  // 카드 안 글자: 랭크와 무늬를 따로 감싼다(크기 규칙은 css/cards.css .card-rank, .card-pip)
+  function _face(p) {
+    return '<span class="card-rank">' + _rankText(p.rank) + '</span><span class="card-pip">' + SYM[p.suit] + '</span>';
+  }
+
   function html(card, opts) {
     var p = _parse(card);
     if (!p) return '';
     opts = opts || {};
     var tag = opts.tag === 'span' ? 'span' : 'div';
-    var cls = ['card'];
+    var cls = [opts.box === false ? 'card-face' : 'card'];
     var extra = _cls(opts.cls);
     if (extra) cls.push(extra);
     if (opts.hero) cls.push('hero-card');
     cls.push(RED[p.suit] ? 'red' : 'black');
     return '<' + tag + ' class="' + cls.join(' ') + '" data-suit="' + p.suit + '" role="img" aria-label="' + name(p) + '">' +
-      _rankText(p.rank) + SYM[p.suit] + '</' + tag + '>';
+      _face(p) + '</' + tag + '>';
   }
 
-  function glyph(card) {
+  function glyph(card, opts) {
     var p = _parse(card);
     if (!p) return '';
-    return '<span class="suit" data-suit="' + p.suit + '">' + _rankText(p.rank) + SYM[p.suit] + '</span>';
+    var extra = _cls(opts && opts.cls);
+    return '<span class="suit' + (extra ? ' ' + extra : '') + '" data-suit="' + p.suit + '">' + _rankText(p.rank) + SYM[p.suit] + '</span>';
   }
 
   // 글자 구간 하나에 감싸기 적용(태그 없음이 보장된 텍스트)

@@ -29,6 +29,7 @@ var CareerMap = (function() {
   var _el = null;        // 마지막으로 그린 요소
   var _region = null;    // 보고 있는 지역 탭(null이면 지금 있는 지역)
   var _stake = null;     // 고른 스테이크(null이면 state.stake)
+  var _field = null;     // (웨이브2 후속) MTT 인원(null이면 장소 players 배열의 첫 값)
 
   // ── 공용 헬퍼 ──────────────────────────────────────────
   function _warn(where, e) { if (typeof console !== 'undefined' && console && console.warn) console.warn('[CareerMap] ' + where, e && e.message ? e.message : e); }
@@ -135,6 +136,12 @@ var CareerMap = (function() {
     else out.push({ text: '지역 ' + _regionName(V && V.region, B) + ' 도착', done: (st.unlocked && st.unlocked.regions || []).indexOf(V && V.region) >= 0, progress: (st.unlocked && st.unlocked.regions || []).indexOf(V && V.region) >= 0 ? 1 : 0 });
     return out;
   }
+  // 남은 조건을 앞에(F6 보정 뒤 자산 조건은 대개 이미 채워져 있어, 막대 맨 위가 '완료'면 정작 남은 평판 줄이 아래로 밀린다). 같은 상태끼리는 원래 순서
+  function _unmetFirst(list) {
+    return list.map(function(r, i) { return { r: r, i: i }; })
+      .sort(function(a, b) { return (a.r.done ? 1 : 0) - (b.r.done ? 1 : 0) || a.i - b.i; })
+      .map(function(x) { return x.r; });
+  }
   function _regionName(id, B) { var R = B && B.REGIONS && B.REGIONS[id]; return R && R.name ? R.name : String(id || ''); }
 
   // 라이벌 얼굴: rivals.faces(함수 또는 객체) → CAST의 같은 이름 face → 이모지 글자
@@ -219,14 +226,18 @@ var CareerMap = (function() {
     var cost = (B && B.HOME_COST) || {}, bonus = (B && B.HOME_STIPEND_BONUS) || {};
     var bank = _num(st.bankroll, 0);
     var canBuy = typeof (_core() || {}).buyHome === 'function';
+    var inSession = _isObj(st.session);
     return {
       home: cur, meta: HOME_META[cur] || { icon: '🏠', name: cur, text: '' }, bonus: _num(bonus[cur], 0),
       items: Array.isArray(st.property && st.property.items) ? st.property.items.slice() : [],
       list: homes.map(function(id, i) {
         var m = HOME_META[id] || { icon: '🏠', name: id, text: '' }, c = _num(cost[id], 0);
         var status = (i <= curIdx) ? 'owned' : (bank >= c ? 'buyable' : 'locked');
-        return { id: id, icon: m.icon, name: m.name, text: m.text, cost: c, bonus: _num(bonus[id], 0), status: status, next: i === curIdx + 1,
-          need: Math.max(0, c - bank), canBuy: canBuy && status === 'buyable' && i === curIdx + 1 };
+        // (웨이브2 후속, 결정 49) core.buyHome이 있으면 다음 단계 집에 구매 버튼. 자산이 모자라거나 세션 중이면 비활성 + 이유
+        var isNext = i === curIdx + 1;
+        var why = !isNext ? '' : (inSession ? '세션 중에는 살 수 없어요' : (status === 'buyable' ? '' : coins(Math.max(0, c - bank)) + ' 더 필요'));
+        return { id: id, icon: m.icon, name: m.name, text: m.text, cost: c, bonus: _num(bonus[id], 0), status: status, next: isNext,
+          need: Math.max(0, c - bank), canBuy: canBuy && status === 'buyable' && isNext && !inSession, showBuy: canBuy && isNext, why: why };
       })
     };
   }
@@ -266,12 +277,14 @@ var CareerMap = (function() {
     else if (kind !== 'cash' && !tourneyMod) reason = '토너먼트는 다음 업데이트에서 열려요';
     var hiddenN = _num(V.hidden, 0);
     var players = Array.isArray(V.players) ? V.players.join('~') + '인' : (V.players ? V.players + '인' : '');
+    var fields = Array.isArray(V.players) && V.players.length > 1 ? V.players.slice() : null;
+    var field = fields ? (fields.indexOf(_field) >= 0 ? _field : fields[0]) : null;
     var payouts = Array.isArray(V.payouts) ? V.payouts.map(function(p) { return Math.round(p * 100); }).join('/') + '%' : '';
     return {
       id: id, name: String(V.name || id), icon: String(V.icon || '🎲'), kind: kind, kindLabel: KIND_LABEL[kind] || kind, kindIcon: KIND_ICON[kind] || '🎲',
       open: open, invited: invited, here: st.venue === id, rate: rate, buyIn1: buyIn1, buyIn2: buyIn2, buyIn: buyIn,
-      inviteOnly: !!V.inviteOnly, adaptive: !!V.adaptive, hidden: hiddenN, players: players, payouts: payouts,
-      reqs: open ? [] : _venueReqs(id, st, B).map(function(r) { return { text: r.text, done: r.done, pct: pct(r.progress, r.done) }; }),
+      inviteOnly: !!V.inviteOnly, adaptive: !!V.adaptive, hidden: hiddenN, players: players, payouts: payouts, fields: fields, field: field,
+      reqs: open ? [] : _unmetFirst(_venueReqs(id, st, B)).map(function(r) { return { text: r.text, done: r.done, pct: pct(r.progress, r.done) }; }),
       rivals: open ? _rivals(id, st, now) : [],
       canStart: open && !reason, reason: reason
     };
@@ -401,6 +414,11 @@ var CareerMap = (function() {
         var on = s === m.stake;
         return '<button type="button" class="j-pick j-career-stake' + (on ? ' is-on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" data-stake="' + s + '" onclick="CareerMap.setStake(' + s + ')">x' + s + '<small> ' + _esc(coins(s === 2 ? v.buyIn2 : v.buyIn1 * s)) + '</small></button>';
       }).join('') + '</div>' : '';
+      // (웨이브2 후속) MTT 인원 고르기(18인, 36인): 상금 풀 = 인원 x 바이인
+      if (v.fields) picks = '<div class="j-career-stakes" role="group" aria-label="참가 인원">' + v.fields.map(function(n) {
+        var on = n === v.field;
+        return '<button type="button" class="j-pick j-career-stake j-career-field' + (on ? ' is-on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" data-field="' + n + '" onclick="CareerMap.setField(' + n + ')">' + n + '인<small> 상금 풀 ' + _esc(coins(n * v.buyIn1)) + '</small></button>';
+      }).join('') + '</div>';
       body = picks +
         '<button type="button" class="j-btn j-career-start' + (v.canStart ? ' j-primary' : '') + '"' + (v.canStart ? '' : ' disabled') + ' data-venue="' + _esc(v.id) + '" onclick="CareerMap.start(\'' + _esc(v.id) + '\')">' +
         '▶ 세션 시작(' + m.hands + '핸드)<small>' + _esc(v.canStart ? '바이인 ' + coins(v.buyIn) : v.reason) + '</small></button>';
@@ -458,7 +476,9 @@ var CareerMap = (function() {
         (p.bonus > 0 ? ' 후원금 +' + _esc(coins(p.bonus)) + '.' : '') + '</span></div></div>' +
       '<div class="j-career-homes">' + p.list.map(function(h) {
         var mark = h.status === 'owned' ? '✓ 보유' : (h.status === 'buyable' ? '🔓 구매 가능' : '🔒 ' + coins(h.need) + ' 더 필요');
-        var act = h.canBuy ? '<button type="button" class="j-btn j-career-buy" onclick="CareerMap.buyHome(\'' + _esc(h.id) + '\')">구매<small>' + _esc(coins(h.cost)) + '</small></button>' : '';
+        var act = !h.showBuy ? '' : (h.canBuy
+          ? '<button type="button" class="j-btn j-career-buy j-primary" onclick="CareerMap.buyHome(\'' + _esc(h.id) + '\')">구매<small>' + _esc(coins(h.cost)) + '</small></button>'
+          : '<button type="button" class="j-btn j-career-buy" disabled aria-disabled="true">구매<small>' + _esc(h.why) + '</small></button>');
         return '<div class="j-career-home-row is-' + h.status + '"><span class="j-career-home-ic" aria-hidden="true">' + _esc(h.icon) + '</span>' +
           '<div class="j-career-home-t"><b>' + _esc(h.name) + '</b><span>' + (h.cost > 0 ? _esc(coins(h.cost)) + ', ' : '') + '후원금 +' + _esc(coins(h.bonus)) + '</span></div>' +
           '<span class="j-career-home-s">' + mark + '</span>' + act + '</div>';
@@ -550,6 +570,16 @@ var CareerMap = (function() {
     if (_el) render(_el);
     return true;
   }
+  // (웨이브2 후속) MTT 인원 고르기: 그 장소 players 배열 안의 값만
+  function setField(n) {
+    var B = _bal() || {};
+    n = _num(n, 0);
+    var ok = Object.keys(B.VENUES || {}).some(function(id) { var P = B.VENUES[id].players; return Array.isArray(P) && P.indexOf(n) >= 0; });
+    if (!ok) return false;
+    _field = n;
+    if (_el) render(_el);
+    return true;
+  }
   function _errText(r, fallback) {
     if (r && typeof r === 'object' && typeof r.error === 'string' && r.error) return r.error;
     if (r && typeof r === 'object' && typeof r.reason === 'string' && r.reason) return r.reason;
@@ -574,7 +604,8 @@ var CareerMap = (function() {
     var CR = _g('Career');
     if (!CR || typeof CR.startSession !== 'function' || !_mod('table')) { _toast('테이블 연결은 다음 업데이트에서 열려요'); return false; }
     var r = null;
-    try { r = CR.startSession(venueId, m.stake, V.kind || 'cash'); } catch (e) { _warn('startSession', e); r = null; }
+    var fopt = (vm && vm.fields) ? { players: vm.field } : undefined;   // (웨이브2 후속) MTT 인원
+    try { r = fopt ? CR.startSession(venueId, m.stake, V.kind || 'cash', fopt) : CR.startSession(venueId, m.stake, V.kind || 'cash'); } catch (e) { _warn('startSession', e); r = null; }
     if (!r || (typeof r === 'object' && r.error)) { _toast(_errText(r, '세션을 시작하지 못했어요. 코인과 조건을 확인해요')); if (_el) render(_el); return false; }
     return true;
   }
@@ -618,7 +649,7 @@ var CareerMap = (function() {
     if (_el) render(_el);
     return ok;
   }
-  // 집 구매: core.buyHome(id)가 있을 때만 버튼이 보인다(계약에 없는 선택 함수)
+  // 집 구매: core.buyHome(id)(웨이브2 후속, 결정 49로 계약에 들어감)가 있을 때만 버튼이 보인다
   function buyHome(id) {
     var core = _core();
     if (!core || typeof core.buyHome !== 'function') { _toast('집 구매는 다음 업데이트에서 열려요'); return false; }
@@ -659,9 +690,9 @@ var CareerMap = (function() {
 
   var api = {
     homeCard: homeCard, open: open, render: render, html: html, model: model, pct: pct, fmt: fmt, coins: coins,
-    setRegion: setRegion, setStake: setStake, start: start, resume: resume, travel: travel, buyHome: buyHome, back: back, lesson: lesson,
+    setRegion: setRegion, setStake: setStake, setField: setField, start: start, resume: resume, travel: travel, buyHome: buyHome, back: back, lesson: lesson,
     // 테스트용: 보고 있는 지역과 스테이크, 마지막 요소를 되돌린다
-    _reset: function() { _el = null; _region = null; _stake = null; }
+    _reset: function() { _el = null; _region = null; _stake = null; _field = null; }
   };
   if (C && typeof C.register === 'function') C.register('map', api);
   if (typeof module !== 'undefined') module.exports = api;

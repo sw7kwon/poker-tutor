@@ -36,6 +36,9 @@
 //   _unsaved(마지막 쓰기 실패, 메모리 캐시가 유일한 최신본)와 _invalidateExternal(다른 창 저장 이벤트는 캐시를 버린다)의 뜻은 그대로다.
 //   다른 창의 storage 이벤트가 오면 이 창의 미기록 변경(최대 300ms)은 버린다(예전에도 다른 창의 저장이 이 창의 저장을 덮었다).
 //   앱이 갑자기 꺼져도 잃는 것은 마지막 수백 ms의 변경뿐이다.
+//   (웨이브2 후속, 10번) 같은 묶음: poker_journey_stats(JStats)와 poker_career(CareerCore)도 deferMs()(같은 300ms, 같은 환경 판정)로 미루고
+//   onFlush(flushFn, dropFn)으로 등록한다. flush()는 등록된 flushFn을 함께 부르고(같은 flush 지점), _invalidate()는 dropFn을 부른다
+//   (백업 가져오기 뒤 옛 캐시의 대기 쓰기가 가져온 기록을 덮지 않게).
 //
 // 노드 상태: locked(선행 미통과) / open(열림) / done(레슨 완료, 아직 통과 아님) / passed(통과, skipped면 건너뜀 통과).
 // "가용(available)" = 선행이 모두 통과이고 상태가 open 또는 done(마이그레이션으로 잠긴 채 done이 된 노드는 선행 통과 뒤 가용).
@@ -91,6 +94,7 @@ var Journey = (function() {
   var _lastRaw = null;        // 마지막으로 저장소에 쓴(또는 읽은) 원문. 같은 원문은 다시 쓰지 않는다
   var _deferOver = null;      // 테스트 주입 지연 ms(null = 환경 자동 판정, 0 = 즉시)
   var _writes = 0;            // 실제 setItem 시도 횟수(테스트, 진단용)
+  var _hooks = [];            // (웨이브2 후속) 같은 지연 쓰기 묶음의 다른 저장소 { flush, drop }(JStats, CareerCore)
   var _session = null;       // 세션 컨텍스트(메모리 전용, 새로고침하면 사라짐)
   var _todayRunning = false;  // 오늘의 5분 진행 중(메모리 전용)
   var _hand = null;           // 진행 중 핸드 메타(onNewHand)
@@ -348,8 +352,23 @@ var Journey = (function() {
   // 대기 중인 쓰기를 지금 끝낸다(화면 숨김, 페이지 떠남, 백업 직전). 실패했던 쓰기도 다시 시도한다. → 저장소와 캐시가 같은가
   function flush() {
     _cancelTimer();
-    if ((_dirty || _unsaved) && _cache) return _writeNow();
-    return !_unsaved;
+    var ok = ((_dirty || _unsaved) && _cache) ? _writeNow() : !_unsaved;
+    _runHooks('flush');
+    return ok;
+  }
+  // (웨이브2 후속, 10번) 다른 저장소의 지연 쓰기 묶음: 같은 지연(deferMs)과 같은 flush 지점
+  function deferMs() { return _deferMs(); }
+  function onFlush(flushFn, dropFn) {
+    if (typeof flushFn !== 'function') return false;
+    for (var i = 0; i < _hooks.length; i++) if (_hooks[i].flush === flushFn) return false;
+    _hooks.push({ flush: flushFn, drop: (typeof dropFn === 'function') ? dropFn : null });
+    return true;
+  }
+  function _runHooks(kind) {
+    for (var i = 0; i < _hooks.length; i++) {
+      var fn = _hooks[i][kind];
+      if (typeof fn === 'function') { try { fn(); } catch (e) { _warn(e); } }
+    }
   }
   function _dropCache() { _cancelTimer(); _dirty = false; _cache = null; _lastRaw = null; }
   function reset() {
@@ -684,8 +703,8 @@ var Journey = (function() {
     save();
   }
   function _defaultSettings() {
-    return { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false,
-      thinkingReveal: 'after', guessInGame: true, sizeButtons: 'auto', ghostLeague: false, castNames: false };
+    return { v: 1, fontScale: 100, fourColor: true, cbChart: false, reduceMotion: null, sound: false, vibrate: false,   // fourColor 기본 켜짐(R8, A11y.DEFAULTS와 같게)
+      thinkingReveal: 'after', guessInGame: true, sizeButtons: 'auto', ghostLeague: false, castNames: false, chipVisual: true };
   }
   // sizeButtons(사용자 선택 'auto'|'simple'|'grouped')는 건드리지 않고, 'auto'가 따를 단계값을 stageSizeButtons로 둔다
   function _writeStageSettings(stage) {
@@ -1595,7 +1614,7 @@ var Journey = (function() {
   // 다른 창에서 쌓은 여정 전체를 덮어쓴다. 캐시를 비우면 다음 load()가 저장소를 다시 읽는다. 진행 중 세션(_session, _hand)은 메모리 그대로 둔다.
   // Storage.importAll, restorePrev처럼 이 창이 저장소를 직접 바꾼 곳(BackupUI)은 바꾼 직후 이 함수를 불러야 한다(같은 창에는 storage 이벤트가
   // 안 온다). 대기 중이거나 실패했던 쓰기도 함께 버린다(저장소가 이제 최신본이라, 새로고침 전 beforeunload의 flush가 옛 캐시로 덮지 않게).
-  function _invalidate() { _dropCache(); _unsaved = false; }
+  function _invalidate() { _dropCache(); _unsaved = false; _runHooks('drop'); }
   // 바깥 이벤트(다른 창 저장, 화면 복귀)로 비울 때: 이 창의 마지막 저장이 실패했으면(저장소 없음, 용량 초과) 메모리 캐시가 유일한 최신본이라
   // 비우지 않는다. 비우면 다음 load()가 예전 값(또는 기본값)을 읽어 앱을 오갈 때마다 진행이 되돌아간다.
   // 대기 중인 쓰기(최대 300ms)는 버린다: 다른 창이 방금 저장했으므로 옛 캐시로 덮어쓰면 그 창의 기록이 사라진다.
@@ -1618,7 +1637,7 @@ var Journey = (function() {
 
   var api = {
     KEY: KEY, V: V,
-    load: load, save: save, flush: flush, reset: reset, defaults: defaults, migrate: migrate,
+    load: load, save: save, flush: flush, reset: reset, defaults: defaults, migrate: migrate, deferMs: deferMs, onFlush: onFlush,
     nodeStatus: nodeStatus, openNodes: openNodes, nextNode: nextNode,
     completeLesson: completeLesson, recordDrillSet: recordDrillSet, recordMissionHand: recordMissionHand,
     evaluateNode: evaluateNode, passNode: passNode, promote: promote,

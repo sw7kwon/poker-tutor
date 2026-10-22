@@ -28,15 +28,22 @@
 //   오늘 이벤트 효과(웨이브1 통합, 오늘 날짜의 state.events만): 해피아워 = 현금 바이인 x effect.buyInMult, 자선 토너먼트 = 토너먼트 바이인 x tourneyBuyInMult와
 //     입상 평판 +repBonus, 하이롤러 초청 = 잠긴 초대 장소(invite)에 오늘 1세션 바이인 허용(바이인 때 used = true). todayEvent() → 오늘 이벤트 객체 | null.
 //   grantXp(n) = 오늘 준 합계(daily.xp)가 XP_DAY_CAP을 넘지 않게 잘라 Journey.addXp('career', n). Journey가 없으면 세기만 한다. → { granted, capped }
+//   (웨이브2 후속, 결정 49) buyHome(level) → { ok, cost, home?, reason? }: level은 CareerContract.HOMES id. 지금 집 바로 다음 단계만,
+//     세션 중이 아니고 자산 >= balance.HOME_COST[level]이면 자산에서 빼고 property.home = level, 로그 'home'. 실패는 reason(화면 문구).
 //   travel(regionId) → { ok, cost, reason? }: 열린 지역, 지금 있는 지역이 아님, 세션 중 아님, 오늘 여행 안 함, 자산 >= TRAVEL_COST[지역]이면 이동.
 //     region을 바꾸고 venue는 그 지역의 첫 열린 장소로, 비용을 빼고 daily.travel = true, 이벤트 'travel' { from, to, cost }. 여행 트로피 판정.
 //   이벤트 수신: 'hand:end' { venue, netCoins, rivals:[rivalId], won } → stats.hands, byVenue[venue].hands, byRival[id](hands, net, met = 함께 앉은 세션 수),
 //     session.hands. 이긴 핸드면 XP.winHand. 'lesson:done' { id } → lessons[id] = 완료 시각(처음만), 로그, unlockCheck.
 //     'story' { rivalId, stage } → story[rivalId]는 stage 큰 쪽, 단계가 오를 때마다 REP.story, 3단계(결전)면 'rival-final' 트로피.
+//     (웨이브2 후속, 결정 47) 'story' 평판은 core만 준다. rivals(F4)는 단계 조건(ready)만 알려 주고 평판을 더하지 않는다.
+//     (웨이브2 후속) 커리어 XP는 모두 grantXp(하루 상한)로: 세션, 이긴 핸드, 토너먼트 입상, 커리어 레슨(질문 첫 정답과 첫 완료, LessonPlayer가 부른다).
 //     'session:end'는 settle이 보내는 이벤트라 받지 않는다(이중 집계 방지). 구독은 첫 load()와 buyIn()에서 세운다(로드 시점에는 안 한다).
 //   트로피 판정 trophyCheck(state, ctx) → 새로 받을 id 배열(순수, 상태를 바꾸지 않는다). ctx { kind:'session'|'travel'|'story', venue, venueKind, net, bust,
 //     tourney:{ place, n }, stipendSince, region, rivalFinal }. 규칙은 TROPHY_RULES(16종).
 //   로그 log[{ at, kind, text, delta? }]는 최근 50개(LOG_CAP). stats.wins = 수익 세션 수, stats.net = 세션 순손익 합, bestNet = 세션 최고 순익.
+// (웨이브2 후속, 결정 48) 코인은 저장할 때 소수 1자리(bankroll, 세션 순손익과 통계), 화면은 정수 반올림(_coins, 지도 fmt, 정산 카드).
+// (웨이브2 후속, 10번) 저장은 여정과 같은 지연 쓰기 묶음: save()는 Journey.deferMs()(300ms) 안의 연속 저장을 setItem 1회로 묶고
+//   Journey.onFlush(flush, drop)으로 같은 flush 지점(숨김, 떠나기, 백업 직전)에 쓴다. 테스트 주입 저장소와 node 러너는 즉시 쓴다.
 // 저장: load()는 CareerContract.KEY를 읽어 normalize 뒤 캐시. save()는 쓰기 실패 때 _unsaved = true로 메모리 캐시를 지킨다(Journey와 같은 규칙).
 //   _invalidate()는 마지막 저장이 성공했을 때만 캐시를 비운다(다른 창이 바꾼 뒤 다시 읽기).
 // 규약: 로드 시 DOM, localStorage, navigator 접근 없음(전부 함수 안 typeof 가드). 테스트 주입 _setStore(s | false | null), _setNow(fn | null).
@@ -48,11 +55,13 @@ var CareerCore = (function() {
   var _nowOver = null;      // 테스트 주입 시계
   var _xpLog = [];          // Journey가 없을 때 grantXp 기록(테스트용)
   var _subs = [];           // 버스 구독 해제 함수(첫 load()와 buyIn()에서 세운다)
+  var _dirty = false, _timer = null, _hooked = false, _writes = 0, _deferOver = null;   // 지연 쓰기(웨이브2 후속), _deferOver는 테스트 주입 ms
 
   function _C() { return (typeof CareerContract !== 'undefined' && CareerContract) ? CareerContract : null; }
   function _B() { var C = _C(); return (C && C.mod('balance')) || ((typeof CareerBalance !== 'undefined') ? CareerBalance : null); }
   function _isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function _num(x, d) { x = Number(x); return isFinite(x) ? x : d; }
+  function _r1(x) { x = Number(x); return isFinite(x) ? Math.round(x * 10) / 10 : 0; }
   function _warn(e) { try { if (typeof console !== 'undefined' && console && console.warn) console.warn('[CareerCore]', (e && e.message) || e); } catch (x) {} }
   function _now() {
     if (typeof _nowOver === 'function') { var t = Number(_nowOver()); if (isFinite(t)) return t; }
@@ -85,20 +94,56 @@ var CareerCore = (function() {
   function save() {
     var C = _C();
     if (!_cache || !C) return false;
+    _cache.bankroll = _r1(_cache.bankroll);   // 저장은 소수 1자리(결정 48)
     _cache.updatedAt = _iso(_now());
     var s = _store();
     if (!s) { _unsaved = true; return false; }
+    var ms = _deferMs();
+    if (!(ms > 0)) return _writeNow();
+    _dirty = true;
+    _hook();
+    if (_timer == null) {
+      try { _timer = setTimeout(function() { _timer = null; if (_dirty || _unsaved) _writeNow(); }, ms); }
+      catch (e) { _timer = null; return _writeNow(); }
+    }
+    return true;
+  }
+  // (웨이브2 후속, 10번) 지연 쓰기: 테스트 주입 저장소면 즉시, 아니면 Journey.deferMs()(없으면 즉시)
+  function _deferMs() {
+    if (typeof _deferOver === 'number') return Math.max(0, _deferOver);
+    if (_storeOver !== null) return 0;
+    if (typeof setTimeout !== 'function') return 0;
+    try { if (typeof Journey !== 'undefined' && Journey && typeof Journey.deferMs === 'function') return Math.max(0, Number(Journey.deferMs()) || 0); } catch (e) { /* 즉시 */ }
+    return 0;
+  }
+  function _hook() {
+    if (_hooked) return;
+    try { if (typeof Journey !== 'undefined' && Journey && typeof Journey.onFlush === 'function') { Journey.onFlush(flush, _drop); _hooked = true; } } catch (e) { /* 타이머가 쓴다 */ }
+  }
+  function _cancel() { if (_timer != null) { try { clearTimeout(_timer); } catch (e) {} _timer = null; } }
+  function _writeNow() {
+    _cancel();
+    _dirty = false;
+    var C = _C(), s = _store();
+    if (!_cache || !C) return !_unsaved;
+    if (!s) { _unsaved = true; return false; }
+    _writes++;
     try { s.setItem(C.KEY, JSON.stringify(_cache)); _unsaved = false; return true; }
     catch (e) { _unsaved = true; return false; }
   }
+  // 대기 쓰기를 지금 끝낸다(Journey.flush가 함께 부른다). → 저장소와 캐시가 같은가
+  function flush() { _cancel(); if ((_dirty || _unsaved) && _cache) return _writeNow(); return !_unsaved; }
+  // 백업 가져오기 뒤(Journey._invalidate): 대기 쓰기를 버리고 캐시를 비운다(가져온 기록이 최신본)
+  function _drop() { _cancel(); _dirty = false; _unsaved = false; _cache = null; }
   function reset() {
+    _cancel(); _dirty = false;
     _cache = null; _unsaved = false; _xpLog = [];
     var s = _store(), C = _C();
     if (s && C) { try { s.removeItem(C.KEY); } catch (e) {} }
     return load();
   }
   function state() { return _st(); }
-  function _invalidate() { if (!_unsaved) _cache = null; }
+  function _invalidate() { if (_unsaved) return; _cancel(); _dirty = false; _cache = null; }   // 대기 쓰기(최대 300ms)도 버린다(여정과 같은 뜻)
   // normalize가 못 채우는 정합: 첫 지역과 첫 장소는 늘 열려 있고, 자산과 평판은 0 이상, 칭호는 평판과 맞춘다
   function _fixup(st) {
     var C = _C();
@@ -106,6 +151,7 @@ var CareerCore = (function() {
     if (st.unlocked.regions.indexOf(C.REGIONS[0]) < 0) st.unlocked.regions.unshift(C.REGIONS[0]);
     if (st.unlocked.venues.indexOf(C.VENUES[0]) < 0) st.unlocked.venues.unshift(C.VENUES[0]);
     if (st.bankroll < 0) st.bankroll = 0;
+    st.bankroll = _r1(st.bankroll);
     if (st.reputation < 0) st.reputation = 0;
     st.title = _titleFor(st.reputation);
     return st;
@@ -402,22 +448,22 @@ var CareerCore = (function() {
     var buy = _num(ses.buyIn, 0);
     var bust = result.bust === true;
     var tour = _isObj(result.tourney) ? result.tourney : null;
-    var net = (result.net == null && bust) ? -buy : _num(result.net, 0);
+    var net = (result.net == null && bust) ? -buy : _r1(_num(result.net, 0));
     if (net < -buy) net = -buy;
     var counted = Math.max(0, Math.floor(_num(ses.hands, 0)));                  // hand:end로 이미 센 핸드
     var hands = Math.max(counted, Math.floor(_num(result.hands, 0)));
     var extra = hands - counted;
     var back = buy + net;
-    st.bankroll += back;
+    st.bankroll = _r1(st.bankroll + back);
     var delta = net;
     // 통계
     st.stats.sessions += 1;
-    st.stats.net = _num(st.stats.net, 0) + delta;
+    st.stats.net = _r1(_num(st.stats.net, 0) + delta);
     if (delta > 0) st.stats.wins += 1;
     if (delta > _num(st.stats.bestNet, 0)) st.stats.bestNet = delta;
     if (extra > 0) st.stats.hands += extra;
     var bv = _venueStat(st, ses.venue);
-    bv.hands += extra; bv.sessions += 1; bv.net += delta;
+    bv.hands += extra; bv.sessions += 1; bv.net = _r1(bv.net + delta);
     var ctx = { kind: 'session', venue: ses.venue, venueKind: v ? v.kind : ses.kind, net: delta, won: delta > 0, bust: bust, tourney: tour,
       stipendSince: st.daily.comebackPending === true };
     var cashed = !!tour && _cashed(ctx);
@@ -526,6 +572,27 @@ var CareerCore = (function() {
     save();
     _emit('travel', { from: from, to: regionId, cost: cost });
     return { ok: true, cost: cost, from: from, to: regionId, trophies: trophies };
+  }
+
+  // ── 집 구매(웨이브2 후속, 결정 49) ──
+  var HOME_NAME = { studio: '스튜디오', apartment: '아파트', penthouse: '펜트하우스' };
+  function _homes() { var C = _C(); return (C && Array.isArray(C.HOMES) && C.HOMES.length) ? C.HOMES : ['studio', 'apartment', 'penthouse']; }
+  function homeCost(level) { var B = _B(); return (B && _isObj(B.HOME_COST)) ? Math.max(0, _num(B.HOME_COST[level], 0)) : 0; }
+  function buyHome(level) {
+    var st = _st(), homes = _homes(), idx = homes.indexOf(level);
+    if (idx < 0) return { ok: false, cost: 0, reason: '모르는 집이에요' };
+    if (!_isObj(st.property)) st.property = { home: homes[0], items: [] };
+    var cur = Math.max(0, homes.indexOf(st.property.home || homes[0]));
+    var cost = homeCost(level), name = HOME_NAME[level] || level;
+    if (idx <= cur) return { ok: false, cost: cost, reason: '이미 ' + name + '에 살고 있어요' };
+    if (idx > cur + 1) return { ok: false, cost: cost, reason: '먼저 ' + (HOME_NAME[homes[cur + 1]] || homes[cur + 1]) + '부터 옮겨요' };
+    if (st.session) return { ok: false, cost: cost, reason: '세션 중에는 집을 살 수 없어요' };
+    if (st.bankroll < cost) return { ok: false, cost: cost, reason: '코인이 부족해요(' + _coins(cost - st.bankroll) + ' 더 필요)' };
+    st.bankroll = _r1(st.bankroll - cost);
+    st.property.home = level;
+    _log(st, 'home', name + '로 옮겼어요', -cost);   // 집 이름은 모두 받침 없이 끝난다
+    save();
+    return { ok: true, cost: cost, home: level };
   }
 
   // ── 주간 챌린지(웨이브1 통합) ──
@@ -647,7 +714,7 @@ var CareerCore = (function() {
   function _unsubscribe() { _subs.forEach(function(off) { if (typeof off === 'function') off(); }); _subs = []; }
 
   // ── 테스트 주입 ──
-  function _setStore(s) { _storeOver = (s === false) ? false : (s || null); _cache = null; _unsaved = false; _xpLog = []; }
+  function _setStore(s) { _cancel(); _dirty = false; _storeOver = (s === false) ? false : (s || null); _cache = null; _unsaved = false; _xpLog = []; }
   function _setNow(fn) { _nowOver = (typeof fn === 'function') ? fn : null; }
   function _unsavedFlag() { return _unsaved; }
   function _xpGiven() { return _xpLog.slice(); }
@@ -655,13 +722,14 @@ var CareerCore = (function() {
   var api = {
     state: state, load: load, save: save, reset: reset,
     canAfford: canAfford, buyIn: buyIn, settle: settle, requirements: requirements, regionRequirements: regionRequirements,
-    unlockCheck: unlockCheck, addTrophy: addTrophy, addReputation: addReputation, title: title, dayRoll: dayRoll, todayEvent: todayEvent, grantXp: grantXp, travel: travel,
+    unlockCheck: unlockCheck, addTrophy: addTrophy, addReputation: addReputation, title: title, dayRoll: dayRoll, todayEvent: todayEvent, grantXp: grantXp, travel: travel, buyHome: buyHome, homeCost: homeCost,
     buyInCost: buyInCost, trophyCheck: trophyCheck, titleFor: _titleFor, LOG_CAP: LOG_CAP,
-    _subscribe: _subscribe, _unsubscribe: _unsubscribe, _invalidate: _invalidate,
+    _subscribe: _subscribe, _unsubscribe: _unsubscribe, _invalidate: _invalidate, flush: flush, _pendingWrite: function() { return _dirty; }, _writeCount: function() { return _writes; },
+    _setDefer: function(ms) { flush(); _deferOver = (typeof ms === 'number' && isFinite(ms)) ? ms : null; },
     _setStore: _setStore, _setNow: _setNow, _unsaved: _unsavedFlag, _xpGiven: _xpGiven
   };
-  // 버스 구독은 로드 때가 아니라 첫 load()와 buyIn()에서 한다(P0 계약 테스트 j-career-contract 3이 'hand:end' 핸들러 수를 세고 _clearSubs로 비운다.
-  // 세션이 시작될 때마다 구독을 다시 세우므로 운영에서는 늘 받는다).
+  // 버스 구독은 로드 때가 아니라 첫 load()와 buyIn()에서 한다(세션이 시작될 때마다 구독을 다시 세우므로 운영에서는 늘 받는다).
+  // j-career-contract 3은 다른 구독을 지우지 않고 핸들러 증가분으로 센다(웨이브2 후속).
   if (typeof CareerContract !== 'undefined' && CareerContract && typeof CareerContract.register === 'function') CareerContract.register('core', api);
   if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
     window.addEventListener('storage', function(e) {

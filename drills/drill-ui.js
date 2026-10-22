@@ -14,9 +14,12 @@ var DrillUI = (function() {
   function _show(id, on) { var el = $(id); if (el) el.style.display = on ? '' : 'none'; }
   function _set(id, html) { var el = $(id); if (el) el.innerHTML = html; }
 
+  // 드릴 카드: 공용 헬퍼 Cards.html(무늬 이름 aria-label, data-suit 4색 덱, R8). 헬퍼가 없으면 예전 2색 마크업
   function _cardsHTML(cards) {
+    var hasCards = typeof Cards !== 'undefined' && Cards && typeof Cards.html === 'function';
     return cards.map(function(c) {
-      return '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
+      var h = hasCards ? Cards.html(c, { cls: 'drill-card' }) : '';
+      return h || '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + c.suit + '">' +
         (c.rank === 'T' ? '10' : c.rank) + SUIT_SYM[c.suit] + '</div>';
     }).join('');
   }

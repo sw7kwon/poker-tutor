@@ -1,5 +1,5 @@
 // journey/a11y.js (채우는 패키지: M2-P5, M6-SEASON이 adaptive 키 추가)
-// 접근성 설정(설계서 5.9절, 계약 C8): 글자 크기, 4색 덱, 색약 차트, 모션 줄이기, 효과음, 진동.
+// 접근성 설정(설계서 5.9절, 계약 C8): 글자 크기, 4색 덱(기본 켜짐, R8), 색약 차트, 모션 줄이기, 효과음, 진동.
 // M6(계약 H6): adaptive = 상대가 내 성향에 적응(VillainAdaptive, S5 승급 시험 통과 뒤). 기본 true, false일 때만 끈다
 //   (true/false 말고 다른 값은 true로 정규화. 0과 'false'도 끔). 읽는 쪽은 load().adaptive 또는 저장값 !== false.
 // 저장 키 poker_journey_settings(6.1절)는 JourneyUI._readSettings/_writeSettings와 같이 쓴다.
@@ -15,9 +15,12 @@ var A11y = (function() {
   // showEq: 게임 테이블 '내 승률' 칩(코칭 가림 해제 + 히어로 좌석 배지), showAllEq: '모두 승률'(카드 공개 상황의 좌석별 승률). 둘 다 기본 꺼짐
   // (P0, 다음 묶음) showChart: '📋 차트' 칩(R1 큰 GTO 차트), winChance: 액션별 이길 확률(R3b, 연구용). 둘 다 기본 꺼짐.
   //   chartTier: 프리플랍 차트 티어 'auto'(S3부터 표준) | 'beginner'(입문) | 'standard'(표준), 기본 'auto'. 판정은 GtoStd.active(클라우드 E)
-  var DEFAULTS = { v: 1, fontScale: 100, fourColor: false, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false,
-    showChart: false, winChance: false, chartTier: 'auto' };
-  var BOOL_KEYS = ['fourColor', 'cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq', 'showChart', 'winChance'];
+  // (클라우드 H, R8) fourColor: 4색 덱은 새 설치 기본 켜짐. 저장값에 키가 없으면 true, 끄는 값(false, 0, 'false')일 때만 false.
+  //   읽는 쪽은 load().fourColor(정규화 뒤 불리언). 글자 기호(.suit)는 설정과 상관없이 늘 4색(css/cards.css).
+  // (웨이브2 후속) chipVisual: 게임 테이블 칩 그림(ui/chips.js). 기본 켜짐, fourColor와 같은 규칙(끄는 값만 false). 설정 '👀 보기'의 '칩 그림 보이기' 행.
+  var DEFAULTS = { v: 1, fontScale: 100, fourColor: true, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false,
+    showChart: false, winChance: false, chartTier: 'auto', chipVisual: true };
+  var BOOL_KEYS = ['cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq', 'showChart', 'winChance'];   // 기본 꺼짐(없으면 false)
   var CHART_TIERS = ['auto', 'beginner', 'standard'];
   var MQ = '(prefers-reduced-motion: reduce)';
   // 진동 패턴(ms)과 비프(주파수 Hz, 길이 s). 짧게: 결과 알림용, 연속 재생으로 귀찮지 않게
@@ -48,6 +51,8 @@ var A11y = (function() {
   function _rm(v) { return v === true || v === false ? v : null; }
   // 적응형 상대(H6): 끄는 값(false, 0, 'false')만 false, 나머지(없음 포함)는 기본 true
   function _adaptive(v) { return !(v === false || v === 0 || v === 'false'); }
+  // 4색 덱(R8): 기본 켜짐. 끄는 값(false, 0, 'false')만 false(adaptive와 같은 규칙)
+  function _fourColor(v) { return !(v === false || v === 0 || v === 'false'); }
 
   // 저장 형식 그대로 받아 이 모듈 필드만 정규화한다(다른 필드는 보존)
   function normalize(o) {
@@ -57,6 +62,8 @@ var A11y = (function() {
     out.v = Number(src.v) > 0 ? Number(src.v) : 1;
     out.fontScale = ('fontScale' in src) ? _scale(src.fontScale) : DEFAULTS.fontScale;
     for (var i = 0; i < BOOL_KEYS.length; i++) out[BOOL_KEYS[i]] = !!src[BOOL_KEYS[i]];
+    out.fourColor = _fourColor(src.fourColor);
+    out.chipVisual = _fourColor(src.chipVisual);   // 같은 규칙: 기본 켜짐
     out.reduceMotion = _rm(src.reduceMotion);
     out.adaptive = _adaptive(src.adaptive);
     out.chartTier = CHART_TIERS.indexOf(src.chartTier) >= 0 ? src.chartTier : DEFAULTS.chartTier;

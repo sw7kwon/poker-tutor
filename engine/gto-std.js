@@ -328,6 +328,8 @@ var GtoStd = (function() {
     return out;
   }
   // vs 오픈 모델의 섞는 3벳 손(페어와 브로드웨이 두 장은 밸류 쪽이라 뺀다) → 한 줄
+  // (웨이브2 후속) 콜과 섞는 칸(레이즈 + 콜)은 블러프가 아니라 콜 범위의 손이라 뺀다. 순수 3벳 블러프 칸(레이즈와 폴드만 섞음)만.
+  //   BB 방어처럼 섞는 칸이 모두 콜과 섞이면 빈 문자열(줄을 보이지 않는다)
   function bluffHints(model) {
     if (!model || model.facing !== true || !model.cells) return '';
     var groups = {}, order = [];
@@ -335,6 +337,7 @@ var GtoStd = (function() {
       for (var c = 0; c < 13; c++) {
         var cell = model.cells[r] && model.cells[r][c];
         if (!cell || !cell.w || !(cell.w.raise > 0 && cell.w.raise < 1)) continue;
+        if (cell.w.call > 0) continue;
         var l = cell.label;
         if (l.length === 2 || (_broad(l.charAt(0)) && _broad(l.charAt(1)))) continue;
         var p = _pct(cell.w.raise);

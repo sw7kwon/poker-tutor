@@ -106,9 +106,85 @@ var App = (function() {
     if (chart) chart.classList.toggle('panel-closed', visible);
   }
 
-  function startGame() { showScreen('screen-villain-select'); }
+  // (클라우드 D' UX-06) 자유 게임 지난 구성 기억과 '▶ 바로 시작'.
+  // 빌런 선택 화면의 구성 5종만 기억한다(커리어 'career'와 여정 캐스트 구성 'sixmax-cast*'는 기억하지 않는다).
+  // 저장은 A11y 설정(poker_journey_settings)의 lastVillainConfig = { config, coach }(coach: 'auto' | '0'~'3', 코칭 보조 선택지 값 그대로).
+  var QUICK_CONFIGS = { 'headsup-tag': '헤즈업 TAG', 'sixmax': '6인 풀링', 'sixmax-hidden': '6인 랜덤(유형 숨김)', 'mixed': '헤즈업 카멜레온(Mixed)', 'gto-mirror': 'GTO 미러' };
+  var COACH_NAMES = { 'auto': '자동(추천)', '0': 'L0 풀코칭', '1': 'L1 먼저 판단', '2': 'L2 예측', '3': 'L3 실전' };
+  function _coachValue() {
+    // 지금 고른 코칭 보조 값: CoachUI.snapshot()(auto면 'auto', 아니면 레벨 숫자 문자열). 없으면 'auto'
+    try {
+      if (typeof CoachUI !== 'undefined' && CoachUI && typeof CoachUI.snapshot === 'function') {
+        var sn = CoachUI.snapshot();
+        if (sn && typeof sn === 'object') return sn.auto ? 'auto' : String(sn.level);
+      }
+    } catch (e) { /* 아래 기본값 */ }
+    return 'auto';
+  }
+  // 저장된 값을 검사해 돌려준다. 없거나 모르는 구성이면 null
+  function lastVillainConfig() {
+    var s = _eqSettings(), p = s && s.lastVillainConfig;
+    if (!p || typeof p !== 'object' || !QUICK_CONFIGS[p.config]) return null;
+    var coach = (p.coach != null && COACH_NAMES[String(p.coach)]) ? String(p.coach) : 'auto';
+    return { config: p.config, coach: coach };
+  }
+  function rememberVillainConfig(config, coach) {
+    if (!QUICK_CONFIGS[config]) return false;
+    if (typeof A11y === 'undefined' || !A11y || typeof A11y.save !== 'function') return false;
+    coach = (coach != null && COACH_NAMES[String(coach)]) ? String(coach) : _coachValue();
+    try { A11y.save({ lastVillainConfig: { config: config, coach: coach } }); } catch (e) { return false; }
+    return true;
+  }
+  // '▶ 바로 시작' 버튼 안쪽 html(순수 문자열): '▶ 바로 시작(지난번: 6인 랜덤(유형 숨김))' + 코칭 보조 값
+  function quickStartLabel(pref) {
+    pref = pref || lastVillainConfig();
+    if (!pref) return '';
+    return '<span class="opt-title">▶ 바로 시작(지난번: ' + QUICK_CONFIGS[pref.config] + ')</span>' +
+      '<span class="opt-desc">코칭 보조 ' + (COACH_NAMES[pref.coach] || COACH_NAMES.auto) + '. 지난번과 같은 상대와 코칭으로 바로 시작해요</span>';
+  }
+  // .villain-options 맨 위에 버튼을 1회 삽입(id로 중복 방지)하고 글자만 갱신한다. 기억된 구성이 없으면 버튼을 뺀다
+  function _syncQuickStart() {
+    if (typeof document === 'undefined' || !document.querySelector) return null;
+    var box = document.querySelector('#screen-villain-select .villain-options');
+    if (!box) return null;
+    var pref = lastVillainConfig();
+    var btn = document.getElementById('villain-quick-start');
+    if (!pref) { if (btn && btn.parentNode) btn.parentNode.removeChild(btn); return null; }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'villain-quick-start';
+      btn.className = 'villain-opt quick-start-opt';
+      btn.onclick = function() { quickStart(); };
+      box.insertBefore(btn, (box.children && box.children[0]) || box.firstChild || null);   // 첫 요소 앞(맨 위)
+    }
+    btn.innerHTML = quickStartLabel(pref);   // 설명은 .opt-desc 한 곳(title은 쓰지 않는다: ui/touch.js의 title → .opt-help 변환은 로드 때 1번이라 뒤에 넣은 버튼은 빠진다)
+    return btn;
+  }
+  function quickStart() {
+    var pref = lastVillainConfig();
+    if (!pref) return false;
+    if (typeof CoachUI !== 'undefined' && CoachUI && typeof CoachUI.setLevel === 'function') { try { CoachUI.setLevel(pref.coach); } catch (e) { /* 코칭 레벨은 그대로 */ } }
+    var sel = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('coach-level-select') : null;
+    if (sel) sel.value = pref.coach;
+    // 공개 이름으로 부른다(여정 테스트가 App.selectVillains를 스파이로 바꾼다. 브라우저에서는 같은 함수)
+    var start = (typeof App !== 'undefined' && App && typeof App.selectVillains === 'function') ? App.selectVillains : selectVillains;
+    start(pref.config);
+    return true;
+  }
+
+  // 빌런 선택 화면에서 고른 때만 기억한다(오늘의 5분 재미 블록이 부르는 selectVillains('sixmax')는 사용자의 선택이 아니다).
+  // selectVillains 들머리에서는 아직 화면이 바뀌기 전이라 활성 화면이 빌런 선택 화면이면 거기서 고른 것
+  function _villainScreenActive() {
+    if (typeof document === 'undefined' || !document.getElementById) return false;
+    var scr = document.getElementById('screen-villain-select');
+    return !!(scr && scr.classList && typeof scr.classList.contains === 'function' && scr.classList.contains('active'));
+  }
+
+  function startGame() { showScreen('screen-villain-select'); _syncQuickStart(); }
 
   function selectVillains(config) {
+    if (_villainScreenActive()) rememberVillainConfig(config);   // (UX-06) 빌런 선택 화면의 구성 5종만 기억(커리어, 여정 캐스트 구성은 무시)
     _villainConfig = config;
     _gtoMode = (config === 'gto-mirror');
     _round = 1;
@@ -122,6 +198,7 @@ var App = (function() {
     _practice = null;
     _sessionNet = 0; _buyin = null; if (typeof VillainTracker !== 'undefined') VillainTracker.reset(_sessionId);
     if (config === 'career' && typeof Career !== 'undefined' && Career) _carryoverStacks = Career.stacksFor(); // 커리어(P0 훅, F2): 이어 칠 스택
+    else if (typeof CareerTable !== 'undefined' && CareerTable && typeof CareerTable.syncBand === 'function') CareerTable.syncBand(false); // 커리어 아닌 게임: 토너먼트 띠 치우기
     // 초보자 코칭 패널(에쿼티 오버레이) 전 모드 기본 표시 — 원하면 📊 버튼으로 접기
     var panel = document.getElementById('equity-overlay');
     var toggleBtn = document.getElementById('equity-toggle');
@@ -285,8 +362,10 @@ var App = (function() {
     });
     return { stacks: out, topups: topups };
   }
-  // 히어로 폴드 뒤에도 핸드 진행(R2, 엔진 무수정): 엔진은 히어로 폴드에 handOver를 세운다. 연습이 아니고 관전이 아니며
-  // 폴드 안 한 빌런이 2명 이상이면 handOver를 되돌리고 heroOut 표시. 바꿨으면 true(st를 직접 고친다)
+  // (웨이브2 후속, 결정 50) 히어로 폴드 뒤 빌런끼리 진행은 엔진 옵션 keepPlaying(클라우드 I)으로 한다: 연습이 아니고 관전이 아니면
+  // applyHeroAction(..., { keepPlaying: true }). 엔진이 남은 사람 2명 이상일 때만 handOver를 세우지 않는다(예전 되돌림과 같은 조건).
+  function _foldOpts(st, practice) { return (!st || practice || st.spectator) ? undefined : { keepPlaying: true }; }
+  // 예전 경로(옵션을 모르는 엔진 대비): 엔진이 폴드에 handOver를 세웠으면 빌런 2명 이상일 때 되돌리고 heroOut 표시. 바꿨으면 true
   function _foldContinue(st, practice) {
     if (!st || practice || st.spectator || !st.handOver || !(st.folded && st.folded.Hero)) return false;
     var live = (st.names || Object.keys(st.players || {})).filter(function(n) { return n !== 'Hero' && !st.folded[n]; });
@@ -611,7 +690,8 @@ var App = (function() {
     }
     var n = _normalizeHeroAction(action, toCall, amount, maxTo);
     if (n.converted) _showToast('🔴 콜할 돈이 0일 땐 폴드 대신 체크! 공짜로 다음 카드를 봐요. 체크로 바꿨어요');
-    var next = GameState.applyHeroAction(pre, n.action, amount);
+    var fopts = n.action === 'fold' ? _foldOpts(pre, !!_practice) : undefined;
+    var next = fopts ? GameState.applyHeroAction(pre, n.action, amount, fopts) : GameState.applyHeroAction(pre, n.action, amount);
     // 검증 실패(민레이즈 미달 등) — 상태 불변, 토스트만 띄우고 계속 대기
     if (next.actionError) {
       _showToast('⚠ ' + next.actionError);
@@ -620,8 +700,11 @@ var App = (function() {
     var V = _lastVerdict;
     var g = (V && typeof Coach !== 'undefined') ? Coach.grade(V, n.intended, _lastEV, pre) : null;
     _state = next;
-    // 폴드 뒤에도 빌런 2명 이상이 남았으면 핸드를 끝까지(빌런끼리) 이어 간다. 연습 모드는 지금처럼 즉시 종료
-    if (n.action === 'fold') _foldContinue(_state, !!_practice);
+    // 폴드 뒤에도 빌런 2명 이상이 남았으면 핸드를 끝까지(빌런끼리) 이어 간다(엔진 keepPlaying). 연습 모드는 지금처럼 즉시 종료
+    if (n.action === 'fold') {
+      if (fopts && !_state.handOver && _state.folded && _state.folded.Hero) _state.heroOut = true;
+      else _foldContinue(_state, !!_practice);
+    }
     var dec = null;
     if (_lastEV && _state.decisions.length > 0) {
       dec = _state.decisions[_state.decisions.length - 1];
@@ -1446,8 +1529,19 @@ var App = (function() {
       }).join('');
   }
 
+  // (웨이브2 후속, 11번) 마지막 핸드의 판정 토스트(CoachUI #coach-toast, 앱 #app-toast)가 세션 요약 정산 카드를 가리지 않게 닫는다
+  function _closeToasts() {
+    if (typeof document === 'undefined' || !document) return 0;
+    var n = 0;
+    ['coach-toast', 'app-toast'].forEach(function(id) {
+      var t = document.getElementById(id);
+      if (t && t.parentNode) { t.parentNode.removeChild(t); n++; }
+    });
+    return n;
+  }
   function showSessionSummary() {
     if (!_sessionHands.length) { showMenu(); return; }
+    _closeToasts();
     _renderSessionSummary();
     _careerLeave();
     showScreen('screen-session-summary');
@@ -1494,6 +1588,9 @@ var App = (function() {
     syncEqChips: syncEqChips,
     startGame: startGame,
     selectVillains: selectVillains,
+    // (클라우드 D' UX-06) 지난 구성 기억과 바로 시작(순수 판정과 문자열은 테스트용)
+    quickStart: quickStart, lastVillainConfig: lastVillainConfig, rememberVillainConfig: rememberVillainConfig, quickStartLabel: quickStartLabel,
+    QUICK_CONFIGS: QUICK_CONFIGS,
     heroAction: heroAction,
     updateRaiseSlider: updateRaiseSlider,
     setRaisePreset: setRaisePreset,
@@ -1524,7 +1621,7 @@ var App = (function() {
     _allInRunout: _allInRunout,
     // R2(테이블 고침) 순수 함수: 리바이, 폴드 뒤 진행, 6인 랜덤 배정과 정체 공개, 핸드 순이익
     _rebuyStacks: _rebuyStacks,
-    _foldContinue: _foldContinue,
+    _foldContinue: _foldContinue, _foldOpts: _foldOpts, _closeToasts: _closeToasts,
     _hiddenSpec: _hiddenSpec,
     _hiddenTypes: _hiddenTypes,
     _hiddenRevealHTML: _hiddenRevealHTML,

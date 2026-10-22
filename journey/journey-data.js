@@ -343,7 +343,7 @@ var JOURNEY_UNLOCKS = [ { level: 3, kind: 'tableColor', id: 'navy' }, { level: 6
 
 var PUZZLE_TYPES = ['showdown', 'order', 'minraise', 'tocall', 'preflop', 'potodds', 'outs', 'outs-x4', 'eqbucket', 'texture', 'cbet2', 'mdf', 'alpha',
   'bluffratio', 'combos', 'facingbet-river', 'facingbet-next', 'spr', 'rangehit', 'rangepaint', 'rangeshape', 'toygame', 'geosize', 'variance',
-  'intent', 'hudread', 'prescribe', 'mixed'];
+  'intent', 'hudread', 'prescribe', 'blockers', 'sprplan', 'bluffratio-river', 'bankroll', 'mixed'];
 
 var CONCEPT_KEYS = ['rfi', 'vs_rfi', 'blind_defense', 'vs_3bet', 'pot_odds', 'draws', 'cbet', 'value_bluff', 'board_texture', 'turn_river', 'actions',
   'showdown', 'order', 'outs', 'equity', 'combos', 'mdf', 'alpha', 'spr', 'range', 'texture', 'read', 'variance', 'tilt', 'review', 'boss'];

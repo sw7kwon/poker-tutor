@@ -539,9 +539,14 @@ var HeroStats = (function() {
     return { n: list.length, expect: _r1(expect), actual: _r1(actual), diff: diff, text: text };
   }
 
+  // 운 미터의 작은 밝은 카드(hs-card, 상자 CSS는 css/dashboard.css): 공용 헬퍼 Cards.html(box:false → class="card-face hs-card red|black",
+  // 무늬 이름 aria-label, 4색 덱 토큰, R8). 헬퍼가 없거나 카드가 아닌 글자면 예전 마크업
   function _cardsHTML(list) {
     var SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
+    var hasCards = typeof Cards !== 'undefined' && Cards && typeof Cards.html === 'function';
     return (list || []).map(function(c) {
+      var h = hasCards ? Cards.html(c, { tag: 'span', cls: 'hs-card', box: false }) : '';
+      if (h) return h;
       var r = String(c).charAt(0), s = String(c).charAt(1);
       return '<span class="hs-card' + ((s === 'h' || s === 'd') ? ' is-red' : '') + '" data-suit="' + _esc(s) + '">' +
         (r === 'T' ? '10' : _esc(r)) + (SYM[s] || '') + '</span>';

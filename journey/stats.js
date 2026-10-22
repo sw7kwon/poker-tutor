@@ -10,6 +10,9 @@
 // M6-BOSS(계약 H9): 'cast' payload { name, key?, hand{vpip, pfr, tb}, post{aggr, calls, folds, facing} }. key는 은닉 좌석 배정 키
 //   (journey-core가 만든 '노드:시드')이고, 저장된 기록의 key와 다르면 그 좌석 기록을 새로 시작한다(since = 지금, 좌석 배정이 바뀌면
 //   관찰을 처음부터). castObs(name, key?)는 key를 주면 같은 배정의 기록만 돌려준다(다르면 null).
+// (웨이브2 후속, 10번) 저장은 여정과 같은 지연 쓰기 묶음: save()는 Journey.deferMs()(300ms) 안의 연속 저장을 setItem 1회로 묶고,
+//   Journey.onFlush(flush, drop)으로 같은 flush 지점(숨김, 떠나기, 백업 직전)에 쓴다. 테스트 주입 저장소와 node 러너는 즉시 쓴다.
+//   다시 보임과 bfcache 복귀는 먼저 flush하고 캐시를 버린다. 다른 창 storage 이벤트는 대기 쓰기와 캐시를 버린다(여정과 같은 뜻).
 var JStats = (function() {
   var KEY = 'poker_journey_stats';
   var V = 1;
@@ -23,6 +26,7 @@ var JStats = (function() {
   var _mem = null;         // 메모리 폴백(직렬화 문자열)
   var _storeOverride;      // 테스트 주입(undefined = 실제 localStorage)
   var _batch = 0, _dirty = false;
+  var _timer = null, _hooked = false, _writes = 0, _deferOver = null;   // 지연 쓰기(웨이브2 후속), _deferOver는 테스트 주입 ms
 
   // ── 날짜 유틸(로컬 날짜 기준) ──
   function _2(n) { return (n < 10 ? '0' : '') + n; }
@@ -123,17 +127,46 @@ var JStats = (function() {
     if (state) _st = _normalize(state);
     if (!_st) return;
     if (_batch > 0) { _dirty = true; return; }
+    _dirty = true;
+    var ms = _deferMs();
+    if (!(ms > 0)) { _writeNow(); return; }
+    _hook();
+    if (_timer != null) return;
+    try { _timer = setTimeout(function() { _timer = null; if (_dirty) _writeNow(); }, ms); }
+    catch (e) { _timer = null; _writeNow(); }
+  }
+  // 지연 ms: 테스트 주입 저장소면 0(즉시), 아니면 Journey.deferMs()(여정과 같은 판정, 없으면 0)
+  function _deferMs() {
+    if (typeof _deferOver === 'number') return Math.max(0, _deferOver);
+    if (_storeOverride !== undefined) return 0;
+    if (typeof setTimeout !== 'function') return 0;
+    try { if (typeof Journey !== 'undefined' && Journey && typeof Journey.deferMs === 'function') return Math.max(0, Number(Journey.deferMs()) || 0); } catch (e) { /* 즉시 */ }
+    return 0;
+  }
+  function _hook() {
+    if (_hooked) return;
+    try { if (typeof Journey !== 'undefined' && Journey && typeof Journey.onFlush === 'function') { Journey.onFlush(flush, _drop); _hooked = true; } } catch (e) { /* 등록 실패: 타이머가 쓴다 */ }
+  }
+  function _cancel() { if (_timer != null) { try { clearTimeout(_timer); } catch (e) {} _timer = null; } }
+  function _writeNow() {
+    _cancel();
     _dirty = false;
+    if (!_st) return;
     var raw;
     try { raw = JSON.stringify(_st); } catch (e) { return; }
     _mem = raw;
     var ls = _store();
-    if (ls) { try { ls.setItem(KEY, raw); } catch (e) {} }
+    if (ls) { _writes++; try { ls.setItem(KEY, raw); } catch (e) {} }
   }
+  // 대기 중인 쓰기를 지금 끝낸다(Journey.flush가 함께 부른다)
+  function flush() { _cancel(); if (_dirty && _st && _batch === 0) _writeNow(); }
+  // 대기 쓰기와 캐시를 버린다(백업 가져오기 뒤 Journey._invalidate, 다른 창 storage 이벤트)
+  function _drop() { _cancel(); _dirty = false; _st = null; }
   // 다른 창이 저장한 뒤 이 창의 낡은 캐시가 덮어쓰지 않게(M7 DATA-01): 캐시만 버리고 다음 load()에서 저장소를 다시 읽는다.
   // 메모리 폴백(_mem)과 진행 중인 batch는 건드리지 않는다.
   function invalidate() { _st = null; }
   function reset() {
+    _cancel();
     _st = null; _mem = null; _dirty = false;
     var ls = _store();
     if (ls) { try { ls.removeItem(KEY); } catch (e) {} }
@@ -147,7 +180,7 @@ var JStats = (function() {
     }
   }
   // 테스트용: 저장소 교체(null = 저장소 없음, undefined = 실제 localStorage)
-  function _setStorage(s) { _storeOverride = s; }
+  function _setStorage(s) { _cancel(); _dirty = false; _storeOverride = s; }
 
   function _newDay() {
     var st = { preflop: null, flop: null, turn: null, river: null };
@@ -481,13 +514,16 @@ var JStats = (function() {
   // ── 창 사이 동기화와 시작 롤업(M7 DATA-01, P5) ──
   // storage 이벤트는 다른 창이 쓸 때만 온다(key === null은 clear). pageshow는 뒤로가기 캐시(bfcache)에서 돌아올 때, visibilitychange는
   // 앱을 다시 볼 때. 로드 시 DOM, 저장소 접근 없음(리스너 등록만).
-  function _onStorage(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) invalidate(); }
-  function _onPageShow(e) { if (e && e.persisted) invalidate(); }
+  function _onStorage(e) { if (!e || e.key === null || e.key === undefined || e.key === KEY) _drop(); }
+  function _onPageShow(e) { if (e && e.persisted) { flush(); invalidate(); } }
   function _onLoad() {
     var go = function() { try { rollup(Date.now()); } catch (e) { /* 롤업 실패는 앱에 영향 없음 */ } };
     if (typeof setTimeout === 'function') setTimeout(go, 0); else go();
   }
-  function _onVisibility() { if (typeof document === 'undefined' || !document || document.visibilityState !== 'hidden') invalidate(); }
+  function _onVisibility() {
+    if (typeof document !== 'undefined' && document && document.visibilityState === 'hidden') { flush(); return; }   // 숨김: 대기 쓰기 즉시, 캐시 유지
+    flush(); invalidate();                                                                                     // 다시 보임: 쓰고 나서 다시 읽기
+  }
   if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
     window.addEventListener('storage', _onStorage);
     window.addEventListener('pageshow', _onPageShow);
@@ -503,7 +539,9 @@ var JStats = (function() {
     load: load, save: save, reset: reset, invalidate: invalidate, batch: batch, defaults: defaults,
     record: record, day: day, range: range, accuracy: accuracy, lights: lights, recent: recent,
     heroTotals: heroTotals, trend: trend, markStageEnter: markStageEnter, rollup: rollup, castObs: castObs, handSeq: handSeq,
-    dayKey: dayKey, weekKey: weekKey, _setStorage: _setStorage, _onVisibility: _onVisibility, _onLoad: _onLoad
+    dayKey: dayKey, weekKey: weekKey, _setStorage: _setStorage, _onVisibility: _onVisibility, _onLoad: _onLoad,
+    flush: flush, _pendingWrite: function() { return _dirty; }, _writeCount: function() { return _writes; },
+    _setDefer: function(ms) { flush(); _deferOver = (typeof ms === 'number' && isFinite(ms)) ? ms : null; }
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

@@ -253,11 +253,18 @@ var HistoryUI = (function() {
 
   // ── 카드/날짜 렌더 헬퍼 ──
 
+  // 어두운 배경 글자 카드: 공용 헬퍼 Cards.glyph(늘 4색 .suit, R8) + 기록 클래스 hist-card(굵기, css/history.css).
+  // 헬퍼가 없거나 저장 기록이 이상하면(무늬가 아님) 예전 마크업으로 글자만, data-suit 생략
   function _cardHTML(str) {
-    var rank = str[0], suit = str[1];
+    str = String(str == null ? '' : str);
+    if (typeof Cards !== 'undefined' && Cards && typeof Cards.glyph === 'function') {
+      var g = Cards.glyph(str, { cls: 'hist-card' });
+      if (g) return g;
+    }
+    var rank = str[0] || '', suit = str[1] || '';
     var disp = rank === 'T' ? '10' : rank;
     var cls = RED_SUIT[suit] ? 'hist-red' : 'hist-black';
-    var ds = SUIT_SYM[suit] ? ' data-suit="' + suit + '"' : '';   // 4색 덱(a11y.css), 저장 기록이 이상하면 속성 생략
+    var ds = SUIT_SYM[suit] ? ' data-suit="' + suit + '"' : '';
     return '<span class="hist-card ' + cls + '"' + ds + '>' + disp + (SUIT_SYM[suit] || '') + '</span>';
   }
 

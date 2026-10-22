@@ -16,6 +16,7 @@
 //   story(rivalId, state) → { rivalId, stage(0~3), next:{ stage, name, text, need, value, progress(0~1), done } | null, stages:[{ stage, name, done }] }
 //     1 만남: 같은 테이블에 앉은 세션 1회(stats.byRival[id].met), 2 도전: 함께 친 핸드 hands2, 3 결전: 핸드 hands3 이상이고 상대로 순이익 net3 bb 이상.
 //   ready(state) → [{ rivalId, stage }] 다음 단계 조건을 채운 라이벌(core F1이 story 단계를 올리고 'story'를 emit할 때 쓴다).
+//     (웨이브2 후속, 결정 47) 이 모듈은 평판을 더하지 않는다. 'story' 평판(REP.story)은 core의 'story' 수신만 준다.
 //   face(id) → SVG, faces() → { id: SVG }
 // 원작 이름, 캐릭터, 문구는 쓰지 않는다. 규약: 로드 시 DOM, 저장소 접근 없음(typeof 가드).
 var CareerRivals = (function() {

@@ -13,6 +13,10 @@
 //   자산 보존: 세션 전 자산 - 바이인 + returned = 세션 뒤 자산. returned = 지금 스택(bb) x 환율 x 스테이크(토너먼트는 상금).
 // 라이벌 성향: 좌석표의 overlay.fields가 있으면 VillainAdaptive._decide와 같은 방식(VillainProfiles[유형]을 오버레이 사본으로 잠시 바꿔
 //   Villain.getAction을 부른 뒤 finally에서 되돌림). 숨김 좌석은 유형이 드러나는 말풍선(phrase)을 지우고 state.hideTypes를 건다(은닉 테이블과 같은 식).
+// (웨이브2 후속, 6번) 토너먼트 띠: 테이블 펠트 안 핸드 번호 아래에 레벨, 다음 레벨까지 남은 핸드, 생존자 수를 상시 표시(#ct-band).
+//   히어로가 탈락하거나 끝나면 순위와 상금. bandModel(ses)/bandHTML(ses)는 순수, syncBand(on)이 DOM을 맞춘다(playersSpec, onHandEnd,
+//   정산, leaveSession, app.js가 커리어 아닌 게임을 시작할 때). MTT 인원은 startSession(venueId, stake, kind, { players })로 고른다
+//   (balance.VENUES[id].players 배열 안의 값만, 없으면 첫 값).
 // 규약: 로드 시 DOM, 저장소 접근 없음(typeof 가드). 엔진, ai, app.js, 다른 career 모듈은 고치지 않고 부르기만 한다.
 var CareerTable = (function() {
   var SEATS = [0, 1, 2, 4, 5];                            // 히어로는 3번 좌석 고정(app.js sixmax, journey-core와 같은 배치)
@@ -29,6 +33,7 @@ var CareerTable = (function() {
   function _warn(e) { try { if (typeof console !== 'undefined' && console && console.warn) console.warn('[CareerTable]', e && e.message ? e.message : e); } catch (x) {} }
   function _num(x, d) { x = Number(x); return isFinite(x) ? x : d; }
   function _r2(x) { return Math.round(x * 100) / 100; }
+  function _r1(x) { return Math.round(x * 10) / 10; }
   function _isObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; }); }
   function _G(name) { try { return (typeof globalThis !== 'undefined' && globalThis) ? globalThis[name] : undefined; } catch (e) { return undefined; } }
@@ -118,6 +123,7 @@ var CareerTable = (function() {
   }
   // 좌석 0,1,2,4,5 + 포지션 회전(journey-core posFor와 같은 식: btnSeat = (6 - heroIdx) % 6, pos = POS[(seat - btnSeat + 3 + 6) % 6])
   function playersSpec(heroPos, POS) {
+    syncBand(true);
     POS = (Array.isArray(POS) && POS.length === 6) ? POS : POS6;
     var heroIdx = POS.indexOf(heroPos); if (heroIdx < 0) heroIdx = POS.indexOf('BTN');
     var btnSeat = (6 - heroIdx) % 6;
@@ -313,6 +319,7 @@ var CareerTable = (function() {
         var JU = _G('JourneyUI');
         if (_can(JU, 'toast')) { try { JU.toast(msg.join(', ') + '.', 3200); } catch (e) { _warn(e); } }
       }
+      syncBand(true);   // 레벨, 남은 핸드, 생존자(탈락이면 순위와 상금)
     }
     var rate = rateOf(ses.venue, ses.stake);
     var payload = {
@@ -353,7 +360,8 @@ var CareerTable = (function() {
           hands: _num(res && res.hands, _num(t.handNo, 0)) };
       }
     }
-    return { net: _r2(returned - buyIn), hands: Math.floor(_num(ses.hands, 0)), bust: isBust, kind: ses.kind, venue: ses.venue, stake: ses.stake,
+    returned = _r1(returned);   // (결정 48) 코인 저장은 소수 1자리
+    return { net: _r1(returned - buyIn), hands: Math.floor(_num(ses.hands, 0)), bust: isBust, kind: ses.kind, venue: ses.venue, stake: ses.stake,
       returned: returned, stackBB: stack, buyIn: buyIn, tourney: ses.kind === 'cash' ? undefined : (tour || ses.tourney || null) };
   }
   // 아직 열린 세션만 정산한다(멱등). → { session, info, result, before, after } | null
@@ -375,6 +383,7 @@ var CareerTable = (function() {
     } finally { _settling = false; }
     if (!_isObj(result)) result = { bankroll: _num(st.bankroll, before), delta: info.net, trophies: [], title: st.title };
     st.session = null;                                     // 세션을 닫는다(core가 닫았어도 같다)
+    syncBand(false);
     var B = _B();
     var after = _num(result.bankroll, _num(st.bankroll, before));
     // core(F1) settle이 세션 XP를 주고 'session:end'를 보낸다. core가 보내지 않았을 때만 여기서(이중 지급, 이중 이벤트 방지)
@@ -386,13 +395,13 @@ var CareerTable = (function() {
     _ovCache = {}; _ovSid = null;
     return { session: sesCopy, info: info, result: result, before: before, after: after };
   }
+  // (웨이브2 후속, 결정 48) 화면의 코인은 정수 반올림(지도 fmt, core _coins와 같은 값). 저장은 소수 1자리
   function _fmtCoins(n) {
-    n = _r2(_num(n, 0));
-    var s = (Math.abs(n) % 1 === 0) ? String(Math.abs(n)) : Math.abs(n).toFixed(1);
-    s = s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    n = Math.round(_num(n, 0));
+    var s = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     return (n < 0 ? '-' : '') + s;
   }
-  function _signedCoins(n) { n = _r2(_num(n, 0)); return (n > 0 ? '+' : n < 0 ? '-' : '') + _fmtCoins(Math.abs(n)); }
+  function _signedCoins(n) { n = Math.round(_num(n, 0)); return (n > 0 ? '+' : n < 0 ? '-' : '') + _fmtCoins(Math.abs(n)); }
   function _rivalLine(ses, net, st) {
     var R = _mod('rivals');
     if (!_can(R, 'line') || !Array.isArray(ses.roster)) return '';
@@ -417,11 +426,11 @@ var CareerTable = (function() {
       '<div class="j-career-settle-row" style="margin-top:6px">' +
         '<span class="j-career-settle-k">자산</span> ' +
         '<span class="j-career-settle-v">' + _esc(_fmtCoins(res.before)) + ' ' + _esc(cur) + ' → <b>' + _esc(_fmtCoins(res.after)) + ' ' + _esc(cur) + '</b></span> ' +
-        '<span class="j-career-settle-delta" style="color:' + color + ';font-weight:700">' + icon + ' ' + _esc(_signedCoins(info.net)) + ' ' + _esc(cur) + '</span>' +
+        '<span class="j-career-settle-delta" style="color:' + color + ';font-weight:700;white-space:nowrap">' + icon + ' ' + _esc(_signedCoins(Math.round(_num(res.after, 0)) - Math.round(_num(res.before, 0)))) + ' ' + _esc(cur) + '</span>' +
       '</div>';
     if (ses.kind === 'cash') {
       body += '<div class="j-card-d">바이인 ' + _esc(_fmtCoins(info.buyIn)) + ' ' + _esc(cur) + ', 돌아온 칩 ' + _esc(_fmtCoins(info.returned)) + ' ' + _esc(cur) +
-        ' (' + _esc(String(_r2(info.stackBB))) + 'bb x 환율 ' + _esc(String(rateOf(ses.venue, ses.stake))) + '), ' + info.hands + '핸드</div>';
+        ' <span style="white-space:nowrap">(' + _esc(String(_r2(info.stackBB))) + 'bb x 환율 ' + _esc(String(rateOf(ses.venue, ses.stake))) + ')</span>, ' + info.hands + '핸드</div>';
     } else {
       var tp = _isObj(info.tourney) ? info.tourney : {};
       var placeTxt = (_num(tp.place, 0) > 0 && _num(tp.n, 0) > 0) ? (_num(tp.place, 0) === 1 ? '🏆 ' + tp.n + '명 중 우승, ' : '🏁 ' + tp.n + '명 중 ' + tp.place + '위, ') : '';
@@ -465,6 +474,7 @@ var CareerTable = (function() {
   }
   // 게임을 떠날 때: 아직 열린 현금 세션만 지금 스택으로 정산(멱등). 토너먼트는 이어 치기용으로 남겨 둔다
   function leaveSession() {
+    syncBand(false);                                       // 게임을 떠나면 토너먼트 띠도 치운다(이어 치기 때 다시 그린다)
     var ses = _session();
     if (!ses) return null;
     if (ses.kind !== 'cash') return null;
@@ -472,8 +482,55 @@ var CareerTable = (function() {
     return r ? { net: r.info.net, bankroll: r.after, bust: r.info.bust, hands: r.info.hands } : null;
   }
 
+  // ── 토너먼트 띠(웨이브2 후속, 6번) ──
+  // bandModel(ses) → null(현금 게임, 토너먼트 상태 없음) | { done, level, mult, handsToLevel, alive, n, final, place, prize }
+  function bandModel(ses) {
+    ses = (ses === undefined) ? _session() : ses;
+    if (!_isObj(ses) || ses.kind === 'cash' || !_isObj(ses.tourney) || !Array.isArray(ses.tourney.entrants)) return null;
+    var T = _mod('tourney'), s = null;
+    if (_can(T, 'status')) { try { s = T.status(ses.tourney); } catch (e) { _warn(e); s = null; } }
+    if (!_isObj(s)) return null;
+    return { done: !!s.done || s.place != null, level: _num(s.level, 1), mult: _num(s.mult, 1), handsToLevel: s.handsToLevel,
+      alive: _num(s.alive, 0), n: _num(s.n, 0), final: !!s.final, place: s.place != null ? _num(s.place, 0) : null, prize: _num(s.prize, 0) };
+  }
+  function bandHTML(ses) {
+    var m = bandModel(ses);
+    if (!m) return '';
+    var C = _C(), cur = (C && C.CURRENCY) || '코인';
+    if (m.done && m.place) {
+      var icon = m.place === 1 ? '🏆' : (m.prize > 0 ? '🥇' : '🏁');
+      var head = m.place === 1 ? m.n + '명 중 우승' : m.n + '명 중 ' + m.place + '위로 끝났어요';
+      return '<span><i class="ct-band-i" aria-hidden="true">' + icon + '</i> ' + _esc(head) + ',</span><span>' +
+        (m.prize > 0 ? '상금 <b>' + _esc(_fmtCoins(m.prize)) + ' ' + _esc(cur) + '</b>' : '상금 없음') + '</span>';
+    }
+    var lv = '레벨 <b>' + m.level + '</b>' + (m.mult > 1 ? '(블라인드 x' + m.mult + ')' : '');
+    var nx = (m.handsToLevel === Infinity || !isFinite(_num(m.handsToLevel, NaN))) ? '마지막 레벨' : '다음 레벨까지 <b>' + _num(m.handsToLevel, 0) + '</b>핸드';
+    var al = (m.final ? '파이널, ' : '') + '남은 <b>' + m.alive + '</b>/' + m.n + '명';
+    return '<span><i class="ct-band-i" aria-hidden="true">⏱</i> ' + lv + '</span><span>' + nx + '</span><span>' + al + '</span>';
+  }
+  // DOM: .poker-table .table-felt 안, #hand-info 바로 뒤의 #ct-band. on이 아니거나 토너먼트가 아니면 지운다
+  function syncBand(on) {
+    if (typeof document === 'undefined' || !document || typeof document.getElementById !== 'function') return false;
+    try {
+      var el = document.getElementById('ct-band');
+      var html = on === false ? '' : bandHTML();
+      if (!html) { if (el && el.parentNode) el.parentNode.removeChild(el); return false; }
+      if (!el) {
+        var felt = document.querySelector('.poker-table .table-felt');
+        if (!felt) return false;
+        el = document.createElement('div');
+        el.id = 'ct-band'; el.className = 'ct-band';
+        el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+        var hi = document.getElementById('hand-info');
+        if (hi && hi.parentNode === felt) felt.insertBefore(el, hi.nextSibling); else felt.appendChild(el);
+      }
+      if (el.innerHTML !== html) el.innerHTML = html;
+      return true;
+    } catch (e) { _warn(e); return false; }
+  }
+
   // ── 세션 시작 ──
-  function startSession(venueId, stake, kind) {
+  function startSession(venueId, stake, kind, opts) {
     var core = _mod('core');
     if (!_can(core, 'buyIn') || !_state()) return { error: '커리어 코어가 아직 준비되지 않았어요.' };
     venueId = String(venueId || (_state() && _state().venue) || 'backyard');
@@ -507,7 +564,9 @@ var CareerTable = (function() {
         if (!_isObj(ses.tourney)) ses.tourney = {};
       } else {
         var v = _venue(venueId) || {};
-        var players = Array.isArray(v.players) ? v.players[0] : _num(v.players, 6);
+        // (웨이브2 후속) MTT 인원 고르기: opts.players가 장소 players 배열 안에 있으면 그 값, 아니면 첫 값
+        var want = (opts && opts.players != null) ? _num(opts.players, 0) : 0;
+        var players = Array.isArray(v.players) ? (v.players.indexOf(want) >= 0 ? want : v.players[0]) : _num(v.players, 6);
         try {
           ses.tourney = T.create({ kind: kind, players: players, buyIn: _num(ses.buyIn, _num(v.buyIn, 0)), seed: _daySeed(ses.startedAt), roster: ses.roster });
         } catch (e) { _warn(e); ses.tourney = {}; }
@@ -533,7 +592,7 @@ var CareerTable = (function() {
     SEATS: SEATS.slice(), HERO: HERO,
     playersSpec: playersSpec, stacksFor: stacksFor, beforeNextHand: beforeNextHand, villainOpts: villainOpts,
     onHandEnd: onHandEnd, sessionEnd: sessionEnd, startSession: startSession, leaveSession: leaveSession,
-    rateOf: rateOf, coinsOf: coinsOf,
+    rateOf: rateOf, coinsOf: coinsOf, bandModel: bandModel, bandHTML: bandHTML, syncBand: syncBand,
     _castRoster: _castRoster, _rosterFor: _rosterFor, _settleInfo: _settleInfo, _reset: function() { _ovCache = {}; _ovSid = null; _lastHTML = ''; _lastSid = null; }
   };
   if (typeof CareerContract !== 'undefined' && CareerContract && typeof CareerContract.register === 'function') CareerContract.register('table', api);

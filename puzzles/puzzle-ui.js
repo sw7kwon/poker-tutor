@@ -78,7 +78,12 @@ var PuzzleUI = (function() {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
-  function _txt(s) { return _esc(s).replace(/\n/g, '<br>'); }
+  // 지문, 해설, 메모 글: 이스케이프 뒤 줄바꿈, 무늬 기호(K♠J♠)는 공용 헬퍼 Cards.colorize로 4색 .suit(R8)
+  function _txt(s) {
+    var h = _esc(s).replace(/\n/g, '<br>');
+    var C = _m('Cards');
+    return (C && typeof C.colorize === 'function') ? C.colorize(h) : h;
+  }
   function _num(v, d) { v = Number(v); return isFinite(v) ? v : d; }
   function _now() { return typeof _env.now === 'function' ? _env.now() : Date.now(); }
   function _later(fn, ms) {
@@ -290,8 +295,12 @@ var PuzzleUI = (function() {
   }
 
   // ── 장면(SceneRender가 없으면 텍스트 대체) ──────────────────
+  // 작은 흰 카드(pz-card, 상자 CSS는 css/puzzle.css): 공용 헬퍼 Cards.html(box:false → class="card-face pz-card red|black", 4색 덱 토큰, R8).
+  // 헬퍼가 없으면 예전 마크업, 카드가 아닌 글자는 그대로 칸에 넣는다
   function cardHTML(c) {
     c = String(c || '');
+    var C = _m('Cards');
+    if (C && typeof C.html === 'function') { var h = C.html(c, { tag: 'span', cls: 'pz-card', box: false }); if (h) return h; }
     var r = c.charAt(0).toUpperCase(), s = c.charAt(1).toLowerCase();
     if (!SUIT[s]) return '<span class="pz-card">' + _esc(c) + '</span>';
     var red = (s === 'h' || s === 'd');

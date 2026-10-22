@@ -59,7 +59,8 @@
 //     board:'Th7c2h'|'', vs:{kind:'random'}|{kind:'range', spot:'rfi|BTN'}, eq}]}
 //
 // M2-P1 구현(계약 C1, C2, C7 위에 얹은 코어 API). register/get/meta/has/types 시그니처는 그대로다.
-//   TYPE_META[type] = {confidence, appDef, rated, srs, stage, group, base, concept, ui?}: 부록 C 27유형의 정본.
+//   TYPE_META[type] = {confidence, appDef, rated, srs, stage, group, base, concept, ui?}: 부록 C 27유형 + 클라우드 J 4유형(blockers,
+//     sprplan, bluffratio-river, bankroll)의 정본.
 //     stage = 그 유형이 처음 나오는 노드의 단계(부록 A). group은 데일리 5 구성용('preflop'|'math'|'other').
 //     approx와 앱 정의(appDef) 유형은 rated:false. cbet2, intent, prescribe와 once 유형은 srs:'once'.
 //     (M7, PZ-01) 유형 정본이 appDef false여도 문항이 appDef: true + rated: false로 나오면(minraise opensize 이 앱 표준 사이즈,
@@ -136,7 +137,12 @@ var Puzzles = (function() {
     variance:          _m('exact',  true,  'srs',  6, 'math',    2000, 'variance'),
     intent:            _m('approx', false, 'once', 6, 'other',   null, 'read'),
     hudread:           _m('exact',  false, 'srs',  6, 'other',   2200, 'read', { appDef: true }),
-    prescribe:         _m('approx', false, 'once', 6, 'other',   null, 'read')
+    prescribe:         _m('approx', false, 'once', 6, 'other',   null, 'read'),
+    // 클라우드 J(puzzles/gen-advanced.js) 4종. sprplan은 구간과 계획이 이 앱 정의라 rated false(SPR 숫자만 엔진 계산)
+    blockers:          _m('exact',  true,  'srs',  4, 'other',   1800, 'combos'),
+    sprplan:           _m('exact',  false, 'srs',  3, 'other',   1500, 'spr', { appDef: true }),
+    'bluffratio-river': _m('exact', true,  'srs',  4, 'math',    1750, 'value_bluff'),
+    bankroll:          _m('exact',  true,  'srs',  6, 'math',    2050, 'variance')
   });
 
   // 약점 개념(게임 V.concept, 커리큘럼 key) -> 퍼즐 유형. TYPE_META.concept가 같은 유형도 함께 고른다.
@@ -145,11 +151,11 @@ var Puzzles = (function() {
     starting_hands: ['preflop'], preflop_summary: ['preflop'], exam_preflop: ['preflop'], position: ['order', 'preflop'],
     pot_odds: ['potodds'], draws: ['outs', 'outs-x4', 'facingbet-next'], outs: ['outs', 'outs-x4'],
     equity: ['eqbucket', 'facingbet-next', 'facingbet-river'], cbet: ['cbet2'], board_texture: ['texture'], texture: ['texture'],
-    value_bluff: ['bluffratio', 'alpha', 'toygame'], turn_river: ['facingbet-river'], multiway: ['facingbet-river'],
+    value_bluff: ['bluffratio', 'alpha', 'toygame', 'bluffratio-river'], turn_river: ['facingbet-river', 'bluffratio-river'], multiway: ['facingbet-river'],
     exam_postflop: ['facingbet-river', 'facingbet-next'], actions: ['minraise', 'tocall'], sizing: ['minraise', 'geosize'],
-    hand_rankings: ['showdown'], showdown: ['showdown'], order: ['order'], combos: ['combos'], hand_reading: ['rangehit', 'combos'],
-    range: ['rangehit', 'rangepaint', 'rangeshape'], mdf: ['mdf'], alpha: ['alpha'], spr: ['spr', 'geosize'],
-    read: ['hudread', 'intent', 'prescribe'], villain_types: ['hudread', 'prescribe'], variance: ['variance'], bankroll: ['variance']
+    hand_rankings: ['showdown'], showdown: ['showdown'], order: ['order'], combos: ['combos', 'blockers'], hand_reading: ['rangehit', 'combos', 'blockers'],
+    blockers: ['blockers', 'combos'], range: ['rangehit', 'rangepaint', 'rangeshape'], mdf: ['mdf'], alpha: ['alpha', 'bluffratio-river'], spr: ['spr', 'geosize', 'sprplan'],
+    read: ['hudread', 'intent', 'prescribe'], villain_types: ['hudread', 'prescribe'], variance: ['variance', 'bankroll'], bankroll: ['bankroll', 'variance']
   });
   var S1_OTHER = ['showdown', 'order', 'tocall'];
   var DAILY_SLOTS = [['preflop', 2], ['math', 1], ['other', 2]];

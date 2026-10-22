@@ -5,7 +5,9 @@
 // 다른 모듈(GtoChart, Gto, Coach)은 호출 시점에 typeof 가드로만 쓴다. 스타일은 css/lesson.css의 sr- 접두.
 //
 //   cards(list, opts)       카드 열. 'Ah', 'Td', '10d', {rank:'T', suit:'d'}를 받는다. 알 수 없는 값은 뒷면 카드.
-//                           카드마다 class="card red|black", data-suit=s|h|d|c(소문자), 10은 '10'으로 쓴다.
+//                           카드마다 공용 헬퍼 Cards.html(R8, 클라우드 H): class="card sr-card red|black", data-suit=s|h|d|c(소문자),
+//                           aria-label 무늬 이름, 랭크와 무늬는 .card-rank, .card-pip로 나뉘고 10은 '10'으로 쓴다.
+//                           캡션 글(메모, 줄 라벨, 자리 라벨, 속마음 글) 속 무늬 기호는 Cards.colorize로 4색 .suit.
 //                           opts{hero, size:'sm'|'xs', slots(빈 자리 포함 총 칸 수), bare(감싸는 div 없음), cls}
 //   grid(spec, opts)        13x13 격자. spec{pos, facing, opener, highlight[], layers?[포지션]}.
 //                           셀 액션은 GtoChart.buildChartModel(pos, facing, opener) 그대로, 클래스는 기존 차트와 같은 gto-<action>.
@@ -83,12 +85,21 @@ var SceneRender = (function() {
 
   function _rankText(r) { return r === 'T' ? '10' : r; }
 
+  // 공용 카드 헬퍼(R8, ui/cards.js). 없으면 예전 2색 마크업
+  function _cardsMod() { return (typeof Cards !== 'undefined' && Cards && typeof Cards.html === 'function') ? Cards : null; }
+  // 이미 이스케이프된 글자 안의 무늬 기호(A♠, ♥)를 4색 .suit로 감싼다(캡션, 메모, 자리 라벨, 속마음 글)
+  function _ctext(s) {
+    var h = _esc(s), C = _cardsMod();
+    return (C && typeof C.colorize === 'function') ? C.colorize(h) : h;
+  }
+
   function _cardHTML(c, opts) {
-    var cls = 'card sr-card' + (opts.size === 'sm' ? ' sr-sm' : opts.size === 'xs' ? ' sr-xs' : '') +
-      (opts.cls ? ' ' + _esc(opts.cls) : '');
-    if (!c) return '<div class="' + cls + ' back" role="img" aria-label="가린 카드"></div>';
+    var sub = 'sr-card' + (opts.size === 'sm' ? ' sr-sm' : opts.size === 'xs' ? ' sr-xs' : '') + (opts.cls ? ' ' + _esc(opts.cls) : '');
+    if (!c) return '<div class="card ' + sub + ' back" role="img" aria-label="가린 카드"></div>';
+    var C = _cardsMod();
+    if (C) { var h = C.html(c, { cls: sub, hero: !!opts.hero }); if (h) return h; }
     var name = (RANK_KO[c.rank] || c.rank) + ' ' + SUIT_KO[c.suit];
-    return '<div class="' + cls + ' ' + (RED[c.suit] ? 'red' : 'black') + (opts.hero ? ' hero-card' : '') +
+    return '<div class="card ' + sub + ' ' + (RED[c.suit] ? 'red' : 'black') + (opts.hero ? ' hero-card' : '') +
       '" data-suit="' + c.suit + '" role="img" aria-label="' + name + '">' + _rankText(c.rank) + SUIT_SYM[c.suit] + '</div>';
   }
 
@@ -526,7 +537,7 @@ var SceneRender = (function() {
     var chips = seats.filter(function(s) { return s && s.pos; }).map(function(s) {
       return '<span class="sr-seat' + (s.active ? ' is-active' : '') + (s.hero ? ' is-hero' : '') + '">' +
         (s.active ? '<span aria-hidden="true">▶</span>' : '') + '<b>' + _esc(s.pos) + '</b>' + (s.hero ? '(나)' : '') +
-        (s.label ? ' ' + _esc(s.label) : '') + '</span>';
+        (s.label ? ' ' + _ctext(s.label) : '') + '</span>';
     });
     return chips.length ? _row('sr-seats', '자리', '<div class="sr-chips">' + chips.join('') + '</div>') : '';
   }
@@ -616,7 +627,7 @@ var SceneRender = (function() {
       var same = Number(spec.potTotal) === Number(obj.potTotal) && Number(spec.toCall) === Number(obj.toCall) && pl.indexOf('팟') >= 0;
       parts.push(ring(spec, { potLine: !same }));
     }
-    if (obj.note) parts.push('<p class="sr-note">' + _esc(obj.note) + '</p>');
+    if (obj.note) parts.push('<p class="sr-note">' + _ctext(obj.note) + '</p>');
     return '<div class="sr-scene">' + parts.join('') + '</div>';
   }
 
@@ -626,9 +637,9 @@ var SceneRender = (function() {
       var rows = o.rows.map(function(row) {
         row = row || {};
         return '<div class="sr-crow' + (row.hl ? ' is-hl' : '') + '">' +
-          (row.label ? '<span class="sr-k">' + _esc(row.label) + '</span>' : '') +
+          (row.label ? '<span class="sr-k">' + _ctext(row.label) + '</span>' : '') +
           cards(row.cards || [], { size: 'sm' }) +
-          (row.note ? '<span class="sr-cnote">' + _esc(row.note) + '</span>' : '') + '</div>';
+          (row.note ? '<span class="sr-cnote">' + _ctext(row.note) + '</span>' : '') + '</div>';
       });
       return '<div class="sr-cardscene ' + (o.compare ? 'sr-ccmp' : 'sr-ladder') + '">' + rows.join('') + '</div>';
     }
@@ -682,7 +693,7 @@ var SceneRender = (function() {
     if (s && s.name != null && s.name !== '' && !(hero && String(s.name).trim() === '나')) body += '<div class="sr-tname">' + _esc(s.name) + '</div>';
     if (hero && Array.isArray(spec.hero) && spec.hero.length) body += cards(spec.hero, { hero: true, size: 'sm' });
     if (s && _isNum(s.stack)) body += '<div class="sr-tstack">스택 ' + _num(s.stack) + 'bb</div>';
-    if (s && s.action != null && s.action !== '') body += '<div class="sr-say">' + _esc(s.action) + '</div>';
+    if (s && s.action != null && s.action !== '') body += '<div class="sr-say">' + _ctext(s.action) + '</div>';
     else if (folded) body += '<div class="sr-say sr-sfold">폴드</div>';
     var bet = null, blind = false;
     if (s && _isNum(s.bet) && Number(s.bet) > 0) bet = Number(s.bet);
@@ -906,7 +917,7 @@ var SceneRender = (function() {
     var html = cols.map(function(c, k) {
       return '<div class="sr-ccol' + (k === mi ? ' is-mine' : '') + '" data-i="' + k + '">' +
         '<b class="sr-who">' + _esc(c.who == null ? '' : c.who) + '</b>' +
-        '<p class="sr-said">' + _esc(c.text == null ? '' : c.text) + '</p>' +
+        '<p class="sr-said">' + _ctext(c.text == null ? '' : c.text) + '</p>' +
         (k === mi ? '<span class="sr-mine"><span aria-hidden="true">✔</span> 내 선택</span>' : '') + '</div>';
     }).join('');
     var me = (typeof mine === 'string' && mine.trim()) ? '<p class="sr-cme"><span class="sr-k">내 선택</span>' + _esc(mine.trim()) + '</p>' : '';

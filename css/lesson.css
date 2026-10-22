@@ -20,6 +20,9 @@
 .card.sr-sm { width: 34px; height: 48px; font-size: .86rem; border-radius: 4px; }
 .card.sr-xs { width: 24px; height: 32px; font-size: .66rem; border-radius: 3px; letter-spacing: -1px; box-shadow: none; }
 .card.sr-xs:hover { box-shadow: none; }
+/* sr-xs는 글자 간격 -1px라 '10♠' 폭이 글자 크기의 약 2배(상한은 css/cards.css .card[data-suit] > .card-rank) */
+.card.sr-xs[data-suit] > .card-rank { font-size: min(.95em, 100cqi * .95 / 2); }
+.card.sr-xs[data-suit] > .card-pip { font-size: min(1.15em, 100cqi * 1.15 / 2); }
 .sr-slot { flex: 0 0 auto; width: 44px; height: 62px; border-radius: 5px; border: 2px dashed rgba(255,255,255,.18); }
 .sr-slot.sr-sm { width: 34px; height: 48px; }
 .sr-slot.sr-xs { width: 24px; height: 32px; }

@@ -66,9 +66,12 @@ var PlacementView = (function() {
     return hand[2] === 's' ? '같은 무늬' : '다른 무늬';
   }
 
+  // 문항 카드: 공용 헬퍼 Cards.html(무늬 이름 aria-label, data-suit 4색 덱, R8). 헬퍼가 없으면 예전 2색 마크업
   function _cardsHTML(cards) {
+    var hasCards = typeof Cards !== 'undefined' && Cards && typeof Cards.html === 'function';
     return (cards || []).map(function(c) {
-      return '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + _esc(c.suit) + '">' +
+      var h = hasCards ? Cards.html(c, { cls: 'drill-card' }) : '';
+      return h || '<div class="card drill-card ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + _esc(c.suit) + '">' +
         (c.rank === 'T' ? '10' : _esc(c.rank)) + (SUIT_SYM[c.suit] || '') + '</div>';
     }).join('');
   }

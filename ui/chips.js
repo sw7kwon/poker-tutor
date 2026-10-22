@@ -5,6 +5,7 @@
 //   좌석 안에 .chips-seat(스택 기둥, 승자 배지), .poker-table 안에 .chips-layer(벳 더미 .chips-bets, 이동 .chips-fx),
 //   .pot-display-wrap 맨 앞에 .chips-pot(팟 더미와 "팟 23.5bb"). 기존 숫자(.seat-stack, #pot-amount)는 지우지 않는다.
 // 칩 단위(bb): 0.5 작은 회색, 1 흰색, 5 빨강, 25 초록, 100 검정, 500 보라. 색과 가장자리 무늬와 숫자를 함께 쓴다(색맹 대비).
+// (웨이브2 후속) 좌석 스택은 기둥 1개: 높이가 스택 크기 구간(STACK_TIERS)을 따르고 색은 가장 큰 단위(stackColumn). 벳과 팟은 단위별 기둥 그대로.
 // 설정: A11y 설정 키 chipVisual(기본 true)을 읽기만 한다. false면 decorate는 그린 것을 치우고 아무것도 하지 않는다.
 // 모션: prefers-reduced-motion 또는 A11y.reduced()면 이동과 반짝임 없이 즉시 표시.
 // 규약: 로드 때 DOM과 저장소에 닿지 않는다(typeof 가드). node 러너에서 로드돼도 안전하다. 테스트는 opts.doc으로 가짜 문서를 넣는다.
@@ -77,16 +78,31 @@ var ChipsUI = (function() {
     return '<span class="chips-pile' + (c.cols.length ? '' : ' is-empty') + '">' + out + '</span>';
   }
 
+  // (웨이브2 후속) 좌석 스택은 단위 개수가 아니라 높이로 보인다: 칩 수는 스택 크기의 구간(로그 눈금, STACK_TIERS 경계 미만이면 그 개수),
+  // 색은 그 스택이 가진 가장 큰 단위(99bb = 초록 25, 100bb = 검정 100). 정확한 값은 좌석의 숫자 라벨(.seat-stack)이 보인다.
+  //   0 → 없음, 5 미만 1개, 15 미만 2, 35 미만 3, 70 미만 4, 130 미만 5, 250 미만 6, 500 미만 7, 그 이상 8개
+  var STACK_TIERS = [5, 15, 35, 70, 130, 250, 500];
+  function stackColumn(bb) {
+    var total = Math.max(0, _num(bb));
+    var b = breakdown(total);
+    if (!b.chips.length) return { unit: null, count: 0, total: total };
+    var n = 1;
+    for (var i = 0; i < STACK_TIERS.length; i++) if (total >= STACK_TIERS[i]) n = i + 2;
+    return { unit: b.chips[0].unit, count: n, total: total };
+  }
   // 좌석 스택 기둥(delta: 이전 렌더와 비교한 변화, 양수 초록, 음수 붉은 반짝임)
   function stackHTML(bb, delta) {
     var cls = 'chips-stack';
     if (delta > EPS) cls += ' chips-up'; else if (delta < -EPS) cls += ' chips-down';
-    return '<span class="' + cls + '" aria-hidden="true">' + pileHTML(bb, COLS_STACK) + '</span>';
+    var c = stackColumn(bb);
+    var pile = c.count ? '<span class="chips-pile">' + colHTML(c.unit, c.count) + '</span>' : '<span class="chips-pile is-empty"></span>';
+    return '<span class="' + cls + '" aria-hidden="true">' + pile + '</span>';
   }
 
   // 벳 더미(좌석과 중앙 사이, 좌표는 .poker-table 안쪽 기준 px)
-  function betHTML(bb, x, y) {
+  function betHTML(bb, x, y, seatPos) {
     var pos = (x != null && y != null) ? ' style="left:' + Math.round(x) + 'px;top:' + Math.round(y) + 'px"' : '';
+    if (seatPos) pos += ' data-pos="' + _esc(seatPos) + '"';
     return '<div class="chips-bet"' + pos + ' aria-hidden="true">' + pileHTML(bb, COLS_BET) + '<span class="chips-amt">' + fmt(bb) + '</span></div>';
   }
 
@@ -283,6 +299,8 @@ var ChipsUI = (function() {
     if (br) g.avoid.push(br);
     var hi = local(_byId(doc, 'hand-info'));
     if (hi) g.avoid.push(hi);
+    var band = local(_byId(doc, 'ct-band'));   // (웨이브2 후속) 커리어 토너먼트 띠
+    if (band) g.avoid.push(band);
     posList.forEach(function(pos) {
       var el = _byId(doc, 'seat-' + pos);
       var r = local(el);
@@ -316,21 +334,36 @@ var ChipsUI = (function() {
   }
   function _betAnchor(seat, g) {
     var cx = seat.x + seat.w / 2, cy = seat.y + seat.h / 2;
-    if (g.mobile && String(seat.slot) === '0') return { x: seat.x + 10, y: seat.y - 8 };
+    var pw = g.mobile ? 45 : 90, ph = g.mobile ? 38 : 32;
+    // (웨이브2 후속) 좁은 폰(320, 360)에서 벳 더미가 이웃 좌석 상자에 걸리던 것: 이웃 좌석도 피한다(화면 폭 안으로 민 자리 기준)
+    var others = [];
+    Object.keys(g.seats || {}).forEach(function(p) { var r = g.seats[p]; if (r && r !== seat) others.push(r); });
+    if (g.mobile && String(seat.slot) === '0') {
+      // 폰 히어로: 좌석 왼쪽 위 모서리(가운데 말풍선을 피함). 왼쪽 이웃 좌석에 걸리면 오른쪽으로 민다(좌석 가운데 왼쪽까지)
+      var hx = seat.x + 10, hy = seat.y - 8, lim = seat.x + seat.w / 2 - pw / 2;
+      while (hx < lim && _hits(_clampX(hx, pw, g), hy, pw, ph, others)) hx += 4;
+      return { x: hx, y: hy };
+    }
     var dx = g.pot.x - cx, dy = g.pot.y - cy, len = Math.sqrt(dx * dx + dy * dy);
     if (!len) return { x: cx, y: cy };
     var ux = dx / len, uy = dy / len;
     var t = Math.min(seat.w / 2 / Math.max(Math.abs(ux), 1e-6), seat.h / 2 / Math.max(Math.abs(uy), 1e-6));
     var off = g.mobile ? 24 : 26;
-    var pw = g.mobile ? 45 : 90, ph = g.mobile ? 38 : 32;
     var avoid = g.avoid || [];
     for (var o = off; o >= -8; o -= 4) {
-      var x = cx + ux * (t + o), y = cy + uy * (t + o);
-      if (!_hits(x, y, pw, ph, avoid)) return { x: x, y: y };
+      // (웨이브2 검증) 폰에서 바깥 자리(o >= 0)가 다 막히면 좌석 안으로 물리기(o < 0, 이름 글자를 가림) 전에 좌석 위나 아래 변 바깥을 먼저 본다.
+      // 토너먼트 띠(#ct-band)가 가운데를 막을 때 옆 좌석(CO, SB) 벳이 그 좌석 이름 위로 내려앉던 것
+      if (o < 0 && g.mobile) {
+        var ey = (g.pot.y < cy) ? seat.y - ph / 2 - 2 : seat.y + seat.h + ph / 2 + 2;
+        var toC = (g.pot.x < cx) ? -1 : 1, exs = [cx, cx + toC * seat.w / 4, cx - toC * seat.w / 4];
+        for (var e = 0; e < exs.length; e++) {
+          if (_inX(exs[e], pw, g) && !_hits(exs[e], ey, pw, ph, avoid) && !_hits(exs[e], ey, pw, ph, others)) return { x: exs[e], y: ey };
+        }
+      }
+      var x = cx + ux * (t + o), y = cy + uy * (t + o), xc = _clampX(x, pw, g);
+      if (!_hits(xc, y, pw, ph, avoid) && !_hits(xc, y, pw, ph, others)) return { x: x, y: y };
     }
     // 팟 쪽에 자리가 없으면(데스크톱 히어로 위 보드와 핸드 번호) 좌석 모서리 바깥(팟 쪽 변, 오른쪽 먼저). 다른 좌석과도 안 겹치게
-    var others = [];
-    Object.keys(g.seats || {}).forEach(function(p) { var r = g.seats[p]; if (r && r !== seat) others.push(r); });
     var cy2 = (cy < g.pot.y) ? seat.y + seat.h - ph / 2 + 2 : seat.y + ph / 2 - 2;
     var gaps = [8, 16, 24];
     for (var k = 0; k < gaps.length; k++) {
@@ -440,7 +473,7 @@ var ChipsUI = (function() {
         if (!(s.bet > 0)) return;
         var a = anchors[s.name] && anchors[s.name].bet;
         if (!a) return;   // 좌석 위치를 못 읽으면(테이블이 안 보임) 벳 더미는 건너뛴다
-        betsHtml += betHTML(s.bet, a.x, a.y);
+        betsHtml += betHTML(s.bet, a.x, a.y, pos);
       });
       if (L.bets.innerHTML !== betsHtml) L.bets.innerHTML = betsHtml;
     }
@@ -588,6 +621,7 @@ var ChipsUI = (function() {
 
   var api = {
     UNITS: UNITS.slice(), UNIT_CLASS: UNIT_CLASS, MAX_PER_COL: MAX_PER_COL, MQ: MQ, FLY_MS: FLY_MS,
+    STACK_TIERS: STACK_TIERS.slice(), stackColumn: stackColumn,
     breakdown: breakdown, columns: columns, fmt: fmt, colHTML: colHTML, pileHTML: pileHTML, stackHTML: stackHTML, betHTML: betHTML,
     sidePots: sidePots, potHTML: potHTML, seatPlayers: seatPlayers, model: model, betAnchor: betAnchor,
     enabled: enabled, settings: settings, reduced: reduced,

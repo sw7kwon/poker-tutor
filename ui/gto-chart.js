@@ -199,6 +199,14 @@ var GtoChart = (function() {
     return out.join(' ');
   }
 
+  // (웨이브2 후속) 폰 색약 모드 혼합 칸 글자: 가장 큰 비율 하나만(같으면 레이즈, 콜, 폴드 순). 예 R50. 글자는 9px 이상(css/chart.css)
+  function mixTop(mx) {
+    var best = 'R', v = mx.raise;
+    if (mx.call > v + 1e-9) { best = 'C'; v = mx.call; }
+    if (mx.fold > v + 1e-9) { best = 'F'; v = mx.fold; }
+    return best + Math.round(v * 100);
+  }
+
   // ── 문구(순수) ──
   function facingLabel(model) {
     return model.facing === 'vs4bet' ? '(vs 4벳)' : model.facing === 'vs3bet' ? '(vs 3벳)'
@@ -299,7 +307,7 @@ var GtoChart = (function() {
       for (var c = 0; c < 13; c++) {
         var cell = model.cells[r][c], mx = mixOf(cell);
         var cls = 'gto-cell gto-' + cell.action + (mx ? ' gto-mix' : '') + (cell.alt ? ' gto-alt' : '');
-        var extra = mx ? ' style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" data-cb="' + mixText(mx) + '"' : '';
+        var extra = mx ? ' style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" data-cb="' + mixText(mx) + '" data-cb1="' + mixTop(mx) + '"' : '';
         parts.push('<div class="' + cls + '" data-r="' + r + '" data-c="' + c + '"' + extra + '>' + cell.label + '</div>');
       }
     }
@@ -424,7 +432,8 @@ var GtoChart = (function() {
     if (!model || !/^std\|/.test(String(model.key || '')) || typeof GtoStd === 'undefined' || !GtoStd || typeof GtoStd.bluffHints !== 'function') return '';
     var t = '';
     try { t = GtoStd.bluffHints(model) || ''; } catch (e) { t = ''; }
-    return t ? '<div class="gto-head-bluff">🃏 ' + _esc(t) + ' (표준 차트 참고)</div>' : '';
+    // (웨이브2 후속) 한 줄: 넘치면 말줄임(전체 문장은 title과 aria-label)
+    return t ? '<div class="gto-head-bluff" title="' + _esc(t) + ' (표준 차트 참고)" aria-label="' + _esc(t) + ' (표준 차트 참고)">🃏 ' + _esc(t) + ' (참고)</div>' : '';
   }
   function footHTML() {
     return '<div class="gto-chart-foot"><button type="button" class="gto-lab-btn">🗺 학습실에서 크게 보기</button></div>';

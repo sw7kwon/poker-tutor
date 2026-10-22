@@ -101,6 +101,9 @@
 .j-career-stake { flex: 1 1 100px; display: inline-flex; align-items: baseline; justify-content: center; gap: 4px; min-height: 44px; }
 .j-career-stake small { font-size: .74rem; color: var(--text-dim); }
 .j-career-stake.is-on small { color: #e6edf3; }
+/* (웨이브2 후속) MTT 인원 고르기: 인원 아래 상금 풀(두 줄) */
+.j-career-field { flex-direction: column; align-items: center; gap: 0; line-height: 1.2; border-radius: 14px; }
+.j-career-field small { white-space: nowrap; }
 .j-career-start { width: 100%; min-height: 52px; margin-top: 8px; }
 .j-career-start:disabled { background: #161b22; border-color: var(--hud-border); color: #c9d1d9; filter: none; opacity: 1; }
 .j-career-start:disabled small { color: var(--text-dim); }
@@ -147,6 +150,20 @@
 .j-career-home-row.is-owned .j-career-home-s { color: var(--gold); }
 .j-career-home-row.is-buyable .j-career-home-s { color: #7ee787; }
 .j-career-buy { flex: 0 0 auto; min-height: 44px; }
+/* (웨이브2 후속) 토너먼트 띠: 게임 테이블 펠트 안 핸드 번호 아래(CareerTable.syncBand). 레벨, 다음 레벨까지 남은 핸드, 생존자, 끝나면 순위와 상금 */
+/* 데스크톱: 테이블 타원 바로 아래 왼쪽(아래 가운데 좌석을 피함). 폰 세로: 펠트 가운데 줄의 핸드 번호 아래(양옆 좌석 사이 폭) */
+.ct-band { position: absolute; top: calc(100% + 16px); left: 2%; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0 8px;
+  max-width: 46%; padding: 2px 10px; border-radius: 12px; background: rgba(0,0,0,.5); border: 1px solid rgba(212,175,55,.45); color: #e6edf3;
+  font-size: .74rem; line-height: 1.35; text-align: center; pointer-events: none; z-index: 4; font-variant-numeric: tabular-nums; }
+.ct-band b { color: #f2cc60; }
+.ct-band i { font-style: normal; }
+.ct-band span { white-space: nowrap; }
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  .ct-band { position: relative; top: auto; left: auto; max-width: 52%; font-size: .64rem; line-height: 1.25; padding: 1px 6px; gap: 0 6px; }
+}
+/* (웨이브2 후속) 자산이 모자라거나 세션 중이면 비활성 버튼에 이유(작은 글자) */
+.j-career-buy:disabled { background: #161b22; border-color: var(--hud-border); color: #c9d1d9; filter: none; opacity: 1; cursor: default; }
+.j-career-buy:disabled small { color: var(--text-dim); }
 
 /* 최근 기록 5줄 */
 .j-career-log { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; }

@@ -2,7 +2,9 @@
    토큰 규약(P0 고정, 이름은 바꾸지 않는다. 클라우드 H, B'도 이 이름을 유지):
    --suit-*-light = 흰 카드 위 무늬 색(♠ #000, ♥ #c00, ♦ #1a5fd0, ♣ #11802d), 흰 배경 대비 4.5:1 이상
    --suit-*-dark  = 어두운 배경 글자 무늬 색(♠ #e6edf3, ♥ #ff6b6b, ♦ #6ea8ff, ♣ #4cc764), 앱 배경 대비 4.5:1 이상
-   글자 기호(.suit, Cards.glyph와 Cards.colorize)는 늘 4색이다. 카드 요소(.card)의 4색은 설정 fourColor(a11y.css)를 따른다. */
+   글자 기호(.suit, Cards.glyph와 Cards.colorize)는 늘 4색이다. 카드 요소(.card, .card-face)의 4색은 설정 fourColor(기본 켜짐, a11y.css)를 따른다.
+   2색 모드(.card.red, .card.black)는 ♥♦ 빨강, ♠♣ 검정이고, 카드 안 무늬 기호를 크게(랭크 .95em, 무늬 1.15em) 해 모양으로 구분한다.
+   대비 검사는 tests/j-cards.test.js 4번(이 파일을 파싱해 WCAG 식으로 light는 흰 카드, dark는 앱 어두운 배경에서 4.5:1 이상). */
 :root {
   --suit-s-light: #000000;
   --suit-h-light: #c00000;
@@ -13,13 +15,16 @@
   --suit-d-dark: #6ea8ff;
   --suit-c-dark: #4cc764;
 }
+/* ── 어두운 배경 글자 기호(늘 4색) ── */
 .suit { font-weight: 700; white-space: nowrap; }
 .suit[data-suit="s"] { color: var(--suit-s-dark); }
 .suit[data-suit="h"] { color: var(--suit-h-dark); }
 .suit[data-suit="d"] { color: var(--suit-d-dark); }
 .suit[data-suit="c"] { color: var(--suit-c-dark); }
 /* 카드 안의 글자 기호는 카드 색 규칙(red/black, 4색 덱)을 따른다 */
-.card .suit { color: inherit; font-weight: inherit; }
+.card .suit, .card-face .suit { color: inherit; font-weight: inherit; }
+
+/* ── 흰 카드 상자(.card)와 상자 없는 카드 면(.card-face: 퍼즐 pz-card, 운 미터 hs-card처럼 자기 상자 CSS가 있는 작은 카드) ── */
 .card {
   width: 44px;
   height: 62px;
@@ -39,8 +44,19 @@
   user-select: none;
 }
 .card:hover { transform: translateY(-4px); box-shadow: 0 6px 16px rgba(0,0,0,0.5); }
-.card.red  { color: #c00; }
-.card.black { color: #000; }
+/* 2색 모드(설정 4색 덱 끔): ♥♦ 빨강, ♠♣ 검정. 4색은 a11y.css의 html.four-color 규칙이 data-suit로 덮는다 */
+.card.red, .card-face.red { color: var(--suit-h-light); }
+.card.black, .card-face.black { color: var(--suit-s-light); }
+/* 카드 안 랭크와 무늬(Cards.html): 무늬를 랭크보다 크게 해 2색 모드에서도 모양으로 구분한다 */
+.card-rank { font-size: .95em; }
+.card-pip { font-size: 1.15em; line-height: 1; }
+.card-face { white-space: nowrap; }
+/* 카드 면은 늘 가로 한 줄(랭크 옆에 무늬). 같은 이름을 다른 뜻으로 쓰는 세로 flex 규칙(theater.css .th-mini 패널)이 카드에 닿아도 랭크와 무늬가 위아래로 갈라지지 않게 */
+.card[data-suit] { flex-direction: row; gap: 0; white-space: nowrap; container-type: inline-size; }
+/* 글자 130%에서도 '10♠'이 카드 상자 밖으로 넘치지 않게 카드 폭(cqi) 기준 상한. '10♠' 폭은 카드 글자 크기의 약 2.25배라 2.3배로 나눈다.
+   넉넉한 카드는 상한이 닿지 않아 그대로이고, 컨테이너 단위를 모르는 브라우저는 위의 .95em, 1.15em을 쓴다 */
+.card[data-suit] > .card-rank { font-size: min(.95em, 100cqi * .95 / 2.3); }
+.card[data-suit] > .card-pip { font-size: min(1.15em, 100cqi * 1.15 / 2.3); }
 .card.hero-card { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
 .card.back {
   background: linear-gradient(135deg, #1a3a8a 25%, #0d2060 25%);

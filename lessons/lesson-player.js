@@ -7,8 +7,9 @@
 //     레슨이 없으면 안내 토스트 뒤 onDone({done:false, scene, missing:true})와 false.
 //     이미 끝낸 레슨을 마지막 장면 번호로 다시 열면(노드 시트 '다시 보기') 처음부터 보여 준다.
 //     (F4) 첫 인자가 레슨 객체면 그대로 연다. id가 LESSONS에 없으면 CAREER_LESSONS에서 찾는다. lesson.career가 참이면
-//     Journey.completeLesson과 Leitner 기록을 생략하고, 끝까지 보면 첫 완료 XP(Journey.addXp('lesson'))와
-//     CareerContract.emit('lesson:done', { id })로 알린다(끝낸 적은 Career.state().lessons[id]로 본다).
+//     Journey.completeLesson과 Leitner 기록을 생략하고, 끝까지 보면 첫 완료 XP와 CareerContract.emit('lesson:done', { id })로 알린다
+//     (끝낸 적은 Career.state().lessons[id]로 본다). (웨이브2 후속) 커리어 레슨의 XP(질문 첫 정답, 첫 완료)는 커리어 core.grantXp로만 준다
+//     (Journey.addXp('career'), 하루 상한 XP_DAY_CAP). core가 없으면 XP 없음. 토스트는 실제로 받은 양.
 //   화면: JourneyUI.mountView('lesson', 셸) 안 .lp. 뒤로: Nav.view('lesson', id) + Nav.setBack('j/lesson').
 //   진행: 하단 '다음' 버튼, 장면 탭(격자 장면 제외, 버튼이나 격자 칸, 용어를 누른 것은 제외), 좌우 스와이프(왼쪽 = 다음),
 //     키보드 1~4(보기), Enter/Space(다음, 버튼에 포커스가 있으면 그 버튼), 화살표 좌우, Esc(종료).
@@ -72,6 +73,8 @@ var LessonPlayer = (function() {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+  // (웨이브2 검증) 대사, 질문, 보기, 해설, 요약, 캡션 글 속 무늬 기호(K♥7♥)는 퍼즐, 극장과 같이 공용 헬퍼 Cards.colorize로 4색 .suit(R8)
+  function _suits(html) { var C = _m('Cards'); return (C && typeof C.colorize === 'function') ? C.colorize(html) : html; }
   function _num(v, d) { v = Number(v); return isFinite(v) ? v : d; }
   function _now() { return typeof _env.now === 'function' ? _env.now() : Date.now(); }
   function _later(fn, ms) {
@@ -233,8 +236,8 @@ var LessonPlayer = (function() {
   function sceneHTML(sc, v, sel, used) {
     var C = _core();
     var fill = function(t) { return C ? _fillWith(t, v) : String(t == null ? '' : t); };
-    if (sc.t === 'say') return '<div class="lp-say"><p>' + termify(_esc(fill(sc.text)), used) + '</p></div>';
-    if (sc.t === 'ask') return '<div class="lp-ask"><span class="lp-ask-k">❓ 질문</span><p class="lp-q">' + _esc(fill(sc.q)) + '</p></div>';
+    if (sc.t === 'say') return '<div class="lp-say"><p>' + _suits(termify(_esc(fill(sc.text)), used)) + '</p></div>';
+    if (sc.t === 'ask') return '<div class="lp-ask"><span class="lp-ask-k">❓ 질문</span><p class="lp-q">' + _suits(_esc(fill(sc.q))) + '</p></div>';
     if (sc.t === 'widget') return _widgetHTML(sc);
     var SR = _m('SceneRender');
     var html = '';
@@ -250,7 +253,7 @@ var LessonPlayer = (function() {
     }
     if (html) return html;
     if (sc.t === 'sum' && sc.text) {
-      return '<div class="lp-sum"><span class="lp-sum-k">📌 한 줄 요약</span><p>' + termify(_esc(sc.text), used) + '</p></div>';
+      return '<div class="lp-sum"><span class="lp-sum-k">📌 한 줄 요약</span><p>' + _suits(termify(_esc(sc.text), used)) + '</p></div>';
     }
     return _soon(sc.t);
   }
@@ -283,7 +286,7 @@ var LessonPlayer = (function() {
     for (var i = 0; i < n; i++) dots += '<i class="lp-dot' + (i < idx ? ' is-done' : (i === idx ? ' is-cur' : '')) + '"></i>';
     var prog = '<div class="lp-prog" role="progressbar" aria-label="레슨 진행" aria-valuemin="1" aria-valuemax="' + n + '" aria-valuenow="' + (idx + 1) + '">' +
       '<div class="lp-dots" aria-hidden="true">' + dots + '</div><span class="lp-count">' + (idx + 1) + '/' + n + '</span></div>';
-    var cap = sc.caption ? '<p class="lp-cap" aria-live="polite">' + termify(_esc(_fillWith(sc.caption, v)), used) + '</p>' : '';
+    var cap = sc.caption ? '<p class="lp-cap" aria-live="polite">' + _suits(termify(_esc(_fillWith(sc.caption, v)), used)) + '</p>' : '';
     var body = sceneHTML(sc, v, x.sel, used);
     // (polish UX-14) 그림 없는 질문 장면은 is-text: 장면 칸이 남는 높이를 차지하지 않아 질문 카드와 보기가 붙어 보인다(그림 장면은 그대로)
     var stage = '<div class="lp-stage' + (sc.t === 'grid' ? ' is-grid' : '') + (sc.t === 'ask' ? ' is-text' : '') + '" data-act="tap">' + _chips(sc) +
@@ -298,8 +301,8 @@ var LessonPlayer = (function() {
       if (answered) {
         var why = sc.why ? _fillWith(sc.why, v) : '';
         foot += st.ok
-          ? '<div class="lp-feed is-ok" role="status"><b>✔ 정답!</b> ' + _esc(why) + '</div>'
-          : '<div class="lp-feed is-bad" role="status"><b>✖ 아쉬워요.</b> 정답은 ' + _esc(_fillWith(choices[right], v)) + '. ' + _esc(why) + '</div>';
+          ? '<div class="lp-feed is-ok" role="status"><b>✔ 정답!</b> ' + _suits(_esc(why)) + '</div>'
+          : '<div class="lp-feed is-bad" role="status"><b>✖ 아쉬워요.</b> 정답은 ' + _suits(_esc(_fillWith(choices[right], v))) + '. ' + _suits(_esc(why)) + '</div>';
       }
       var cols = _optCols(choices.map(function(c) { return _fillWith(c, v); }));
       foot += '<div class="lp-opts lp-opts--c' + cols + '" role="group" aria-label="보기">';
@@ -311,7 +314,7 @@ var LessonPlayer = (function() {
           else cls += ' is-dim';
         }
         foot += '<button type="button" class="' + cls + '"' + (answered ? ' aria-disabled="true" tabindex="-1"' : ' data-act="pick" data-i="' + k + '"') + '>' +
-          (k < 4 ? '<span class="lp-key" aria-hidden="true">' + (k + 1) + '</span>' : '') + '<span class="lp-opt-t">' + _esc(_fillWith(c, v)) + '</span>' + mark + '</button>';
+          (k < 4 ? '<span class="lp-key" aria-hidden="true">' + (k + 1) + '</span>' : '') + '<span class="lp-opt-t">' + _suits(_esc(_fillWith(c, v))) + '</span>' + mark + '</button>';
       });
       foot += '</div>';
     }
@@ -373,6 +376,7 @@ var LessonPlayer = (function() {
     if (evt.ok && evt.first && !prior && !S.wasDone && !_askXp[evt.key]) {
       _askXp[evt.key] = true;
       var amt = _xpConst('ask', 2);
+      if (amt > 0 && S.career) { S.xp += _careerXp(amt); return; }   // (웨이브2 후속) 커리어 레슨은 커리어 하루 상한 안에서만
       if (amt > 0) {
         if (_can('JourneyUI', 'xp')) _call('JourneyUI', 'xp', 'ask', amt);
         else _call('Journey', 'addXp', 'ask', amt, _now());
@@ -406,11 +410,12 @@ var LessonPlayer = (function() {
     var last = S.n - 1, was = S.wasDone;
     if (S.career) {
       // 커리어 레슨(F4): 노드 훅 대신 첫 완료 XP를 직접 주고 커리어에 완료를 알린다(core가 lessons[id]에 기록, 장소 해금 조건)
-      if (!was) { var amt = _xpConst('lesson', 15); if (amt > 0) _call('Journey', 'addXp', 'lesson', amt, _now()); }
+      var got = 0;
+      if (!was) { var amt = _xpConst('lesson', 15); if (amt > 0) got = _careerXp(amt); }
       _careerEmit(String(S.lesson.id));
     } else _call('Journey', 'completeLesson', S.node, last, true, _now());
     if (_can('A11y', 'fx')) _call('A11y', 'fx', 'done');
-    var xp = (was ? 0 : _xpConst('lesson', 15)) + S.xp;
+    var xp = (S.career ? got : (was ? 0 : _xpConst('lesson', 15))) + S.xp;
     _toast('📖 레슨 완료' + (xp > 0 ? ', +' + xp + ' XP' : ''), 2400);
     _finish({ done: true, scene: last }, false);
   }
@@ -606,7 +611,7 @@ var LessonPlayer = (function() {
 
   // ── 커리어 레슨(F4) ─────────────────────────────────────
   // lesson.career가 참이면 여정 노드가 없다: Journey.completeLesson과 Leitner 기록을 생략하고, 완료는 CareerContract 'lesson:done'으로 알린다.
-  // 끝낸 적이 있는지는 커리어 상태 lessons[id](Career.state())로 본다. 첫 완료 XP는 Journey.addXp('lesson')로 직접 준다.
+  // 끝낸 적이 있는지는 커리어 상태 lessons[id](Career.state())로 본다. XP는 커리어 core.grantXp(하루 상한)로만 준다(웨이브2 후속).
   function _careerFind(id) {
     var L = _m('CAREER_LESSONS');
     if (!Array.isArray(L) || id == null || id === '') return null;
@@ -616,6 +621,13 @@ var LessonPlayer = (function() {
   function _careerDone(id) {
     var st = _call('Career', 'state');
     return !!(st && _isObj(st) && _isObj(st.lessons) && st.lessons[id]);
+  }
+  // 커리어 XP: core.grantXp(n) → 실제로 준 양(하루 상한에 잘리면 그만큼). core가 없거나 예외면 0
+  function _careerXp(n) {
+    var CC = _m('CareerContract'), core = null;
+    try { core = (CC && typeof CC.mod === 'function') ? CC.mod('core') : null; } catch (e) { core = null; }
+    if (!core || typeof core.grantXp !== 'function') return 0;
+    try { var r = core.grantXp(n); return Math.max(0, _num(r && r.granted, 0)); } catch (e) { _warn('grantXp', e); return 0; }
   }
   function _careerEmit(id) {
     var CC = _m('CareerContract');

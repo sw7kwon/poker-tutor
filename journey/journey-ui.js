@@ -11,6 +11,9 @@
 //        { html, emph? } | null(emph는 카드 영역 맨 앞, 나머지는 데일리 5 카드 뒤), (b) 노드 시트 버튼 줄 뒤 Boss.sheetActions(nodeId,
 //        rec, state) → html, (c) 홈을 그린 뒤 Badges.onHome(now), (d) 빠른 줄 자유 게임 세션 요약 정적 버튼 '↩ 여정 홈으로'(결정 15).
 //        M6에서 그룹은 이 파일을 고치지 않는다(필요하면 보고).
+// 클라우드 D'(docs/cloud-tasks/D.md): UX-09 신규 사용자(isNewUser) 상단 숫자 줄 숨김, UX-11 현재 단계 통과 노드 접기와 44px '펼치기'
+//        (_pathHTML, foldCount, FOLD_MIN), PERF-1 홈 2단계 렌더(render: 상단 먼저, 지도와 카드는 다음 프레임. homeHTML과 node 러너는 동기 전체),
+//        커리어 연결(VIEWS.career = 'CareerView', CARD_PROVIDERS 끝에 'Career' = 파사드 Career.homeCard).
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener('load')만). 다른 패키지 모듈은 전부 typeof 가드로 부르고,
 //       없거나 실패하면 화면이 깨지지 않게 대체 표시로 내려간다(병렬 구현 중 스텁일 수 있음).
 // 화면 구조: #journey-root > .j-view(홈 또는 서브뷰, TodayUI 셸) + .j-layer(노드 시트). 토스트는 body의 #journey-toast.
@@ -65,12 +68,20 @@ var JourneyUI = (function() {
   var SETTINGS_KEY = 'poker_journey_settings';
   var CARD_PROVIDERS = ['Seasons', 'TheaterUI', 'Badges', 'BackupUI', 'Career'];   // (M6-P0, 계약 H11 a) 홈 카드 영역 공급자 순서. BackupUI는 M7 P5(용량 90% 경고, 월간 백업 카드), Career는 웨이브1(파사드 Career.homeCard, core가 없으면 null)
   var SUMMARY_HOME = '↩ 여정 홈으로';                        // (M6-P0, 계약 H11 d) 빠른 줄 자유 게임 세션 요약 정적 버튼
+  // (클라우드 D' UX-11) 현재 단계에서 앞쪽에 연달아 통과한 노드가 이만큼 이상이면 접고 '펼치기' 버튼(44px) 하나로 보인다
+  var FOLD_MIN = 2;
+  // (클라우드 D' PERF-1) 홈 2단계 렌더: 상단(칭호, 오늘의 5분, 빠른 줄, 지도 위 카드)을 먼저 그리고 지도와 카드 영역은 다음 프레임에 채운다.
+  //   브라우저(window가 전역 객체이고 requestAnimationFrame이 있을 때)만. node 러너(window가 심)와 render({ sync: true })는 한 번에 전부.
+  //   _deferHome: null이면 자동 판정, true/false는 강제(테스트용 _setDeferHome)
+  var _deferHome = null;
+  var _renderSeq = 0;       // 2단계 렌더 순번(다음 프레임 전에 다시 그리면 묵은 2단계는 버린다)
 
   var _inited = false;
   var _mem = null;          // Journey.load 불가 시 메모리 상태(저장 안 함)
   var _cur = 'home';        // 현재 .j-view 내용: 'home' | 'today' | 뷰 이름
   var _sheetId = null;      // 열린 노드 시트 id
   var _expanded = {};       // 사용자가 펼친 단계 번호
+  var _passedOpen = {};     // (UX-11) 사용자가 '펼치기'로 연 단계 번호(현재 단계의 통과 노드 접기)
   var _pending = null;      // 노드 시트에서 시작한 외부 화면 { kind:'lesson'|'drill'|'mission', node, startedAt, ... }
   var _obs = null;          // 복귀 감시 MutationObserver
   var _obsQueued = false;
@@ -244,10 +255,15 @@ var JourneyUI = (function() {
   function _typeName(t) {
     if (TYPE_LABEL[t]) return TYPE_LABEL[t];
     // 이 표에 없는 새 유형은 퍼즐 등록부(M2-P1 TYPE_META 또는 register meta)의 이름을 쓴다
-    var P = _m('Puzzles'), m = null;
-    try { m = (P && P.TYPE_META && P.TYPE_META[t]) || (P && typeof P.meta === 'function' ? P.meta(t) : null); } catch (e) { m = null; }
-    var nm = m && (m.label || m.name || m.title);
-    return (typeof nm === 'string' && nm) ? nm : (t || '');
+    // 등록 meta를 먼저 본다(TYPE_META 정본에는 이름이 없어서, 정본에 있는 유형이 register로 넘긴 title을 가리면 영문 id가 보였다. 클라우드 J)
+    var P = _m('Puzzles'), ms = [];
+    try { if (P && typeof P.meta === 'function') ms.push(P.meta(t)); } catch (e) { /* 아래 정본 */ }
+    try { if (P && P.TYPE_META) ms.push(P.TYPE_META[t]); } catch (e) { /* 이름 없음 */ }
+    for (var i = 0; i < ms.length; i++) {
+      var nm = ms[i] && (ms[i].label || ms[i].name || ms[i].title);
+      if (typeof nm === 'string' && nm) return nm;
+    }
+    return t || '';
   }
   function _drillCount(d) {
     if (!d) return 0;
@@ -282,18 +298,59 @@ var JourneyUI = (function() {
   }
   function _scrollTop() { var s = _el('screen-journey'); if (s) s.scrollTop = 0; }
 
-  function render() {
+  // (PERF-1) 2단계 렌더 판정: 브라우저에서만(window가 전역 객체). node 러너는 window가 심(G !== window)이라 한 번에 전부 그린다
+  function _twoStage() {
+    if (_deferHome === true || _deferHome === false) return _deferHome;
+    return typeof window !== 'undefined' && window === G && typeof requestAnimationFrame === 'function';
+  }
+  // 홈을 내려 본 채 다시 그릴 때(목표, 습관 고르기, 카드 버튼 등)는 한 번에 그린다: 지도 자리가 비면 문서가 짧아져 스크롤이 맨 위로 튄다
+  function _scrolledDown() {
+    try {
+      var s = _el('screen-journey'), d = (typeof document !== 'undefined') ? document.scrollingElement : null;
+      return !!((s && s.scrollTop > 0) || (d && d.scrollTop > 0));
+    } catch (e) { return false; }
+  }
+  function _setDeferHome(v) { _deferHome = (v === true || v === false) ? v : null; }
+  // render(opts): opts.sync가 true면 2단계 없이 한 번에 그린다(onclick 'JourneyUI.render()'는 인자 없이 호출)
+  function render(opts) {
     var v = _mount();
     if (!v) return;
     _cur = 'home';
-    var html;
-    try { html = _homeHTML(state()); }
+    var defer = _twoStage() && !(opts && opts.sync) && !_scrolledDown(), parts = null, html;
+    var seq = ++_renderSeq;
+    try {
+      var s = state();
+      parts = { sm: summary(s), pc: providerCards(s), defer: defer };   // 공급자 homeCard는 렌더마다 1번만(2단계에서 다시 부르지 않는다)
+      html = _homeHTML(s, parts);
+    }
     catch (e) {
       if (typeof console !== 'undefined') console.error('[JourneyUI] 홈 렌더 실패', e);
       html = _fallbackHTML();
+      defer = false;
     }
     v.innerHTML = html;
     _homeDay = _dayKey(_now());
+    if (!defer) { _afterHome(); return; }
+    requestAnimationFrame(function() {
+      if (seq !== _renderSeq) return;   // 그 사이 다시 그렸다(새 렌더가 2단계와 onHome을 맡는다)
+      if (_cur === 'home') {            // 다른 화면(오늘의 5분 셸 등)으로 갔으면 채우지 않는다. onHome(배지 깜짝 해금)은 전처럼 1번
+        try { _fillHomeRest(v, s, parts); }
+        catch (e2) {
+          if (typeof console !== 'undefined') console.error('[JourneyUI] 홈 2단계 렌더 실패', e2);
+          try { v.innerHTML = _homeHTML(state()); } catch (e3) { v.innerHTML = _fallbackHTML(); }
+        }
+      }
+      _afterHome();
+    });
+  }
+  // (PERF-1) 2단계: 지도와 카드 영역을 1단계의 상태와 공급자 카드로 채운다
+  function _fillHomeRest(v, s, parts) {
+    var map = v.querySelector ? v.querySelector('.j-map') : null;
+    var cards = v.querySelector ? v.querySelector('.j-cards:not(.j-cards-top)') : null;
+    if (map) { map.innerHTML = renderMap(_mapModel(s), true); if (map.removeAttribute) map.removeAttribute('data-j-defer'); }
+    if (cards) { cards.innerHTML = _cardsHTML(s, parts.sm, parts.pc); if (cards.removeAttribute) cards.removeAttribute('data-j-defer'); }
+  }
+  function _afterHome() {
     // (M6-P0, 계약 H11 c) 홈을 그린 뒤 배지 깜짝 해금 확인(COLLECT). 예외는 경고만 남기고 홈은 그대로
     if (_can('Badges', 'onHome')) _call('Badges', 'onHome', _now());
   }
@@ -319,23 +376,49 @@ var JourneyUI = (function() {
       '<button type="button" class="j-btn j-ghost" onclick="JourneyUI.quick(\'more\')">⋯ 더보기</button></div></div></div>';
   }
 
-  function homeHTML(s) { return _homeHTML(s || state()); }   // 순수 문자열(테스트, 하네스용)
-  function _homeHTML(s) {
-    var sm = summary(s), pc = providerCards(s);
+  function homeHTML(s) { return _homeHTML(s || state()); }   // 순수 문자열(테스트, 하네스용): 늘 한 번에 전부
+  // parts(선택): { sm, pc, defer }. render()가 1단계에서 만든 요약과 공급자 카드를 넘기고, defer면 지도와 카드 영역을 비워 둔다(PERF-1)
+  function _homeHTML(s, parts) {
+    parts = parts || {};
+    var sm = parts.sm || summary(s), pc = parts.pc || providerCards(s), defer = !!parts.defer;
     // (POLISH UX-01) 빠른 줄은 오늘의 5분 바로 아래(설계서 5.2절 순서와 다름): 매일 쓰는 입구가 폰 첫 화면에 보이게.
     // (POLISH UX-03) 첫 완주 뒤 1회 설정 카드는 지도 위(.j-cards-top)에: 카드 영역은 지도 아래라 스크롤해야 보였다.
     return '<div class="j-home">' + _topHTML(s, sm) +
       '<section class="j-today-area" aria-label="오늘의 학습">' + (needFirstCard(s) ? firstCard() : _todayBtnHTML(s)) + '</section>' +
       _quickHTML() +
       _topCardsHTML(pc, needSettingsCard(s) ? settingsCard() : '') +
-      '<section class="j-map" aria-label="여정 지도">' + renderMap(_mapModel(s), true) + '</section>' +
-      '<section class="j-cards" aria-label="알림 카드">' + _cardsHTML(s, sm, pc) + '</section>' +
+      '<section class="j-map" aria-label="여정 지도"' + (defer ? ' data-j-defer="1" aria-busy="true"></section>' : '>' + renderMap(_mapModel(s), true) + '</section>') +
+      '<section class="j-cards" aria-label="알림 카드"' + (defer ? ' data-j-defer="1" aria-busy="true"></section>' : '>' + _cardsHTML(s, sm, pc) + '</section>') +
       '</div>';
   }
 
-  // (1) 상단: 칭호 배지, 🔥 스트릭, ❄ 프리즈, 데일리 목표 링, 레벨 막대, 습관 문장
+  // (UX-09) 신규 사용자: XP 0, 통과 노드 0, 스트릭 0, 어느 날에도 활동(분, XP, 끝낸 블록, 완주)이 없다. 상단 숫자 줄(🔥 ❄ 링, L1 막대, 레이팅 칩)을 숨긴다.
+  //   dayRecord()가 오늘 빈 기록을 만들어 두므로 키가 있다고 활동으로 치지 않는다.
+  function isNewUser(s, sm) {
+    s = s || state();
+    sm = sm || summary(s);
+    if (sm.xp > 0 || sm.streak > 0 || sm.nodesPassed > 0) return false;
+    var d = (s && s.daily) || {};
+    return !Object.keys(d).some(function(k) {
+      var r = d[k];
+      return !!(r && (_num(r.minutes, 0) > 0 || _num(r.xp, 0) > 0 || _num(r.doneBlocks, 0) > 0 || (Array.isArray(r.done) && r.done.length) || r.todayDoneAt));
+    });
+  }
+
+  // (1) 상단: 칭호 배지, 🔥 스트릭, ❄ 프리즈, 데일리 목표 링, 레벨 막대, 습관 문장. 신규 사용자(UX-09)는 배지와 ⚙만
   function _topHTML(s, sm) {
     var st = _stageInfo(sm.stage);
+    if (isNewUser(s, sm)) {
+      return '<header class="j-top j-top-new">' +
+        '<div class="j-top-row">' +
+          '<div class="j-badge" title="칭호는 승급 시험으로만 바뀌어요">' +
+            '<span class="j-badge-ic" aria-hidden="true">' + (STAGE_ICON[sm.stage - 1] || '🌱') + '</span>' +
+            '<span class="j-badge-txt"><b class="j-badge-t">' + _esc(sm.title) + '</b><span class="j-badge-s">S' + sm.stage + ' ' + _esc(st.name) + '</span></span>' +
+          '</div>' +
+          '<div class="j-stats j-stats-min">' + gearButton() + '</div>' +
+        '</div>' +
+        '</header>';
+    }
     var goal = _goalMin(s), rec = _todayRec(s), mins = Math.max(0, _num(rec && rec.minutes, 0));
     var ringPct = Math.max(0, Math.min(1, mins / goal));
     var C = 2 * Math.PI * 17, dash = (C * ringPct).toFixed(1);
@@ -468,9 +551,7 @@ var JourneyUI = (function() {
         '<span class="j-stage-pct">' + (nodes.length ? passed + '/' + nodes.length + ' 통과' : pct + '%') + '</span>' +
         '<span class="j-chev" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>';
       if (!open) return '<div class="j-stage">' + head + '</div>';
-      var body = nodes.length ? '<ol class="j-path">' + nodes.map(function(x) { return _nodeRowHTML(x, next, s); }).join('') + '</ol>'
-        : '<div class="j-empty">이 단계 지도는 곧 열려요</div>';
-      return '<div class="j-stage is-open">' + head + body + '</div>';
+      return '<div class="j-stage is-open">' + head + _pathHTML(n, n === cur, nodes, next, s) + '</div>';
     }).join('');
     if (!asString) {
       var v = _root() && _root().querySelector('.j-map');
@@ -498,6 +579,33 @@ var JourneyUI = (function() {
       '<span class="j-node-txt"><span class="j-node-t">' + _esc(x.title || x.id) + '</span>' +
       '<span class="j-node-s">' + STATUS[st].icon + ' ' + stLabel + (isBoss ? ', 승급 시험' : '') + '</span>' +
       (hint ? '<span class="j-node-h">' + _esc(hint) + '</span>' : '') + '</span></button></li>';
+  }
+
+  // (UX-11) 단계 경로. 현재 단계에서 앞쪽에 연달아 통과한 노드가 FOLD_MIN개 이상이면 그 노드들을 접고 맨 위에 44px '펼치기' 버튼 하나(★ 아이콘 + 글자).
+  //   펼치면 같은 자리의 버튼이 '접기'가 되고 통과 노드가 다시 보인다. 뒤쪽에 섞인 통과 노드(건너뛴 뒤 등)는 순서를 지키려 접지 않는다.
+  //   다른 단계(지난 단계를 손으로 펼친 때)는 전부 보인다.
+  function foldCount(nodes) {
+    var k = 0;
+    nodes = Array.isArray(nodes) ? nodes : [];
+    while (k < nodes.length && nodes[k] && nodes[k].status === 'passed') k++;
+    return k;
+  }
+  function _pathHTML(n, isCur, nodes, next, s) {
+    if (!nodes.length) return '<div class="j-empty">이 단계 지도는 곧 열려요</div>';
+    var row = function(x) { return _nodeRowHTML(x, next, s); };
+    var k = isCur ? foldCount(nodes) : 0;
+    if (k < FOLD_MIN) return '<ol class="j-path">' + nodes.map(row).join('') + '</ol>';
+    var open = !!_passedOpen[n];
+    var btn = '<li class="j-step j-fold"><button type="button" class="j-fold-btn" aria-expanded="' + (open ? 'true' : 'false') +
+      '" aria-label="통과한 노드 ' + k + '개 ' + (open ? '접기' : '펼치기') + '" onclick="JourneyUI._togglePassed(' + n + ')">' +
+      '<span class="j-fold-ic" aria-hidden="true">' + (open ? '▴' : '★') + '</span>' +
+      '<span class="j-fold-t">통과한 노드 ' + k + '개 ' + (open ? '접기' : '펼치기') + '</span></button></li>';
+    var rows = (open ? nodes : nodes.slice(k)).map(row).join('');
+    return '<ol class="j-path' + (open ? '' : ' is-folded') + '">' + btn + rows + '</ol>';
+  }
+  function _togglePassed(n) {
+    _passedOpen[n] = !_passedOpen[n];
+    renderMap();
   }
 
   function _toggleStage(n) {
@@ -1429,8 +1537,10 @@ var JourneyUI = (function() {
     weeklyCard: weeklyCard, rollLines: _rollLines,
     // M6-P0 훅(계약 H11): 카드 공급자, 노드 시트 문자열(Boss.sheetActions 포함), 세션 요약 정적 버튼 글자
     providerCards: providerCards, sheetHTML: _sheetHTML, summaryButton: summaryButton, CARD_PROVIDERS: CARD_PROVIDERS.slice(),
+    // 클라우드 D'(UX-09 신규 사용자 판정, UX-11 통과 노드 접기 수, PERF-1 2단계 렌더 강제 스위치: 테스트용)
+    isNewUser: isNewUser, foldCount: foldCount, FOLD_MIN: FOLD_MIN, _setDeferHome: _setDeferHome,
     // 인라인 onclick 핸들러
-    _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _act: _act,
+    _todayTap: _todayTap, _first: _first, _toggleStage: _toggleStage, _togglePassed: _togglePassed, _act: _act,
     _setGoal: _setGoal, _pickHabit: _pickHabit, _toggleSet: _toggleSet, _saveSettings: _saveSettings,
     _ratingTap: _ratingTap, _daily5: _daily5, _highlight: _highlight
   };

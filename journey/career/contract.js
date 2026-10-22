@@ -36,7 +36,8 @@
 // ── 모듈 인터페이스(각 클라우드 작업이 한 모듈을 채우고 register) ──
 //   core(F1):   state(), load(), save(), reset(), canAfford(venueId, stake), buyIn(venueId, stake, kind) → session | { error },
 //               settle(result{ net, hands, bust, tourney? }) → { bankroll, delta, trophies:[], title }, requirements(venueId) → [{ text, done, progress }],
-//               unlockCheck(), addTrophy(id), addReputation(n, why), title(), dayRoll(now), grantXp(n), travel(regionId)
+//               unlockCheck(), addTrophy(id), addReputation(n, why), title(), dayRoll(now), grantXp(n), travel(regionId),
+//               buyHome(level) → { ok, cost, home?, reason? }(웨이브2 후속, 결정 49: HOMES 다음 단계만, 가격은 balance.HOME_COST)
 //   table(F2):  playersSpec(heroPos, POS), stacksFor(), beforeNextHand(stacks) → { stacks, end }, villainOpts(ctx) → { decide } | null,
 //               onHandEnd(ctx), sessionEnd(ctx) → html, startSession(venueId, stake, kind), leaveSession()
 //   map(F3):    homeCard(jstate, now) → { html, emph } | null, open(params, el), render(el)
@@ -271,7 +272,8 @@ var Career = (function() {
   }
   function onHandEnd(ctx) { return _call('table', 'onHandEnd', [ctx], null); }
   function sessionEnd(ctx) { return _str(_call('table', 'sessionEnd', [ctx], '')); }
-  function startSession(venueId, stake, kind) { return _call('table', 'startSession', [venueId, stake, kind], null); }
+  // (웨이브2 후속) opts { players }: MTT 인원 고르기(table이 balance players 배열 안의 값만 받는다). 생략하면 예전과 같다
+  function startSession(venueId, stake, kind, opts) { return _call('table', 'startSession', opts === undefined ? [venueId, stake, kind] : [venueId, stake, kind, opts], null); }
   function leaveSession() { return _call('table', 'leaveSession', [], null); }
 
   function homeCard(jstate, now) {

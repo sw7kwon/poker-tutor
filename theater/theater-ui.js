@@ -169,10 +169,18 @@ var TheaterUI = (function() {
     return (c.rank && c.suit) ? c : null;
   }
   function _cardText(c) { c = _cardObj(c); return c ? (c.rank === 'T' ? '10' : c.rank) + (SUIT[c.suit] || c.suit) : ''; }
+  // 명장면 카드의 작은 보드 카드: 공용 헬퍼 Cards.html(무늬 이름 aria-label, data-suit 4색 덱, R8). 헬퍼가 없으면 예전 2색 마크업
   function _miniCards(list) {
+    var C = _m('Cards');
     return (list || []).map(_cardObj).filter(Boolean).map(function(c) {
-      return '<span class="card th-mini ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + _esc(c.suit) + '">' + _esc(_cardText(c)) + '</span>';
+      var h = (C && typeof C.html === 'function') ? C.html(c, { tag: 'span', cls: 'th-mini' }) : '';
+      return h || '<span class="card th-mini ' + (RED[c.suit] ? 'red' : 'black') + '" data-suit="' + _esc(c.suit) + '">' + _esc(_cardText(c)) + '</span>';
     }).join('');
+  }
+  // 자막, 말풍선 글(이미 이스케이프된 HTML) 속 무늬 기호(A♠, 10♦)를 4색 .suit로 감싼다(R8). 헬퍼가 없으면 그대로
+  function _colorize(html) {
+    var C = _m('Cards');
+    return (C && typeof C.colorize === 'function') ? C.colorize(html) : html;
   }
   function _thoughtText(ev) {
     var t = ev && ev.thought && ev.thought.text ? String(ev.thought.text) : '';
@@ -377,9 +385,10 @@ var TheaterUI = (function() {
     return list;
   }
 
+  // 자막 줄 추가. 글 속 무늬 기호는 여기서 한 번에 4색으로(engine/thinking.js는 글자만 내고 색은 소비 쪽이 입힌다, 해시 불변)
   function _push(r, kind, html, o) {
     o = o || {};
-    r.lines.push({ kind: kind, html: html, stripHtml: o.stripHtml || null, strip: o.strip !== false, feed: o.feed !== false, name: o.name || null });
+    r.lines.push({ kind: kind, html: _colorize(html), stripHtml: o.stripHtml ? _colorize(o.stripHtml) : null, strip: o.strip !== false, feed: o.feed !== false, name: o.name || null });
   }
   function _stripLines(r) { return r.lines.filter(function(l) { return l.strip; }); }
 
@@ -1358,7 +1367,7 @@ var TheaterUI = (function() {
     var el = d.createElement('div');
     el.className = 'th-bubble' + (thinking ? ' is-thinking' : '');
     el.setAttribute('aria-hidden', 'true');
-    el.innerHTML = '<b>' + _esc(b.name) + ' ' + _esc(b.label) + '</b>' + (b.text ? '<span>💭 ' + _esc(b.text) + '</span>' : '');
+    el.innerHTML = '<b>' + _esc(b.name) + ' ' + _esc(b.label) + '</b>' + (b.text ? '<span>💭 ' + _colorize(_esc(b.text)) + '</span>' : '');
     var sr = seat.getBoundingClientRect(), ar = area.getBoundingClientRect(), tr = table.getBoundingClientRect();
     area.appendChild(el);
     var avoid = _avoidRects(seat);
