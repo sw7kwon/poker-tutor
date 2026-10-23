@@ -19,14 +19,14 @@
 #screen-game.th-on .thinking-bubble { display: none !important; }
 #screen-game.th-on #thinking-feed { display: block !important; }
 #screen-game.th-on .poker-table { margin-right: 0; }   /* 에쿼티 패널 자리(데스크톱)가 없으니 가운데로 */
-#screen-game.th-on .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+#screen-game.th-on .card:hover { transform: none; box-shadow: var(--shadow-1); }
 
 /* ── 극장 영역(데스크톱: 왼쪽 자막과 바, 오른쪽 패널) ── */
 .th-root {
   flex: 0 0 auto; width: 100%; max-width: 980px; margin: 0 auto; box-sizing: border-box;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
   grid-template-areas: "strip panel" "bar panel"; align-items: start; gap: 8px 14px;
-  padding: 8px 16px 10px; background: #0d1117; border-top: 1px solid var(--hud-border);
+  padding: 8px 16px 10px; background: var(--hud-bg); border-top: 1px solid var(--hud-border);
   color: var(--text);
 }
 .th-strip { grid-area: strip; min-height: 50px; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; }
@@ -35,21 +35,21 @@
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
 }
 .th-line.th-k-say { -webkit-line-clamp: 1; }
-.th-line.th-k-think { color: #f0c674; }
-.th-line.th-k-fore, .th-line.th-k-intro { color: #d2a8ff; }
+.th-line.th-k-think { color: var(--sand); }
+.th-line.th-k-fore, .th-line.th-k-intro { color: var(--purple-text); }
 .th-line.th-k-street { color: var(--gold); }
-.th-line.th-k-end { color: #7ee787; }
+.th-line.th-k-end { color: var(--green-text); }
 .th-line.th-k-sys, .th-line.th-hintline { color: var(--text-dim); }
 .th-panel { grid-area: panel; min-width: 0; font-size: .88rem; }
 .th-bar { grid-area: bar; display: flex; gap: 8px; align-items: stretch; }
 .th-btn {
-  min-height: 44px; min-width: 44px; padding: 0 12px; border-radius: 8px; box-sizing: border-box;
-  border: 1px solid var(--hud-border); background: #21262d; color: var(--text);
+  min-height: 44px; min-width: 44px; padding: 0 12px; border-radius: var(--r-8); box-sizing: border-box;
+  border: 1px solid var(--hud-border); background: var(--btn-neutral); color: var(--text);
   font-size: .95rem; font-weight: 600; cursor: pointer; white-space: nowrap;
 }
 .th-next { flex: 1 1 auto; }
-.th-next.is-call { background: #1f6f3a; border-color: #2ea043; color: #fff; }
-.th-next:disabled { opacity: .55; cursor: default; background: #161b22; border-color: var(--hud-border); color: var(--text-dim); }
+.th-next.is-call { background: var(--green-deep); border-color: var(--green-border); color: var(--white); }
+.th-next:disabled { opacity: .55; cursor: default; background: var(--tile-bg); border-color: var(--hud-border); color: var(--text-dim); }
 .th-pause, .th-speed, .th-exit { flex: 0 0 52px; padding: 0; }
 .th-btn:focus-visible, .th-chip:focus-visible, .th-skip:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .th-sub { color: var(--text-dim); font-size: .8rem; }
@@ -59,9 +59,9 @@
 .th-intro { display: flex; flex-direction: column; gap: 4px; }
 .th-intro-t { font-weight: 700; color: var(--gold); font-size: .9rem; }
 .th-intro-list { display: flex; flex-direction: column; gap: 3px; max-height: 132px; overflow-y: auto; line-height: 1.38; }
-.th-intro-l { color: #d2a8ff; }
+.th-intro-l { color: var(--purple-text); }
 .th-intro-l b { color: var(--text); }
-.th-note { color: #c297ff; font-size: .78rem; }
+.th-note { color: var(--purple-dim); font-size: .78rem; }
 
 /* ── 멈춤: 예측 칩 2줄 + 건너뛰기 ── */
 /* 멈춤 중 #screen-game에도 th-stop이 붙으므로(어둡게) 예측 묶음은 패널 안으로 한정한다 */
@@ -72,37 +72,37 @@
 .th-q-t { flex: 1 1 auto; min-width: 0; line-height: 1.35; }
 .th-ctx { color: var(--text-dim); font-size: .8rem; white-space: nowrap; }
 .th-skip {
-  flex: 0 0 auto; min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px dashed var(--hud-border);
+  flex: 0 0 auto; min-height: 44px; padding: 0 12px; border-radius: var(--r-8); border: 1px dashed var(--hud-border);
   background: transparent; color: var(--text-dim); font-size: .85rem; cursor: pointer;
 }
 .th-row { display: flex; align-items: center; gap: 8px; }
 .th-row-t { flex: 0 0 2.6em; font-size: .78rem; color: var(--text-dim); }
 .th-chips { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .th-chip {
-  min-height: 44px; padding: 4px 6px; border-radius: 10px; box-sizing: border-box;
-  border: 1px solid var(--hud-border); background: #161b22; color: var(--text);
+  min-height: 44px; padding: 4px 6px; border-radius: var(--r-md); box-sizing: border-box;
+  border: 1px solid var(--hud-border); background: var(--tile-bg); color: var(--text);
   font-size: .85rem; line-height: 1.2; cursor: pointer; word-break: keep-all;
   /* 320px, 글자 130%에서 3칸 칩의 긴 낱말('체크레이즈 함정')이 칩 밖으로 삐져 패널이 가로 스크롤되던 것(M7-P2): keep-all이어도 넘칠 때만 꺾는다 */
   overflow-wrap: anywhere;
   /* 두 줄로 꺾이는 긴 계획 이름('플랍 체크 뒤 턴 벳')이 '…턴 / 벳'처럼 한 글자만 남지 않게 줄 길이를 고르게(클라우드 작업 I 로컬 확인) */
   text-wrap: balance;
 }
-.th-chip.on { background: #1f6feb; border-color: #58a6ff; color: #fff; }
+.th-chip.on { background: var(--blue-fill); border-color: var(--blue); color: var(--white); }
 .th-chip.on::before { content: '\2713  '; }
 .th-chip-idk { color: var(--text-dim); }
 
 /* ── 공개 뒤 결과, 끝 요약 ── */
 .th-verdict, .th-end { display: flex; flex-direction: column; gap: 4px; }
-.th-v.is-hit { color: #3fb950; }
-.th-v.is-miss { color: #ff7b72; }
+.th-v.is-hit { color: var(--green); }
+.th-v.is-miss { color: var(--red-2); }
 .th-end-t { font-weight: 700; color: var(--gold); }
 .th-mark { font-size: .78rem; margin-left: 4px; white-space: nowrap; }
-.th-mark.is-hit { color: #3fb950; }
-.th-mark.is-miss { color: #ff7b72; }
+.th-mark.is-hit { color: var(--green); }
+.th-mark.is-miss { color: var(--red-2); }
 /* 오독 배지(캐릭터 읽기 = 보라, 설계서 8.2절 5번). event.misread일 때만 붙는다 */
 .th-misread {
-  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 8px; vertical-align: 1px;
-  background: #6e40c9; color: #fff; font-size: .74rem; font-weight: 700; line-height: 1.5; white-space: nowrap;
+  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: var(--r-8); vertical-align: 1px;
+  background: var(--purple); color: var(--white); font-size: .74rem; font-weight: 700; line-height: 1.5; white-space: nowrap;
 }
 
 /* ── 좌석 강조와 화면 어둡게(멈춤) ── */
@@ -110,14 +110,14 @@
 #screen-game.th-stop .poker-table .seat:not(.th-focus) { filter: brightness(.5); transition: filter .2s; }
 #screen-game.th-on .poker-table .seat.th-focus {
   border-color: var(--gold); z-index: 8;
-  box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(212,175,55,.55);
+  box-shadow: 0 0 0 2px var(--gold), 0 0 16px var(--gold-a55);
 }
-#screen-game.th-on .poker-table .seat.th-act { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff, 0 0 10px rgba(88,166,255,.35); z-index: 7; }
+#screen-game.th-on .poker-table .seat.th-act { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue), 0 0 10px var(--blue-a35); z-index: 7; }
 
 /* ── 좌석별 승률 배지(모두 승률, TABLE-03b): 카드 공개 뷰에서만, textContent만 바뀐다 ── */
 .seat-eq {
-  display: inline-block; margin-top: 3px; padding: 0 6px; border-radius: 8px;
-  background: rgba(63,185,80,.18); color: #7ee787; font-size: .7rem; font-weight: 700; line-height: 1.5;
+  display: inline-block; margin-top: 3px; padding: 0 6px; border-radius: var(--r-8);
+  background: var(--green-a18); color: var(--green-text); font-size: .7rem; font-weight: 700; line-height: 1.5;
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 #screen-game.th-stop .poker-table .seat:not(.th-focus) .seat-eq { opacity: .85; }
@@ -125,64 +125,64 @@
 /* ── 활성 좌석 말풍선(1곳만) ── */
 .th-bubble {
   position: absolute; z-index: 35; width: max-content; max-width: 180px; box-sizing: border-box;
-  padding: 5px 8px; border-radius: 10px; background: rgba(255,255,255,.96); color: #1f2328;
-  font-size: .74rem; line-height: 1.3; box-shadow: 0 2px 10px rgba(0,0,0,.45); pointer-events: none;
+  padding: 5px 8px; border-radius: var(--r-md); background: var(--white-a96); color: var(--ink-soft);
+  font-size: .74rem; line-height: 1.3; box-shadow: var(--shadow-bubble-2); pointer-events: none;
 }
 .th-bubble b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.th-bubble span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #57606a; }
-.th-bubble.is-thinking { background: #fff4c2; }
+.th-bubble span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--ink-dim); }
+.th-bubble.is-thinking { background: var(--cream); }
 .th-bubble.is-cover span { -webkit-line-clamp: 1; }   /* 세로 폰: 좌석 이름 줄만 덮고 카드는 보이게(속마음 전문은 자막 스트립) */
 
 /* ── 피드(#thinking-feed, 이번 핸드 전체) ── */
 #screen-game.th-on #thinking-feed { max-height: 180px; }
-.th-fl-intro, .th-fl-fore { color: #d2a8ff; }
+.th-fl-intro, .th-fl-fore { color: var(--purple-text); }
 .th-fl-say { color: var(--text); }
-.th-fl-think { color: #f0c674; }
+.th-fl-think { color: var(--sand); }
 .th-fl-street { color: var(--gold); }
-.th-fl-read { color: #c9d1d9; }
+.th-fl-read { color: var(--text-soft); }
 .th-fl-sys, .th-fl-note, .th-fl-sd { color: var(--text-dim); }
-.th-fl-end { color: #7ee787; }
+.th-fl-end { color: var(--green-text); }
 
 /* ── 명장면 카드 창 ── */
 .th-card-ov {
-  position: fixed; inset: 0; z-index: 950; background: rgba(1,4,9,.72);
+  position: fixed; inset: 0; z-index: 950; background: var(--overlay-card);
   display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;
 }
 .th-card-box {
   width: min(380px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto;
-  background: #161b22; border: 1px solid var(--gold); border-radius: 14px; padding: 14px; box-sizing: border-box;
-  display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 32px rgba(0,0,0,.6); color: var(--text);
+  background: var(--tile-bg); border: 1px solid var(--gold); border-radius: var(--r-lg); padding: 14px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-4); color: var(--text);
 }
 .th-card { display: flex; flex-direction: column; gap: 8px; }
 .th-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .th-card-badge { color: var(--gold); font-weight: 700; }
 .th-card-score { font-size: .8rem; color: var(--text-dim); }
-.th-card-title { font-size: 1.05rem; line-height: 1.45; color: #f0c674; word-break: keep-all; overflow-wrap: anywhere; }
+.th-card-title { font-size: 1.05rem; line-height: 1.45; color: var(--sand); word-break: keep-all; overflow-wrap: anywhere; }
 .th-card-board { display: flex; flex-wrap: wrap; gap: 4px; min-height: 42px; align-items: center; }
-.card.th-mini { width: 30px; height: 42px; font-size: .8rem; border-radius: 4px; }
-.card.th-mini:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+.card.th-mini { width: 30px; height: 42px; font-size: .8rem; border-radius: var(--r-xs); }
+.card.th-mini:hover { transform: none; box-shadow: var(--shadow-1); }
 .th-card-pot { color: var(--gold); font-weight: 600; }
 .th-card-eq { display: flex; flex-direction: column; gap: 4px; }
 .th-card-eq-t { font-size: .85rem; }
 .th-eq-row { display: grid; grid-template-columns: minmax(0, 5.5em) 1fr 3.6em; gap: 6px; align-items: center; font-size: .82rem; }
 .th-eq-n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.th-eq-bar { height: 10px; background: #30363d; border-radius: 5px; overflow: hidden; }
-.th-eq-fill { display: block; height: 100%; background: #2ea043; }
+.th-eq-bar { height: 10px; background: var(--hud-border); border-radius: var(--r-5); overflow: hidden; }
+.th-eq-fill { display: block; height: 100%; background: var(--green-border); }
 .th-eq-v { text-align: right; }
 .th-card-plans { display: flex; flex-wrap: wrap; gap: 4px; }
-.th-card-plan { font-size: .78rem; padding: 2px 8px; border-radius: 10px; background: rgba(110,64,201,.25); border: 1px solid #6e40c9; }
-.th-card-note { color: #c297ff; }
+.th-card-plan { font-size: .78rem; padding: 2px 8px; border-radius: var(--r-md); background: var(--purple-a25); border: 1px solid var(--purple); }
+.th-card-note { color: var(--purple-dim); }
 .th-card-acts { display: flex; gap: 8px; }
 .th-card-acts .th-btn { flex: 1 1 0; }
 
 /* ── 미니시즌(M6-MINI): 우승자 예측, 핸드 예고의 칩 순위, 탈락 공개, 편 결과 ── */
 .th-mini { display: flex; flex-direction: column; gap: 5px; }
 .th-mini-head { font-weight: 700; color: var(--gold); font-size: .9rem; }
-.th-mini-blind { font-size: .8rem; color: #9ecbff; line-height: 1.35; }
+.th-mini-blind { font-size: .8rem; color: var(--blue-soft); line-height: 1.35; }
 .th-mini-stand { display: flex; flex-wrap: wrap; gap: 4px; }
 .th-mini-st {
-  display: inline-flex; align-items: baseline; gap: 3px; padding: 2px 8px; border-radius: 10px; font-size: .78rem; white-space: nowrap;
-  background: #161b22; border: 1px solid var(--hud-border);
+  display: inline-flex; align-items: baseline; gap: 3px; padding: 2px 8px; border-radius: var(--r-md); font-size: .78rem; white-space: nowrap;
+  background: var(--tile-bg); border: 1px solid var(--hud-border);
 }
 .th-mini-st b { color: var(--text); font-weight: 700; }
 .th-mini-st small { color: var(--text-dim); font-size: .7rem; }
@@ -191,13 +191,13 @@
 .th-chip.th-mini-pk { text-align: left; padding: 6px 8px; }
 .th-mini-pk-n { font-weight: 700; }
 .th-mini-skip { align-self: flex-start; }
-.th-mini-out { padding: 6px 8px; border-radius: 8px; background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.45); }
-.th-mini-out-t { color: #ffa198; line-height: 1.35; }
-.th-mini-why { color: #f0c674; line-height: 1.4; margin-top: 3px; word-break: keep-all; overflow-wrap: anywhere; }
+.th-mini-out { padding: 6px 8px; border-radius: var(--r-8); background: var(--red-a10); border: 1px solid var(--red-a45); }
+.th-mini-out-t { color: var(--red-text); line-height: 1.35; }
+.th-mini-why { color: var(--sand); line-height: 1.4; margin-top: 3px; word-break: keep-all; overflow-wrap: anywhere; }
 .th-mini-win { font-size: 1rem; color: var(--gold); }
-.th-mini-next { color: #9ecbff; }
-.th-line.th-k-out { color: #ffa198; }
-.th-fl-out { color: #ffa198; }
+.th-mini-next { color: var(--blue-soft); }
+.th-line.th-k-out { color: var(--red-text); }
+.th-fl-out { color: var(--red-text); }
 .th-mini-card .j-card-d { line-height: 1.5; }
 /* 미니시즌은 탈락으로 5인 이하가 되면 빈 좌석이 생긴다: 극장에서는 모든 화면에서 빈 좌석을 숨긴다(데스크톱의 빈 좌석 틀) */
 #screen-game.th-on .poker-table .seat:empty { display: none; }

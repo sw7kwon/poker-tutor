@@ -26,8 +26,8 @@
   /* ── 테이블: 상단 세로 타원 ── */
   .table-area { flex: 0 0 auto; display: flex; justify-content: center; padding: 44px 0; overflow: visible; }
   .poker-table {
-    width: var(--oval-w); height: auto; aspect-ratio: 10 / 13; border-radius: 50%; border-width: 8px;
-    margin: 0; transform: none; box-shadow: 0 0 0 3px #6b3f10, 0 10px 30px rgba(0,0,0,.8);
+    width: var(--oval-w); height: auto; aspect-ratio: 10 / 13; border-radius: var(--r-round); border-width: 8px;
+    margin: 0; transform: none; box-shadow: var(--shadow-table-m);
   }
   .table-felt { gap: 4px; }
   .pot-display { font-size: .95rem; }
@@ -69,7 +69,7 @@
   /* 빌런 벳: 좌석 오른쪽 위 배지(좌석 높이 고정) */
   .poker-table .seat:not(.hero) .seat-bet {
     position: absolute; top: -8px; right: -4px; z-index: 3; width: auto; font-size: .62rem; font-weight: 700; line-height: 1.45;
-    background: rgba(0,0,0,.6); border: 1px solid rgba(212,175,55,.7); border-radius: 8px; padding: 0 5px; white-space: nowrap; /* 돈=금색 */
+    background: var(--black-a60); border: 1px solid var(--gold-a70); border-radius: var(--r-8); padding: 0 5px; white-space: nowrap; /* 돈=금색 */
   }
   /* 액션 말풍선 */
   .seat-action { font-size: .66rem; line-height: 1.35; padding: 2px 5px; }
@@ -77,7 +77,7 @@
   .poker-table .seat:not(.hero) .seat-action {
     position: absolute; left: 4px; right: 8px; bottom: 4px; margin: 0; z-index: 4;
     height: calc(var(--card-h) - 2px); display: flex; flex-direction: column; justify-content: center;
-    background: rgba(0,0,0,.86); overflow: hidden;
+    background: var(--black-a86); overflow: hidden;
   }
   .poker-table .seat:not(.hero) .seat-action br { display: none; }
   .poker-table .seat:not(.hero) .seat-action span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -91,7 +91,7 @@
 
   /* 카드 */
   .seat .card, .board-cards .card {
-    width: var(--card-w); height: var(--card-h); font-size: var(--card-font); border-radius: 4px;
+    width: var(--card-w); height: var(--card-h); font-size: var(--card-font); border-radius: var(--r-xs);
   }
   .seat[data-slot="0"] .card { width: var(--hero-card-w); height: var(--hero-card-h); font-size: var(--hero-card-font); }
 
@@ -99,7 +99,7 @@
   #equity-toggle { display: none; }   /* 도크 탭이 대신함 */
 
   /* ── 학습 도크 #m-dock (ui/mobile-ui.js가 .table-area 바로 뒤에 삽입) ── */
-  .m-dock { flex: 0 0 auto; background: #0d1117; border-top: 1px solid var(--hud-border); display: flex; flex-direction: column; }
+  .m-dock { flex: 0 0 auto; background: var(--hud-bg); border-top: 1px solid var(--hud-border); display: flex; flex-direction: column; }
   /* 상단부(R7): 판정 띠 44 + 리마인더 1줄 44 + 띵킹 패널, L0/L1(띵킹 꺼짐)은 132px 안에서 안쪽 스크롤 없음.
      높이 상한은 테이블+탭 바+액션바(184px)를 뺀 남은 높이(최소 120px, 최대 38dvh), 띵킹 칩처럼 넘치면 내부 스크롤 */
   .m-dock-top {
@@ -110,11 +110,11 @@
   .m-dock-top .coach-line .cl-sub { font-size: .8rem; }
   /* 리마인더: 1줄 말줄임, 누르면 펼침(CoachUI.toggleReminder) */
   .m-dock-top .coach-reminder {
-    position: relative; box-sizing: border-box; min-height: 44px; padding: 4px 30px 4px 10px; border-radius: 8px;
+    position: relative; box-sizing: border-box; min-height: 44px; padding: 4px 30px 4px 10px; border-radius: var(--r-8);
     font-size: .8rem; line-height: 1.45; cursor: pointer; display: flex; flex-direction: column; justify-content: center;
   }
   .m-dock-top .coach-reminder::after {
-    content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .9rem; color: #e3b341;
+    content: '▾'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: .9rem; color: var(--warn);
   }
   .m-dock-top .coach-reminder.cr-open::after { content: '▴'; }
   .m-dock-top .coach-reminder:not(.cr-open) { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 34px; padding-top: 0; padding-bottom: 0; }
@@ -125,8 +125,8 @@
   .m-dock-top.is-empty { display: none; }
   .m-dock-tabs { display: flex; gap: 4px; padding: 4px 8px; }
   .m-dock-tabs button {
-    flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 4px; background: #161b22; border: 1px solid var(--hud-border);
-    color: var(--text-dim); border-radius: 8px; font-size: .82rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+    flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 4px; background: var(--tile-bg); border: 1px solid var(--hud-border);
+    color: var(--text-dim); border-radius: var(--r-8); font-size: .82rem; font-weight: 600; white-space: nowrap; cursor: pointer;
   }
   .m-dock-tabs button.on { color: var(--gold); border-color: var(--gold); }
   .m-dock-tabs button[hidden] { display: none; }
@@ -162,7 +162,7 @@
   .m-dock .gto-cell { font-size: clamp(9px, 2.3vw, 11px); }   /* 판독성 기준 9px 이상 (320 폭 셀 약 22px에 3글자) */
   .m-dock .gto-chart-legend { font-size: .72rem; }
   .m-dock #gto-commentary { flex-direction: column !important; padding: 8px 4px; border-top: none; gap: 8px; }
-  .m-dock .gto-reason-panel { width: 100%; border-left: none; border-top: 1px solid rgba(212,175,55,.3); padding: 8px 0 0; }
+  .m-dock .gto-reason-panel { width: 100%; border-left: none; border-top: 1px solid var(--gold-a30); padding: 8px 0 0; }
   .m-dock .hand-result-layout { gap: 10px; }
   .m-dock .hand-result-signal { min-width: 40px; }
   .m-dock .thinking-replay-body { max-height: 28dvh; }
@@ -206,21 +206,21 @@
   .raise-slider-row { grid-area: slider; display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
   .raise-step {
     display: inline-flex; flex: 0 0 44px; width: 44px; height: 44px; align-items: center; justify-content: center; font-size: 1.3rem;
-    background: #21262d; color: var(--text); border: 1px solid var(--hud-border); border-radius: 8px; cursor: pointer;
+    background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border); border-radius: var(--r-8); cursor: pointer;
   }
   /* 터치 높이 44px는 그대로, 트랙은 10px 위로(아래 padding): 트랙 아래 눈금 띠(#raise-ticks) 라벨을 손잡이가 덮지 않게(리뷰 수정) */
   #raise-slider { flex: 1; width: auto; min-width: 0; height: 44px; margin: 0; padding: 0 0 10px; box-sizing: border-box; -webkit-appearance: none; appearance: none; background: transparent; }
-  #raise-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: #30363d; }
+  #raise-slider::-webkit-slider-runnable-track { height: 6px; border-radius: var(--r-3); background: var(--hud-border); }
   #raise-slider::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none; width: 28px; height: 28px; margin-top: -11px; border-radius: 50%;
-    background: var(--gold); border: 2px solid #0d1117; box-shadow: 0 0 0 1px var(--gold);
+    -webkit-appearance: none; appearance: none; width: 28px; height: 28px; margin-top: -11px; border-radius: var(--r-round);
+    background: var(--gold); border: 2px solid var(--hud-bg); box-shadow: 0 0 0 1px var(--gold);
   }
-  #raise-slider::-moz-range-track { height: 6px; border-radius: 3px; background: #30363d; }
-  #raise-slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--gold); border: 2px solid #0d1117; }
+  #raise-slider::-moz-range-track { height: 6px; border-radius: var(--r-3); background: var(--hud-border); }
+  #raise-slider::-moz-range-thumb { width: 28px; height: 28px; border-radius: var(--r-round); background: var(--gold); border: 2px solid var(--hud-bg); }
   .raise-bottom-row { grid-area: presets; display: flex; gap: 6px; align-items: stretch; margin: 4px 0; }
   .raise-presets { flex: 1; min-width: 0; display: flex; gap: 4px; }
-  .raise-presets button { flex: 1 1 0; min-width: 40px; min-height: 44px; font-size: .9rem; font-weight: 600; color: var(--text); padding: 0 2px; white-space: nowrap; border-radius: 6px; }
-  .raise-presets button[data-preset="allin"] { color: #ff9b94; }
+  .raise-presets button { flex: 1 1 0; min-width: 40px; min-height: 44px; font-size: .9rem; font-weight: 600; color: var(--text); padding: 0 2px; white-space: nowrap; border-radius: var(--r-sm); }
+  .raise-presets button[data-preset="allin"] { color: var(--red-soft); }
   .raise-amount-wrap { margin-left: 0; gap: 4px; }
   .raise-amount-input { width: 64px; height: 44px; font-size: 16px; padding: 0 4px; }
   .raise-pct { min-width: 0; font-size: .7rem; width: 3.6em; white-space: normal; line-height: 1.2; }
@@ -258,12 +258,14 @@
   /* 데스크톱 배치의 오른쪽 좌석(SB)이 화면 밖으로 나가 브라우저가 페이지 전체를 축소하던 문제(915x412에서 954px) 차단 */
   #screen-game { overflow-x: hidden; }
   #screen-game.active .m-rotate {
-    display: flex; position: fixed; inset: 0; z-index: 600; background: rgba(10,14,20,.96);
+    display: flex; position: fixed; inset: 0; z-index: 600; background: var(--bg-a96);
     flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 1.2rem; color: var(--text);
   }
   html.allow-landscape .m-rotate, html.allow-landscape #screen-game.active .m-rotate { display: none; }
   html.allow-landscape #screen-game { overflow-y: auto; }
-  html.allow-landscape .table-area { zoom: .6; flex: 0 0 auto; padding: 72px 20px 76px; }   /* 간이 배치(best-effort): 위아래로 튀어나온 좌석까지 보이게 */
+  /* 간이 배치(best-effort): 위아래로 튀어나온 좌석까지 보이게. 회전 안내 뒤(그래도 계속 전)에도 같은 배치를 써서
+     데스크톱 크기 테이블의 오른쪽 좌석(HUD, 칩 기둥)이 화면 밖으로 나가 #screen-game 가로 폭이 976px로 넘치던 문제를 막는다 */
+  #screen-game .table-area { zoom: .6; flex: 0 0 auto; padding: 72px 20px 76px; }
   html.allow-landscape .action-bar { padding: 6px 10px; }
   /* 간이 배치에서는 슬라이더 읽기 2줄과 눈금 띠를 접어 액션 버튼이 412px 높이 안에 들게 한다(읽기는 세로 화면에서 봐요) */
   html.allow-landscape #raise-info, html.allow-landscape #raise-ticks { display: none !important; }

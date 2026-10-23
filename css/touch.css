@@ -24,7 +24,7 @@ html.touch input[type=range] { touch-action: pan-y; -webkit-tap-highlight-color:
 html.touch button { -webkit-user-select: none; user-select: none; }
 /* 탭 토스트 대상(버튼이 아닌 title 요소) — 누를 수 있다는 표시 + 작은 팟 오즈 링은 누르는 범위를 6px 넓힘 */
 html.touch .pot-odds-ring, html.touch .seat-hud, html.touch .mini-cell, html.touch .hm-row { cursor: pointer; }
-html.touch .pot-odds-ring::before { content: ''; position: absolute; inset: -6px; border-radius: 50%; }
+html.touch .pot-odds-ring::before { content: ''; position: absolute; inset: -6px; border-radius: var(--r-round); }
 
 /* ── 누름 피드백 ── */
 html.touch .action-btn:active, html.touch .menu-btn:active, html.touch .drill-choice:active,
@@ -47,22 +47,22 @@ html.touch .drill-quick-close { width: 44px; height: 44px; top: 0; right: 0; }
 
 /* ── 손가락 기기의 '눌린 채 남는 hover' 무력화 — 각 원본 기본값으로 되돌림 ── */
 @media (hover: none) {
-  .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-  .card.hero-card:hover { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
+  .card:hover { transform: none; box-shadow: var(--shadow-1); }
+  .card.hero-card:hover { box-shadow: var(--shadow-gold); }
   /* 폴리시(VIS-02) 뒤 기본값 = 토큰(main.css :root). hover의 filter까지 되돌려야 탭 뒤 밝아진 채 남지 않는다 */
-  .menu-btn:hover { transform: none; box-shadow: none; filter: none; background: var(--btn-primary, linear-gradient(135deg, #1b5e2f, #25783c)); }
-  .menu-btn.secondary:hover { background: var(--btn-neutral, #21262d); }
-  .villain-opt:hover { border-color: var(--hud-border); background: #161b22; }
-  .villain-opt.gto-mirror-opt:hover { border-color: var(--gold); background: rgba(212,175,55,0.08); }
+  .menu-btn:hover { transform: none; box-shadow: none; filter: none; background: var(--btn-primary); }
+  .menu-btn.secondary:hover { background: var(--btn-neutral); }
+  .villain-opt:hover { border-color: var(--hud-border); background: var(--tile-bg); }
+  .villain-opt.gto-mirror-opt:hover { border-color: var(--gold); background: var(--gold-a08); }
   .drill-tile:hover { border-color: var(--hud-border); }
-  .fold-btn:hover { background: #4a1818; }
-  .call-btn:hover { background: #1a3a6b; }
-  .raise-btn:hover { background: #1a4a25; }
+  .fold-btn:hover { background: var(--red-btn); }
+  .call-btn:hover { background: var(--blue-btn); }
+  .raise-btn:hover { background: var(--green-btn); }
   .raise-presets button:hover { border-color: var(--hud-border); color: var(--text-dim); }
-  .gto-preset-btn:hover { background: rgba(212,175,55,0.12); }
+  .gto-preset-btn:hover { background: var(--gold-a12); }
   .coach-pre .cp-opt:not(.sel):hover { border-color: var(--hud-border); }
-  .thinking-chip:not(.on):hover { border-color: #30363d; }
-  .hm-practice-btn:hover { background: #1f2733; }
+  .thinking-chip:not(.on):hover { border-color: var(--hud-border); }
+  .hm-practice-btn:hover { background: var(--btn-neutral); }
   .history-session-header:not(.expanded):hover, .history-hand-item:not(.selected):hover { background: transparent; }
 }
 
@@ -70,8 +70,8 @@ html.touch .drill-quick-close { width: 44px; height: 44px; top: 0; right: 0; }
 #touch-tip {
   position: fixed; left: 50%; top: 12%; transform: translateX(-50%);
   width: max-content; max-width: 86vw; box-sizing: border-box;
-  background: rgba(20,20,30,0.96); color: #e6edf3; border: 1px solid #8b949e; border-radius: var(--r-md, 10px);
+  background: var(--toast-bg); color: var(--text); border: 1px solid var(--text-dim); border-radius: var(--r-md);
   padding: 10px 14px; font-size: .9rem; line-height: 1.45; white-space: normal; word-break: keep-all; overflow-wrap: anywhere;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.5); z-index: 520; pointer-events: none;
+  box-shadow: var(--shadow-2); z-index: 520; pointer-events: none;
 }
 #touch-tip[hidden] { display: none; }

@@ -17,9 +17,9 @@ html.four-color .card[data-suit="c"], html.four-color .card-face[data-suit="c"] 
 /* ── 3. 색약용 차트 ────────────────────────────────────
    밝기(상대 휘도): 콜 #e8f5e9 0.88 > 레이즈 #2e9e48 0.25 > 폴드 #5a1414 0.03.
    대비: 콜/레이즈 3.1:1, 레이즈/폴드 4.0:1, 콜/폴드 12:1. 글자도 각 칸에서 4.5:1 이상 */
-html.cb .gto-raise { background: #2e9e48; color: #04140a; }
-html.cb .gto-call { background: #e8f5e9; color: #1b3a1f; }
-html.cb .gto-fold { background: #5a1414; color: #f6dede; }
+html.cb .gto-raise { background: var(--gc-raise); color: var(--gc-raise-fg); }
+html.cb .gto-call { background: var(--call-bg); color: var(--call-fg); }
+html.cb .gto-fold { background: var(--fold-dark); color: var(--fold-fg); }
 html.cb .gto-cell { flex-direction: column; }
 html.cb .gto-cell::after { font-size: .8em; line-height: 1; opacity: .9; }
 html.cb .gto-raise::after { content: 'R'; }
@@ -63,4 +63,4 @@ html.reduce-motion .thinking-bubble { animation: none !important; }
 .a11y-prev-cards { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 8px 0 10px; }
 .a11y-prev-cards .card:hover { transform: none; }
 .a11y-prev-cells { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; }
-.a11y-prev-cells .gto-cell { width: 3rem; font-size: .8rem; border-radius: 6px; }
+.a11y-prev-cells .gto-cell { width: 3rem; font-size: .8rem; border-radius: var(--r-sm); }

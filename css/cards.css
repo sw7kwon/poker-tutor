@@ -28,9 +28,9 @@
 .card {
   width: 44px;
   height: 62px;
-  background: #fff;
-  border-radius: 5px;
-  border: 1px solid #ccc;
+  background: var(--card-bg);
+  border-radius: var(--r-5);
+  border: 1px solid var(--silver);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -38,12 +38,12 @@
   font-weight: 800;
   cursor: default;
   position: relative;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow-1);
   transition: transform 0.15s, box-shadow 0.15s;
   transform-style: preserve-3d;
   user-select: none;
 }
-.card:hover { transform: translateY(-4px); box-shadow: 0 6px 16px rgba(0,0,0,0.5); }
+.card:hover { transform: translateY(-4px); box-shadow: var(--shadow-card-hover); }
 /* 2색 모드(설정 4색 덱 끔): ♥♦ 빨강, ♠♣ 검정. 4색은 a11y.css의 html.four-color 규칙이 data-suit로 덮는다 */
 .card.red, .card-face.red { color: var(--suit-h-light); }
 .card.black, .card-face.black { color: var(--suit-s-light); }
@@ -57,7 +57,7 @@
    넉넉한 카드는 상한이 닿지 않아 그대로이고, 컨테이너 단위를 모르는 브라우저는 위의 .95em, 1.15em을 쓴다 */
 .card[data-suit] > .card-rank { font-size: min(.95em, 100cqi * .95 / 2.3); }
 .card[data-suit] > .card-pip { font-size: min(1.15em, 100cqi * 1.15 / 2.3); }
-.card.hero-card { box-shadow: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,0.4); }
+.card.hero-card { box-shadow: var(--shadow-gold); }
 .card.back {
   background: linear-gradient(135deg, #1a3a8a 25%, #0d2060 25%);
   background-size: 8px 8px;

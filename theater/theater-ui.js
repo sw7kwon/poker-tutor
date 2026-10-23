@@ -20,6 +20,7 @@
 //     끝까지 본 편만 센다.
 //   showCard({card, onDone}) → bool: 명장면 카드 1장 창(오늘의 명장면 블록용). cardHTML(card) → string(순수). active() → bool.
 //   next(), pick('action'|'plan', 값), skip(), togglePause(), toggleSpeed(), exit(): 화면 버튼과 같은 동작(키보드, 테스트).
+//   abort() → bool: 화면 전환 방어(App.showScreen이 게임 화면 밖으로 갈 때, App 새 핸드 시작 때). 조용히 끝내고 남은 극장 표시를 지운다.
 //   delayMs(speed, reduced), chipsHTML(stop), stripHTML(lines), barHTML(model): 순수 문자열/수치(node 테스트).
 //   refresh(): 화면 다시 그리기(App.toggleEq가 '모두 승률' 토글 뒤 부른다). 좌석별 승률(TABLE-03b)은 _seatEq 머리 주석.
 // M6-MINI(로드맵 M6 계약 H7): 미니시즌(캐스트 6인 싯앤고 3편, 하루 1편)
@@ -644,6 +645,19 @@ var TheaterUI = (function() {
     return r.speed;
   }
   function exit() { if (!_r) return false; _finish('exit'); return true; }
+  // (final 3번) 화면 전환 방어: 극장을 끝내지 않고 App.showMenu나 다른 화면으로 나가거나 새 테이블을 열면 App이 부른다.
+  // 진행 중이면 조용히 끝낸다(onDone, 홈 이동 없음. 끝까지 본 편의 기록은 이미 저장됨). 진행이 없어도 게임 화면에 남은
+  // 극장 표시(th-on, th-stop 클래스, #th-root)를 지운다. 무언가 정리했으면 true
+  function abort() {
+    if (_r) { _finish('abort'); return true; }
+    if (!_hasDom()) return false;
+    var sc = _el('screen-game'), root = _el('th-root'), hit = false;
+    if (sc && sc.classList && (sc.classList.contains('th-on') || sc.classList.contains('th-stop'))) {
+      sc.classList.remove('th-on'); sc.classList.remove('th-stop'); hit = true;
+    }
+    if (root && root.parentNode) { root.parentNode.removeChild(root); hit = true; }
+    return hit;
+  }
 
   function _nextEpisode(r) {
     _closeEpCard(r);
@@ -1105,7 +1119,7 @@ var TheaterUI = (function() {
     _unmount(r);
     var res = { episodes: r.res.episodes, predicted: r.res.predicted, hit: r.res.hit, hitW: Math.round(r.res.hitW * 1000) / 1000, cards: r.res.cards.slice() };
     if (r.res.mini) res.mini = r.res.mini;   // 미니시즌 편 { id, no, done, winner, pick, hit }
-    if (reason === 'replaced') return;
+    if (reason === 'replaced' || reason === 'abort') return;
     if (r.onDone) { try { r.onDone(res); } catch (e) { _warn('onDone', e); } }
     else _goHome();
     // onDone이 화면을 바꾸지 않았으면 여정 홈으로(게임 화면에 극장 잔상이 남지 않게)
@@ -1561,7 +1575,7 @@ var TheaterUI = (function() {
     open: open, start: start, showCard: showCard, cardHTML: cardHTML, active: active,
     miniStatus: miniStatus, openMini: openMini, homeCard: homeCard, pickWinner: pickWinner,
     MINI_STOP_HAND: MINI_STOP_HAND, MINI_STOP_EP: MINI_STOP_EP,
-    next: next, pick: pick, skip: skip, togglePause: togglePause, toggleSpeed: toggleSpeed, exit: exit,
+    next: next, pick: pick, skip: skip, togglePause: togglePause, toggleSpeed: toggleSpeed, exit: exit, abort: abort,
     refresh: _render,
     delayMs: delayMs, chipsHTML: chipsHTML, stripHTML: stripHTML, barHTML: barHTML, panelHTML: panelHTML,
     actionLabel: actionLabel, planKor: planKor,

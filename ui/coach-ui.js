@@ -442,6 +442,13 @@ var CoachUI = (function() {
     if (_toastTimer) clearTimeout(_toastTimer);
     _toastTimer = setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, ms || 2000);
   }
+  // 판정 토스트 닫기(새 핸드 시작). 지운 개수(0 또는 1)
+  function _closeToast() {
+    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+    var t = _el('coach-toast');
+    if (t && t.parentNode) { t.parentNode.removeChild(t); return 1; }
+    return 0;
+  }
 
   // ── 초기화 ──
   function _init() {
@@ -471,6 +478,7 @@ var CoachUI = (function() {
     _hideEl('last-verdict');
     _hideEl('coach-pre');
     _hideEl('coach-reminder');
+    _closeToast();   // 앞 핸드의 판정 토스트(최대 3.5초)가 빨리 끝난 핸드 뒤 새 핸드 위에 남지 않게(새 판정은 _toast가 다시 띄운다)
     _remOpen = false;
     _renderLine(null);
     _updateToggleLabel();

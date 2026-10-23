@@ -18,9 +18,7 @@
   background: radial-gradient(ellipse at center, var(--felt-light) 0%, var(--felt) 70%);
   border: 14px solid var(--wood);
   box-shadow:
-    0 0 0 4px #6b3f10,
-    0 20px 60px rgba(0,0,0,0.8),
-    inset 0 2px 8px rgba(255,255,255,0.05);
+    var(--shadow-table);
 }
 
 .table-felt {
@@ -39,8 +37,8 @@
   gap: 10px;
   position: relative;
   z-index: 6; /* 위쪽 좌석의 액션 말풍선이 POT 숫자를 덮지 않게(1366x768 6인) */
-  background: rgba(10,14,20,0.55);
-  border-radius: 14px;
+  background: var(--bg-a55);
+  border-radius: var(--r-lg);
   padding: 2px 10px;
 }
 .pot-display {
@@ -48,15 +46,15 @@
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold);
-  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  text-shadow: 0 1px 4px var(--black-a50);
 }
 
 /* 팟 오즈 링 */
 .pot-odds-ring {
   width: 34px;
   height: 34px;
-  border-radius: 50%;
-  background: conic-gradient(var(--ring-color, #52b75e) var(--ring-pct, 0%), #1a1f28 var(--ring-pct, 0%));
+  border-radius: var(--r-round);
+  background: conic-gradient(var(--ring-color, var(--green-mid)) var(--ring-pct, 0%), #1a1f28 var(--ring-pct, 0%));
   position: relative;
   align-items: center;
   justify-content: center;
@@ -66,15 +64,15 @@
   content: '';
   position: absolute;
   inset: 6px;
-  border-radius: 50%;
-  background: rgba(10,14,20,0.96);
+  border-radius: var(--r-round);
+  background: var(--bg-a96);
 }
 .pot-odds-pct-label {
   position: relative;
   z-index: 1;
   font-size: 0.56rem;
   font-weight: 800;
-  color: #e6edf3;
+  color: var(--text);
   letter-spacing: -0.02em;
 }
 
@@ -87,16 +85,16 @@
 
 .hand-info {
   font-size: 0.85rem;
-  color: rgba(255,255,255,0.72);
+  color: var(--white-a72);
 }
 
 /* 자리 배치 — 6-max 타원 */
 .seat {
   position: absolute;
   width: 110px;
-  background: rgba(0,0,0,0.55);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 10px;
+  background: var(--black-a55);
+  border: 1px solid var(--white-a12);
+  border-radius: var(--r-md);
   padding: 8px 14px 8px 8px;
   text-align: center;
   font-size: 0.78rem;
@@ -110,15 +108,15 @@
   top: 8px;
   bottom: 8px;
   width: 4px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 2px;
+  background: var(--white-a08);
+  border-radius: var(--r-2);
 }
 .seat-stack-fill {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  border-radius: 2px;
+  border-radius: var(--r-2);
   transition: height 0.4s ease;
 }
 
@@ -130,14 +128,14 @@
 .seat-sb  { right: -120px; top: 50%; transform: translateY(-50%); }
 .seat-co  { left: -120px; top: 50%; transform: translateY(-50%); }
 
-.seat.hero { border-color: var(--gold); background: rgba(212,175,55,0.12); }
-.seat.active-turn { border-color: var(--blue); box-shadow: 0 0 12px rgba(88,166,255,0.4); }
+.seat.hero { border-color: var(--gold); background: var(--gold-a12); }
+.seat.active-turn { border-color: var(--blue); box-shadow: 0 0 12px var(--blue-a40); }
 .seat.folded { opacity: 0.35; }
 
 .seat-name { font-weight: 700; color: var(--text); margin-bottom: 4px; }
-.seat-pos  { font-size: 0.7rem; color: #c9d1d9; font-weight: 600; letter-spacing: 0.04em; }
+.seat-pos  { font-size: 0.7rem; color: var(--text-soft); font-weight: 600; letter-spacing: 0.04em; }
 .seat-stack { color: var(--gold); font-weight: 600; font-variant-numeric: tabular-nums; }
-.seat-bet  { color: #f2cc60; border-color: rgba(212,175,55,.7); background: rgba(0,0,0,.6); font-size: 0.75rem; } /* 돈=금색, 빨강은 실수와 패배 전용 */
+.seat-bet  { color: var(--amber-text); border-color: var(--gold-a70); background: var(--black-a60); font-size: 0.75rem; } /* 돈=금색, 빨강은 실수와 패배 전용 */
 .seat-cards { display: flex; gap: 4px; justify-content: center; margin-top: 6px; min-height: 28px; }
 .seat-action { font-size: 0.75rem; color: var(--green); margin-top: 2px; }
 
@@ -147,9 +145,9 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(0,0,0,0.92);
+  background: var(--black-a92);
   border: 2px solid var(--gold);
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   padding: 18px 44px;
   text-align: center;
   z-index: 30;
@@ -158,8 +156,8 @@
   animation: result-pop 0.35s ease;
   pointer-events: none;
 }
-.result-banner-title { width: 18px; height: 18px; border-radius: 50%; margin: 0 auto 8px; }
-.result-banner-sub   { font-size: 0.92rem; color: #c9d1d9; margin-top: 0; }
+.result-banner-title { width: 18px; height: 18px; border-radius: var(--r-round); margin: 0 auto 8px; }
+.result-banner-sub   { font-size: 0.92rem; color: var(--text-soft); margin-top: 0; }
 @keyframes result-pop {
   from { opacity: 0; transform: translate(-50%, -58%) scale(0.88); }
   to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -167,7 +165,7 @@
 
 /* 핸드 종료 액션 버튼 바 */
 .result-actions-bar {
-  background: #0d1117;
+  background: var(--hud-bg);
   border-top: 1px solid var(--hud-border);
   padding: 12px 40px;
   gap: 16px;
@@ -183,11 +181,11 @@
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(13,17,23,0.85);
+  background: var(--hud-a85);
   border: 1px solid var(--hud-border);
   color: var(--text-dim);
   padding: 5px 12px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   font-size: 0.8rem;
   z-index: 20;
@@ -203,9 +201,9 @@
   right: 8px;
   bottom: 8px;
   width: 260px;
-  background: rgba(13,17,23,0.96);
+  background: var(--hud-a96);
   border: 1px solid var(--hud-border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 12px 16px;
   z-index: 19;
   display: flex;
@@ -224,14 +222,14 @@
 .equity-bar {
   flex: 1;
   height: 10px;
-  background: #21262d;
-  border-radius: 5px;
+  background: var(--btn-neutral);
+  border-radius: var(--r-5);
   overflow: hidden;
 }
 .equity-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1f6b35, var(--blue));
-  border-radius: 5px;
+  background: linear-gradient(90deg, var(--green-deep), var(--blue));
+  border-radius: var(--r-5);
   transition: width 0.4s ease;
 }
 .equity-value { font-size: 0.9rem; font-weight: 700; color: var(--blue); width: 42px; }
@@ -274,9 +272,9 @@
   bottom: 8px;
   right: 276px;
   width: max(190px, 11.875rem);   /* 190px, 글자 크기 115/130%면 칸도 커져 손 이름이 칸을 넘지 않음 */
-  background: rgba(13,17,23,0.96);
+  background: var(--hud-a96);
   border: 1px solid var(--hud-border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 8px;
   z-index: 19;
   display: flex;
@@ -292,7 +290,7 @@
   display: grid;
   grid-template-columns: repeat(13, 1fr);
   gap: 1px;
-  background: #000;
+  background: var(--black);
 }
 .gto-cell {
   aspect-ratio: 1;
@@ -303,19 +301,19 @@
   line-height: 1;
   font-weight: 700;
 }
-.gto-raise { background: #1e7d32; color: #eafaf0; }
-.gto-call  { background: #e8f5e9; color: #1b3a1f; }
-.gto-fold  { background: #8e2f2f; color: #f6dede; }
-.gto-none  { background: #3a3f47; color: #8b949e; }
+.gto-raise { background: var(--raise-bg); color: var(--green-pale); }
+.gto-call  { background: var(--call-bg); color: var(--call-fg); }
+.gto-fold  { background: var(--fold-bg); color: var(--fold-fg); }
+.gto-none  { background: var(--none-bg); color: var(--text-dim); }
 .gto-cell.hero-cell {
-  box-shadow: inset 0 0 0 2px #ffd54a, 0 0 6px 2px rgba(255,213,74,0.7);
+  box-shadow: inset 0 0 0 2px var(--hl), 0 0 6px 2px var(--hl-a70);
 }
 .gto-chart-legend { font-size: 0.62rem; color: var(--text-dim); text-align: center; line-height: 1.4; }
 .gto-chart-empty { font-size: 0.75rem; color: var(--text-dim); text-align: center; padding: 20px 4px; }
 
 /* 액션 바 */
 .action-bar {
-  background: #0d1117;
+  background: var(--hud-bg);
   border-top: 1px solid var(--hud-border);
   padding: 12px 40px;
   display: flex;
@@ -331,25 +329,25 @@
   padding: 10px 24px;
   font-size: 0.95rem;
   font-weight: 700;
-  background: #21262d;
+  background: var(--btn-neutral);
   color: var(--text);
   border: 1px solid var(--hud-border);
-  border-radius: var(--r-md, 10px);
+  border-radius: var(--r-md);
   min-height: 44px;
   cursor: pointer;
   transition: all 0.15s;
 }
 /* '▶ 다음 핸드'만 초록 금테(결과바에서 가장 눌러야 할 버튼) */
 #btn-next-round {
-  background: var(--btn-primary, linear-gradient(135deg, #1b5e2f, #25783c));
-  border-color: var(--btn-primary-border, var(--gold));
-  color: #fff;
+  background: var(--btn-primary);
+  border-color: var(--btn-primary-border);
+  color: var(--white);
 }
-.fold-btn { background: #4a1818; color: #ff6b6b; }
-.fold-btn:hover { background: #6b2020; }
-.call-btn { background: #1a3a6b; color: #6baaff; }
+.fold-btn { background: var(--red-btn); color: var(--red-bright); }
+.fold-btn:hover { background: #6b2020; }   /* 폴드, 콜, 레이즈 버튼의 hover 색과 레이즈 글자는 이 버튼만의 고유 색이라 토큰 없이 둔다 */
+.call-btn { background: var(--blue-btn); color: var(--blue-2); }
 .call-btn:hover { background: #234e8c; }
-.raise-btn { background: #1a4a25; color: #6bdc8a; }
+.raise-btn { background: var(--green-btn); color: #6bdc8a; }
 .raise-btn:hover { background: #236632; }
 
 .raise-controls { display: flex; flex-direction: column; gap: 6px; flex: 1; }
@@ -357,22 +355,22 @@
 .raise-bottom-row { display: flex; align-items: center; gap: 10px; }
 .raise-presets { display: flex; gap: 6px; }
 .raise-presets button {
-  background: #21262d;
+  background: var(--btn-neutral);
   min-height: 32px;
   color: var(--text-dim);
   border: 1px solid var(--hud-border);
   padding: 3px 8px;
   font-size: 0.75rem;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   cursor: pointer;
 }
 .raise-presets button:hover { border-color: var(--gold); color: var(--gold); }
 .raise-amount-wrap { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .raise-amount-input {
   width: 68px;
-  background: #161b22;
+  background: var(--tile-bg);
   border: 1px solid var(--hud-border);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   color: var(--gold);
   font-size: 1rem;
   font-weight: 700;
@@ -381,7 +379,7 @@
 }
 .raise-amount-input:focus { outline: none; border-color: var(--gold); }
 .raise-unit { color: var(--text-dim); font-size: 0.85rem; }
-.raise-pct { color: #58a6ff; font-size: 0.8rem; font-weight: 600; white-space: nowrap; min-width: 70px; }
+.raise-pct { color: var(--blue); font-size: 0.8rem; font-weight: 600; white-space: nowrap; min-width: 70px; }
 .raise-presets button.on { border-color: var(--gold); color: var(--gold); }
 
 /* R3 슬라이더 눈금 띠와 실시간 읽기 2줄(R7 배치, 내용은 RaiseInfo가 결정 때만 채움).
@@ -394,7 +392,7 @@
 
 /* GTO 미러 해설 패널 */
 .gto-commentary-panel {
-  background: #0a0e14;
+  background: var(--bg);
   border-top: 2px solid var(--gold);
   padding: 10px 24px 12px 16px;
   max-width: 860px;
@@ -412,12 +410,12 @@
   line-height: 1.9;
   letter-spacing: 0.01em;
   text-align: left;
-  color: #8b949e;
+  color: var(--text-dim);
 }
-.gto-line:nth-child(1) { color: #c9d1d9; }
-.gto-line:nth-child(2) { color: #6aabdf; }
-.gto-line:nth-child(3) { color: #52b75e; }
-.gto-line:nth-child(4) { color: #d4b000; font-weight: 600; }
+.gto-line:nth-child(1) { color: var(--text-soft); }
+.gto-line:nth-child(2) { color: var(--blue-muted); }
+.gto-line:nth-child(3) { color: var(--green-mid); }
+.gto-line:nth-child(4) { color: #d4b000; font-weight: 600; }   /* 해설 4, 5번째 줄 색은 이 패널만의 고유 색 */
 .gto-line:nth-child(5) { color: #d4853d; }
 .gto-line b { color: inherit; }
 
@@ -439,12 +437,12 @@
 .result-dot-lg {
   width: 26px;
   height: 26px;
-  border-radius: 50%;
+  border-radius: var(--r-round);
   flex-shrink: 0;
 }
 .result-signal-label {
   font-size: 0.72rem;
-  color: #8b949e;
+  color: var(--text-dim);
   letter-spacing: 0.02em;
 }
 .hand-result-review {
@@ -453,23 +451,23 @@
   flex-direction: column;
   gap: 3px;
 }
-.review-line         { font-size: 0.83rem; color: #c9d1d9; line-height: 1.65; }
+.review-line         { font-size: 0.83rem; color: var(--text-soft); line-height: 1.65; }
 .review-cards-line   { font-size: 0.9rem; }
-.review-path-line    { color: #8b949e; font-size: 0.78rem; }
-.review-gto-line     { color: #6aabdf; }
-.review-detail-line  { color: #8b949e; font-size: 0.78rem; }
-.review-advice-line  { color: #e3b341; font-size: 0.8rem; }
+.review-path-line    { color: var(--text-dim); font-size: 0.78rem; }
+.review-gto-line     { color: var(--blue-muted); }
+.review-detail-line  { color: var(--text-dim); font-size: 0.78rem; }
+.review-advice-line  { color: var(--warn); font-size: 0.8rem; }
 
 /* GTO 이유 패널 (클릭 후 표시) */
 .gto-reason-panel {
   width: 210px;
   flex-shrink: 0;
-  border-left: 1px solid rgba(212,175,55,0.3);
+  border-left: 1px solid var(--gold-a30);
   padding-left: 14px;
 }
 .gto-reason-line {
   font-size: 0.78rem;
-  color: #6e7681;
+  color: var(--border-mute);
   line-height: 1.8;
   text-align: left;
 }
@@ -484,33 +482,33 @@
 }
 .gto-preset-btn {
   flex: 1;
-  background: rgba(212,175,55,0.12);
+  background: var(--gold-a12);
   border: 1px solid var(--gold);
   color: var(--gold);
   font-size: 0.82rem;
   font-weight: 700;
   padding: 5px 10px;
-  border-radius: 5px;
+  border-radius: var(--r-5);
   cursor: pointer;
   transition: background 0.15s;
 }
-.gto-preset-btn:hover { background: rgba(212,175,55,0.25); }
+.gto-preset-btn:hover { background: var(--gold-a25); }
 .gto-reason-toggle {
   flex-shrink: 0;
-  background: rgba(212,175,55,0.08);
-  border: 1px solid rgba(212,175,55,0.4);
+  background: var(--gold-a08);
+  border: 1px solid var(--gold-a40);
   color: var(--gold);
   font-size: 0.78rem;
   width: 28px;
   height: 28px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
 }
-.gto-reason-toggle:hover { background: rgba(212,175,55,0.22); }
+.gto-reason-toggle:hover { background: var(--gold-a22); }
 
 /* GTO 추천 버튼 플래시 */
 @keyframes gto-flash {
@@ -522,18 +520,18 @@
 /* GTO 미러 선택 버튼 강조 */
 .villain-opt.gto-mirror-opt {
   border-color: var(--gold);
-  background: rgba(212,175,55,0.08);
+  background: var(--gold-a08);
 }
 .villain-opt.gto-mirror-opt .opt-title { color: var(--gold); }
 
 /* ── 8차 WP5: 좌석 성향 HUD, 히어로 신호등 점, 1366 레이아웃 ── */
-.seat-hud { font-size: .68rem; color: #8b949e; line-height: 1.3; margin: 2px -10px 0 -6px; white-space: nowrap; }
+.seat-hud { font-size: .68rem; color: var(--text-dim); line-height: 1.3; margin: 2px -10px 0 -6px; white-space: nowrap; }
 .seat-style-chip {
   display: inline-block; font-size: .6rem; padding: 0 5px; margin-top: 2px;
-  border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; background: rgba(48,54,61,.6);
+  border: 1px solid var(--hud-border); border-radius: var(--r-8); color: var(--text); background: var(--border-a60);
 }
 .hero-light-dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; width: 8px; height: 8px; border-radius: var(--r-round);
   margin-right: 4px; vertical-align: middle;
 }
 /* min-height 가드: 가로로 눕힌 폰(높이 500 이하, 915x412 등)에 데스크톱 축소 배치가 걸리던 오작동 차단. 낮은 노트북 창(1280x720 화면 등)은 그대로 축소 */
@@ -547,8 +545,8 @@
 /* ── 승률 칩 2종(내 승률, 모두 승률)과 좌석 승률 배지(폴리시 TABLE-01, 02) ── */
 #eq-chips { position: absolute; top: 6px; right: 8px; z-index: 20; display: flex; gap: 6px; }
 .eq-chip {
-  min-height: 44px; min-width: 44px; padding: 0 10px; border-radius: 999px; font-size: .74rem; cursor: pointer;
-  background: rgba(13,17,23,.85); border: 1px solid var(--hud-border); color: var(--text-dim);
+  min-height: 44px; min-width: 44px; padding: 0 10px; border-radius: var(--r-pill); font-size: .74rem; cursor: pointer;
+  background: var(--hud-a85); border: 1px solid var(--hud-border); color: var(--text-dim);
 }
 .eq-chip[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
 #screen-game.th-on .eq-chip[data-eq="mine"] { display: none; }

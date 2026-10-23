@@ -1,8 +1,8 @@
-.gto-report { padding: 16px; background: #0d1117; border-radius: 8px; }
+.gto-report { padding: 16px; background: var(--hud-bg); border-radius: var(--r-8); }
 .gto-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 0.85rem; }
 .gto-street { color: var(--text-dim); width: 50px; }
-.gto-bar-bg { flex: 1; height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
-.gto-bar-fill { height: 100%; border-radius: 4px; }
+.gto-bar-bg { flex: 1; height: 8px; background: var(--btn-neutral); border-radius: var(--r-xs); overflow: hidden; }
+.gto-bar-fill { height: 100%; border-radius: var(--r-xs); }
 .gto-signal { font-size: 1rem; }
 .decisions-review { padding: 12px; max-height: 200px; overflow-y: auto; }
 .decision-row { padding: 8px 0; border-bottom: 1px solid var(--hud-border); font-size: 0.85rem; }
@@ -12,9 +12,9 @@
 /* ── 8차 WP3: 인게임 코칭 UI ── */
 .equity-panel { overflow-y: auto; }
 .last-verdict {
-  border-left: 4px solid #8b949e;
-  background: rgba(139,148,158,0.08);
-  border-radius: 4px;
+  border-left: 4px solid var(--text-dim);
+  background: var(--dim-a08);
+  border-radius: var(--r-xs);
   padding: 6px 8px;
   font-size: 0.85rem;
   line-height: 1.45;
@@ -24,17 +24,17 @@
 .last-verdict .lv-line2 { color: var(--text); }
 .last-verdict .lv-extra,
 .last-verdict .lv-pred { color: var(--text-dim); font-size: 0.8rem; }
-.last-verdict.lv-green  { border-left-color: #52b75e; }
-.last-verdict.lv-green .lv-line1 { color: #52b75e; }
-.last-verdict.lv-yellow { border-left-color: #e3b341; }
-.last-verdict.lv-yellow .lv-line1 { color: #e3b341; }
-.last-verdict.lv-red    { border-left-color: #f85149; }
-.last-verdict.lv-red .lv-line1 { color: #f85149; }
+.last-verdict.lv-green  { border-left-color: var(--green-mid); }
+.last-verdict.lv-green .lv-line1 { color: var(--green-mid); }
+.last-verdict.lv-yellow { border-left-color: var(--warn); }
+.last-verdict.lv-yellow .lv-line1 { color: var(--warn); }
+.last-verdict.lv-red    { border-left-color: var(--red); }
+.last-verdict.lv-red .lv-line1 { color: var(--red); }
 .coach-reminder {
-  border: 1px solid rgba(227,179,65,0.55);
-  background: rgba(227,179,65,0.08);
-  color: #e3b341;
-  border-radius: 4px;
+  border: 1px solid var(--warn-a55);
+  background: var(--warn-a08);
+  color: var(--warn);
+  border-radius: var(--r-xs);
   padding: 5px 8px;
   font-size: 0.78rem;
   line-height: 1.4;
@@ -42,7 +42,7 @@
 }
 .coach-pre {
   border: 1px solid var(--hud-border);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 6px 8px;
   font-size: 0.8rem;
   flex-shrink: 0;
@@ -54,28 +54,28 @@
 .coach-pre .cp-qt { margin-bottom: 3px; color: var(--text-dim); }
 .coach-pre .cp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .coach-pre .cp-opt {
-  background: #21262d; color: var(--text); border: 1px solid var(--hud-border);
-  border-radius: 4px; padding: 3px 2px; font-size: 0.72rem; cursor: pointer;
+  background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border);
+  border-radius: var(--r-xs); padding: 3px 2px; font-size: 0.72rem; cursor: pointer;
 }
 .coach-pre .cp-opt:hover { border-color: var(--blue); }
 .coach-pre .cp-opt.sel { border-color: var(--gold); color: var(--gold); font-weight: 700; }
 .coach-pre .cp-hint {
   width: 100%; background: transparent; color: var(--gold); border: 1px dashed var(--gold);
-  border-radius: 4px; padding: 3px 6px; font-size: 0.78rem; cursor: pointer;
+  border-radius: var(--r-xs); padding: 3px 6px; font-size: 0.78rem; cursor: pointer;
 }
 .coach-pre .cp-hint-used { color: var(--text-dim); font-size: 0.75rem; }
 .coach-level-row { margin: 12px 0; color: var(--text-dim); font-size: 0.9rem; text-align: center; }
 .coach-level-row select {
-  background: #21262d; color: var(--text); border: 1px solid var(--hud-border);
-  border-radius: 4px; padding: 4px 6px; font-size: 0.85rem;
+  background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border);
+  border-radius: var(--r-xs); padding: 4px 6px; font-size: 0.85rem;
 }
 
 /* ── R7(G2 DOCK): 판정 띠 #coach-line(CoachUI가 채움), 패널 순서, 접기 버튼 ── */
 .coach-line { display: flex; align-items: stretch; gap: 6px; flex-shrink: 0; }
 .coach-line .cl-main {
   flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px;
-  padding: 4px 10px; box-sizing: border-box; border: 1px solid var(--hud-border); border-left: 4px solid #8b949e;
-  border-radius: 8px; background: #161b22; color: var(--text); font: inherit; text-align: left;
+  padding: 4px 10px; box-sizing: border-box; border: 1px solid var(--hud-border); border-left: 4px solid var(--text-dim);
+  border-radius: var(--r-8); background: var(--tile-bg); color: var(--text); font: inherit; text-align: left;
 }
 .coach-line button.cl-main { cursor: pointer; }
 .coach-line button.cl-main:focus-visible, .coach-line .cl-hint:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
@@ -83,7 +83,7 @@
 .coach-line .cl-sub { flex: 1 1 0; min-width: 0; font-size: .8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .coach-line .cl-go { flex: none; margin-left: auto; font-size: 1.05rem; font-weight: 700; color: var(--text); }
 .coach-line .cl-hint {
-  flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border: 1px dashed var(--gold); border-radius: 8px;
+  flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border: 1px dashed var(--gold); border-radius: var(--r-8);
   background: transparent; color: var(--gold); font-size: 1.15rem; cursor: pointer;
 }
 /* 데스크톱 패널(폭 260px) 안에서는 한 줄 말줄임 대신 접어 쓴다: 추천과 크기 + ▸ 한 줄, 기준은 아랫줄(세로 폰 도크는 1줄 44px 그대로) */
@@ -91,19 +91,19 @@
 .equity-panel > .coach-line .cl-text { flex: 1 1 0; white-space: normal; }
 .equity-panel > .coach-line .cl-sub { order: 3; flex: 1 0 100%; }
 /* 추천(L0, 💡 뒤): 금색 1rem 굵게 */
-.coach-line.cl-rec .cl-main { border-color: rgba(212,175,55,.55); border-left-color: var(--gold); background: rgba(212,175,55,.10); }
+.coach-line.cl-rec .cl-main { border-color: var(--gold-a55); border-left-color: var(--gold); background: var(--gold-a10); }
 .coach-line.cl-rec .cl-text { color: var(--gold); font-size: 1rem; }
 .coach-line.cl-rec .cl-sub { color: #c9b26a; }
 /* 먼저 판단(L1), 예측(L2): 파랑 띠, 실전(L3): 회색 띠 */
 .coach-line.cl-think .cl-main, .coach-line.cl-pred .cl-main { border-left-color: var(--blue); }
-.coach-line.cl-real .cl-main { border-left-color: #8b949e; }
+.coach-line.cl-real .cl-main { border-left-color: var(--text-dim); }
 /* 결정 뒤 신호등(색 + 아이콘 + 글자) */
-.coach-line.cl-green .cl-main  { border-left-color: #52b75e; background: rgba(82,183,94,.10); }
-.coach-line.cl-green .cl-text  { color: #52b75e; }
-.coach-line.cl-yellow .cl-main { border-left-color: #e3b341; background: rgba(227,179,65,.10); }
-.coach-line.cl-yellow .cl-text { color: #e3b341; }
-.coach-line.cl-red .cl-main    { border-left-color: #f85149; background: rgba(248,81,73,.10); }
-.coach-line.cl-red .cl-text    { color: #ff7b72; }
+.coach-line.cl-green .cl-main  { border-left-color: var(--green-mid); background: var(--green-a10); }
+.coach-line.cl-green .cl-text  { color: var(--green-mid); }
+.coach-line.cl-yellow .cl-main { border-left-color: var(--warn); background: var(--warn-a10); }
+.coach-line.cl-yellow .cl-text { color: var(--warn); }
+.coach-line.cl-red .cl-main    { border-left-color: var(--red); background: var(--red-a10); }
+.coach-line.cl-red .cl-text    { color: var(--red-2); }
 .coach-line.cl-green .cl-sub, .coach-line.cl-yellow .cl-sub, .coach-line.cl-red .cl-sub { color: var(--text); }
 
 /* 데스크톱 패널: 판정 상세가 펼쳐진 채로 쌓이므로(설명 몸통 스크롤 대신) 패널 자체를 스크롤. 세로 폰 도크는 mobile.css가 overflow: visible */
@@ -132,9 +132,9 @@
 /* 접기 버튼(HUD가 끼움): 숫자 보기는 폰에서만 보임(데스크톱은 EV 표 늘 펼침), 용어는 둘 다 접힘이 기본 */
 .hud-fold {
   flex-shrink: 0; min-height: 44px; width: 100%; padding: 0 10px; text-align: left; cursor: pointer;
-  background: #161b22; color: var(--text); border: 1px solid var(--hud-border); border-radius: 8px; font-size: .85rem; font-weight: 600;
+  background: var(--tile-bg); color: var(--text); border: 1px solid var(--hud-border); border-radius: var(--r-8); font-size: .85rem; font-weight: 600;
 }
-.hud-fold[aria-expanded="true"] { border-color: rgba(212,175,55,.6); }
+.hud-fold[aria-expanded="true"] { border-color: var(--gold-a60); }
 #ev-fold { display: none; }
 .equity-panel:not(.gl-open) .beginner-glossary { display: none; }
 .equity-panel .beginner-glossary { margin-top: 0; opacity: 1; font-size: .8rem; color: var(--text); border-top: none; padding-top: 0; line-height: 1.5; }

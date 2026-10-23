@@ -3,12 +3,12 @@
    색은 css/journey.css, css/main.css의 토큰(--gold, --text, --text-dim, --hud-border)을 쓰고 색 + 글자 + 아이콘을 함께 쓴다. */
 
 /* ── UX-06 빌런 선택 화면 맨 위 '▶ 바로 시작(지난번: ...)' (app.js _syncQuickStart가 JS로 1회 삽입) ── */
-.villain-opt.quick-start-opt { border-color: rgba(212,175,55,.75); background: rgba(212,175,55,.08); }
+.villain-opt.quick-start-opt { border-color: var(--gold-a75); background: var(--gold-a08); }
 .villain-opt.quick-start-opt .opt-title { color: var(--gold); }
 .villain-opt.quick-start-opt .opt-desc { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
 /* 데스크톱 가로 배치(.villain-options가 flex-wrap)에서는 한 줄을 다 차지해 맨 위에 보인다 */
 .villain-options .quick-start-opt { flex: 1 1 100%; }
-@media (hover: hover) { .villain-opt.quick-start-opt:hover { background: rgba(212,175,55,.16); } }
+@media (hover: hover) { .villain-opt.quick-start-opt:hover { background: var(--gold-a16); } }
 
 /* ── UX-09 신규 사용자 상단: 배지와 ⚙만(숫자 줄 없음). 줄 높이는 그대로 44px 이상 ── */
 .j-top.j-top-new .j-top-row { min-height: 48px; }
@@ -17,7 +17,7 @@
 /* ── UX-11 현재 단계의 통과 노드 접기: 경로 맨 위 44px 버튼(★ 아이콘 + 글자, 펼치면 ▴ 접기) ── */
 .j-step.j-fold { margin: 2px 0 6px; }
 .j-fold-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 10px 6px 14px; cursor: pointer;
-  border-radius: 999px; background: #161b22; color: var(--text); border: 1px dashed rgba(212,175,55,.55); font: inherit; font-size: .9rem; text-align: left; }
+  border-radius: var(--r-pill); background: var(--tile-bg); color: var(--text); border: 1px dashed var(--gold-a55); font: inherit; font-size: .9rem; text-align: left; }
 .j-fold-btn .j-fold-ic { flex: 0 0 auto; width: 24px; text-align: center; color: var(--gold); font-size: 1.05rem; line-height: 1; }
 .j-fold-btn .j-fold-t { flex: 1 1 auto; min-width: 0; }
 .j-fold-btn[aria-expanded="true"] { border-style: solid; }

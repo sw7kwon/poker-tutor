@@ -1,35 +1,253 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── 디자인 토큰(VIS-03, 클라우드 B'). css 폴더의 색, 반경, 그림자는 여기 이름으로 쓴다(var(--이름), 폴백 없이).
+   예외(자기 파일에 둔다): 카드 무늬 --suit-*(cards.css), 큰 차트 칸 --gc-*(chart.css), 칩 그림 단위 색(chips.css), 외형 해금 색(collection.css),
+   한 곳에서만 쓰는 고유 색(레슨 포지션 층, 달력 단계, 데일리 5 등급, hover 색). 값을 바꾸면 화면 전체가 바뀌므로
+   새 색을 더할 때는 같은 뜻의 토큰이 없는지 먼저 본다. 목록과 쓰는 법은 README '디자인 토큰' 절. ── */
 :root {
-  --felt: #1a472a;
-  --felt-light: #2d6a40;
-  --wood: #4a2c0a;
-  --gold: #d4af37;
-  --card-bg: #fff;
-  --hud-bg: #0d1117;
-  --hud-border: #30363d;
-  --text: #e6edf3;
-  --text-dim: #8b949e;
-  --green: #3fb950;
-  --red: #f85149;
-  --blue: #58a6ff;
+  /* 테이블 */
+  --felt: #1a472a;          /* 펠트(외형 해금 cos-table-*가 덮는다) */
+  --felt-light: #2d6a40;    /* 펠트 가운데 밝은 부분 */
+  --wood: #4a2c0a;          /* 테이블 나무 테두리 */
+  --wood-light: #6b3f10;    /* 테이블 바깥 링 */
+  --gold: #d4af37;          /* 강조, 돈, 제목, 선택 테두리 */
+  --card-bg: #fff;          /* 흰 카드 */
+  /* 어두운 표면(아래로 갈수록 밝다) */
+  --bg: #0a0e14;            /* 화면 바닥(body) */
+  --bg-deep: #0b0f14;       /* 표 상자 바닥(레인지 학습실 표, 필름 테두리) */
+  --hud-bg: #0d1117;        /* 상단 바, 액션 바, 패널, 노드 칸 */
+  --panel-bg: #11161d;      /* 카드, 바텀 시트, 운 미터 카드 */
+  --tile-bg: #161b22;       /* 타일, 칩, 입력 칸, 목록 줄, 보기 버튼 */
+  --btn-neutral: #21262d;   /* 보조 버튼, 막대 트랙 */
+  --hud-border: #30363d;    /* 기본 테두리, 진한 트랙, 미니 격자 폴드 칸 */
+  --border-dim: #484f58;    /* 점선 테두리(잠김, 미완), 시트 손잡이 */
+  --border-mute: #6e7681;   /* 흐린 테두리, 참고 라벨 테두리 */
+  --cell-blank: #2b3138;    /* 13x13 표의 빈 칸 */
+  --cell-text: #a5aeb8;     /* 표 빈 칸 글자(#2b3138 위 5.8:1) */
+  /* 글자 */
+  --text: #e6edf3;          /* 본문 */
+  --text-soft: #c9d1d9;     /* 보조 본문(설명, 값, 작은 글자) */
+  --text-mute: #b1bac4;     /* 참고 라벨 글자 */
+  --text-dim: #8b949e;      /* 라벨, 힌트(어두운 배경에서 5.6:1) */
+  --white: #fff;            /* 주 버튼 글자, 격자 흰 테두리 */
+  --white-soft: #f3f3f3;    /* 작은 흰 카드(운 미터, 퀴즈 손) 배경 */
+  --silver: #ccc;           /* 흰 카드 테두리, 좌석 말풍선 글자 */
+  --black: #000;            /* 격자 칸 사이, 글자 그림자 */
+  --ink: #111;              /* 흰 카드 위 글자 */
+  --ink-soft: #1f2328;      /* 흰 말풍선 글자 */
+  --ink-dim: #57606a;       /* 흰 말풍선 보조 글자 */
+  --ink-gold: #1a1500;      /* 금색 바탕 위 글자 */
+  --green-ink: #0f2b13;     /* 밝은 초록 바탕 위 글자 */
+  /* 상태색: 초록(맞음, 좋음), 빨강(틀림, 실수), 파랑(차트 기준, 정보), 노랑(주의, 강조), 보라(캐릭터 읽기) */
+  --green: #3fb950;         /* 맞음 테두리, 글자 */
+  --green-text: #7ee787;    /* 어두운 배경 위 초록 글자(값, +) */
+  --green-text-2: #7ee2a0;  /* 레인지 학습실 레이즈, 맞음 글자 */
+  --green-bright: #56d364;  /* 엔진 계산 라벨 글자 */
+  --green-mid: #52b75e;     /* 코치 신호등 초록, 팟 오즈 링 */
+  --green-border: #2ea043;  /* 초록 테두리(라벨, 열림) */
+  --green-bar: #2d8a47;     /* 진행 막대 초록 */
+  --green-deep: #1f6b35;    /* 주 버튼 그라데이션 시작, 승률 막대 시작 */
+  --green-bg: #12301b;      /* 정답 보기 배경 */
+  --green-btn: #1a4a25;     /* 레이즈 버튼 배경 */
+  --green-pale: #eafaf0;    /* 초록 바탕 위 밝은 글자(레이즈 칸, 주 버튼 작은 글자) */
+  --red: #f85149;           /* 틀림 테두리, 글자 */
+  --red-text: #ffa198;      /* 어두운 배경 위 빨강 글자(값, -) */
+  --red-2: #ff7b72;         /* 코치 빨강 글자, 그래프 음수 */
+  --red-bright: #ff6b6b;    /* 폴드 버튼 글자, 내 선택 테두리 */
+  --red-soft: #ff9b9b;      /* 폴드 글자, 올인 프리셋 */
+  --red-pale: #ffd0d0;      /* 오답 피드백 본문 */
+  --red-dim: #e05252;       /* 기록의 손실 글자 */
+  --red-dark: #b62324;      /* 러시 시간 막대 빨강, 넘친 칸 빗금 */
+  --red-bg: #3a1414;        /* 오답 보기 배경 */
+  --red-btn: #4a1818;       /* 폴드 버튼 배경 */
+  --red-on-white: #c62828;  /* 흰 작은 카드 위 빨강 */
+  --blue: #58a6ff;          /* 정보 테두리, 포커스, 콜 */
+  --blue-text: #79c0ff;     /* 차트 기준 라벨 글자, 히어로 속마음 */
+  --blue-soft: #9cc8ff;     /* 앱 분류 글자, 달력 숫자 */
+  --blue-2: #6ea8ff;        /* 콜 버튼 글자 */
+  --blue-muted: #6aabdf;    /* GTO 해설 줄 */
+  --blue-border: #388bfd;   /* 차트 기준 라벨 테두리 */
+  --blue-fill: #1f6feb;     /* 켜진 칩, 드릴 미니 격자 콜 칸 */
+  --paint-bg: #2f6feb;      /* 레인지 색칠에서 칠한 칸 */
+  --blue-btn: #1a3a6b;      /* 콜 버튼 배경 */
+  --warn: #e3b341;          /* 코치 노랑, 레슨 개념 라벨, 리마인더 */
+  --amber: #f0b429;         /* 콤보, 줄 강조, 놓친 칸 */
+  --amber-text: #f2cc60;    /* 돈 글자(벳, 팟, 칩 수), 크게 보기 제목 */
+  --sand: #f0c674;          /* 속마음 글자, 말버릇 */
+  --gold-dark: #b8932b;     /* 금색 막대 시작 */
+  --gold-light: #f0d77a;    /* 토스트 글자, 블라인드 벳 */
+  --gold-pale: #e3c766;     /* 위젯 켜진 칩 작은 글자, 0 값 */
+  --gold-bg-dark: #2e2810;  /* 어두운 금색 바탕(내 자리 칩, 놓친 칸, 좋음 등급) */
+  --hl: #ffd54a;            /* 강조 노랑(내 손 칸 테두리, 고른 칸) */
+  --hl-pale: #fff3b0;       /* 강조 깜빡임 밝은 끝 */
+  --cream: #fff4c2;         /* 생각 말풍선 바탕, 통과 노드 이중선, 고른 칸 빛 시작 */
+  --purple: #6e40c9;        /* 캐릭터 읽기(속마음 아카이브 선, 오독 배지) */
+  --purple-text: #d2a8ff;   /* 읽기 라벨 글자, 계획 예고 자막 */
+  --purple-dim: #c297ff;    /* 극장 참고 글자 */
+  --orange: #f0883e;        /* 블러프 몫, 그래프 2번 선 */
+  /* 레인지 칸(13x13 작은 표, 드릴 미니 격자, 퍼즐 미니맵. 큰 차트와 학습실 표는 chart.css의 --gc-*) */
+  --raise-bg: #1e7d32;      /* 레이즈 칸 */
+  --raise-gold: #b8860b;    /* 드릴 미니 격자 레이즈 칸 */
+  --call-bg: #e8f5e9;       /* 콜 칸 */
+  --call-fg: #1b3a1f;       /* 콜 칸 글자 */
+  --fold-bg: #8e2f2f;       /* 폴드 칸 */
+  --fold-fg: #f6dede;       /* 폴드 칸 글자 */
+  --fold-dark: #5a1414;     /* 색약 차트 폴드 칸, 넘친 칸 빗금 */
+  --none-bg: #3a3f47;       /* 자료 없음 칸 */
+  --scene-bg: #0f1e15;      /* 레슨, 퍼즐 장면 상자 바탕(짙은 초록) */
+  --scene-border: #23462f;  /* 장면 상자 테두리 */
+  /* 반투명(배경 띠, 테두리, 빛). 이름 끝 숫자는 투명도 x100. 쓰는 단계만 있다(새 단계가 필요하면 더한다) */
+  --gold-a06: rgba(212,175,55,.06);
+  --gold-a08: rgba(212,175,55,.08);
+  --gold-a10: rgba(212,175,55,.1);
+  --gold-a12: rgba(212,175,55,.12);
+  --gold-a14: rgba(212,175,55,.14);
+  --gold-a16: rgba(212,175,55,.16);
+  --gold-a18: rgba(212,175,55,.18);
+  --gold-a22: rgba(212,175,55,.22);
+  --gold-a25: rgba(212,175,55,.25);
+  --gold-a28: rgba(212,175,55,.28);
+  --gold-a30: rgba(212,175,55,.3);
+  --gold-a35: rgba(212,175,55,.35);
+  --gold-a40: rgba(212,175,55,.4);
+  --gold-a45: rgba(212,175,55,.45);
+  --gold-a50: rgba(212,175,55,.5);
+  --gold-a55: rgba(212,175,55,.55);
+  --gold-a60: rgba(212,175,55,.6);
+  --gold-a65: rgba(212,175,55,.65);
+  --gold-a70: rgba(212,175,55,.7);
+  --gold-a75: rgba(212,175,55,.75);
+  --green-a10: rgba(63,185,80,.1);
+  --green-a12: rgba(63,185,80,.12);
+  --green-a18: rgba(63,185,80,.18);
+  --green-a25: rgba(63,185,80,.25);
+  --green-a32: rgba(63,185,80,.32);
+  --green-a50: rgba(63,185,80,.5);
+  --green-a55: rgba(63,185,80,.55);
+  --green-a60: rgba(63,185,80,.6);
+  --green-a70: rgba(63,185,80,.7);
+  --green-a75: rgba(63,185,80,.75);
+  --red-a08: rgba(248,81,73,.08);
+  --red-a10: rgba(248,81,73,.1);
+  --red-a12: rgba(248,81,73,.12);
+  --red-a25: rgba(248,81,73,.25);
+  --red-a40: rgba(248,81,73,.4);
+  --red-a45: rgba(248,81,73,.45);
+  --red-a50: rgba(248,81,73,.5);
+  --red-a60: rgba(248,81,73,.6);
+  --blue-a08: rgba(88,166,255,.08);
+  --blue-a14: rgba(88,166,255,.14);
+  --blue-a18: rgba(88,166,255,.18);
+  --blue-a25: rgba(88,166,255,.25);
+  --blue-a35: rgba(88,166,255,.35);
+  --blue-a40: rgba(88,166,255,.4);
+  --blue-a50: rgba(88,166,255,.5);
+  --blue-a55: rgba(88,166,255,.55);
+  --blue-a60: rgba(88,166,255,.6);
+  --hl-a22: rgba(255,213,74,.22);
+  --hl-a45: rgba(255,213,74,.45);
+  --hl-a50: rgba(255,213,74,.5);
+  --hl-a70: rgba(255,213,74,.7);
+  --hl-a75: rgba(255,213,74,.75);
+  --hl-a85: rgba(255,213,74,.85);
+  --hl-a95: rgba(255,213,74,.95);
+  --amber-a10: rgba(240,180,41,.1);
+  --amber-a45: rgba(240,180,41,.45);
+  --amber-a55: rgba(240,180,41,.55);
+  --amber-a60: rgba(240,180,41,.6);
+  --amber-a90: rgba(240,180,41,.9);
+  --warn-a08: rgba(227,179,65,.08);
+  --warn-a10: rgba(227,179,65,.1);
+  --warn-a55: rgba(227,179,65,.55);
+  --purple-a25: rgba(110,64,201,.25);
+  --white-a03: rgba(255,255,255,.03);
+  --white-a07: rgba(255,255,255,.07);
+  --white-a08: rgba(255,255,255,.08);
+  --white-a12: rgba(255,255,255,.12);
+  --white-a15: rgba(255,255,255,.15);
+  --white-a18: rgba(255,255,255,.18);
+  --white-a20: rgba(255,255,255,.2);
+  --white-a22: rgba(255,255,255,.22);
+  --white-a35: rgba(255,255,255,.35);
+  --white-a60: rgba(255,255,255,.6);
+  --white-a72: rgba(255,255,255,.72);
+  --white-a85: rgba(255,255,255,.85);
+  --white-a95: rgba(255,255,255,.95);
+  --white-a96: rgba(255,255,255,.96);
+  --black-a22: rgba(0,0,0,.22);
+  --black-a25: rgba(0,0,0,.25);
+  --black-a35: rgba(0,0,0,.35);
+  --black-a38: rgba(0,0,0,.38);
+  --black-a40: rgba(0,0,0,.4);
+  --black-a50: rgba(0,0,0,.5);
+  --black-a55: rgba(0,0,0,.55);
+  --black-a60: rgba(0,0,0,.6);
+  --black-a70: rgba(0,0,0,.7);
+  --black-a80: rgba(0,0,0,.8);
+  --black-a86: rgba(0,0,0,.86);
+  --black-a92: rgba(0,0,0,.92);
+  --bg-a00: rgba(10,14,20,0);       /* 바닥색의 투명한 끝(하단 버튼 띠 그라데이션) */
+  --bg-a55: rgba(10,14,20,.55);     /* 팟 표시 바탕 */
+  --bg-a94: rgba(10,14,20,.94);     /* 승자 배지 바탕 */
+  --bg-a96: rgba(10,14,20,.96);     /* 팟 오즈 링 안, 회전 안내 */
+  --hud-a60: rgba(13,17,23,.6);     /* 띵킹 다시 보기 바탕 */
+  --hud-a78: rgba(13,17,23,.78);    /* 띵킹 피드 바탕 */
+  --hud-a85: rgba(13,17,23,.85);    /* 승률 칩, 토글 버튼 바탕 */
+  --hud-a96: rgba(13,17,23,.96);    /* 승률 패널, 작은 차트 바탕 */
+  --tile-a85: rgba(22,27,34,.85);   /* 띵킹 설정 상자 바탕 */
+  --tile-a92: rgba(22,27,34,.92);   /* 띵킹 패널 바탕 */
+  --border-a50: rgba(48,54,61,.5);  /* 기록 목록 줄 선 */
+  --border-a60: rgba(48,54,61,.6);  /* 좌석 성향 칩 바탕 */
+  --dim-a08: rgba(139,148,158,.08); /* 회색 지난 판정 바탕 */
+  --dim-a10: rgba(139,148,158,.1);  /* 참고 라벨 바탕 */
+  --toast-bg: rgba(20,20,30,.96);   /* 토스트 바탕 */
+  --overlay-bg: rgba(0,0,0,.55);    /* 바텀 시트 뒤 어둡게 */
+  --overlay-modal: rgba(5,8,12,.78);  /* 백업 창 뒤 어둡게 */
+  --overlay-card: rgba(1,4,9,.72);    /* 명장면 카드 창 뒤 어둡게 */
   /* 폴리시(VIS-07): 기본 UA 컨트롤(체크박스, select, 스크롤바)을 어두운 톤으로. 다크 모드 토글이나 밝은 테마 분기는 없다 */
   color-scheme: dark;
-  /* 폴리시(VIS-02): 주 버튼 색, 반경, 그림자 토큰. 다른 CSS는 var(--x, 폴백)으로 쓴다 */
+  /* 주 버튼(VIS-02) */
   --btn-primary: linear-gradient(135deg, #1b5e2f, #25783c);
   --btn-primary-border: var(--gold);
-  --btn-neutral: #21262d;
+  /* 반경: 2 작은 칸과 손잡이, 3 견본, xs(4) 미니 격자와 막대, 5 카드, sm(6) 작은 칩, 8 작은 버튼과 띠, md(10) 버튼과 입력, 12 작은 카드,
+     lg(14) 카드, 16 끝 카드, xl(18) 큰 카드와 시트, pill 알약, round 원 */
+  --r-2: 2px;
+  --r-3: 3px;
+  --r-xs: 4px;
+  --r-5: 5px;
   --r-sm: 6px;
+  --r-8: 8px;
   --r-md: 10px;
+  --r-12: 12px;
   --r-lg: 14px;
+  --r-16: 16px;
   --r-xl: 18px;
-  --shadow-1: 0 2px 6px rgba(0,0,0,.4);
-  --shadow-2: 0 6px 20px rgba(0,0,0,.5);
+  --r-pill: 999px;
+  --r-round: 50%;
+  /* 그림자(값마다 하나, 쓰는 곳 이름) */
+  --shadow-xs: 0 1px 3px rgba(0,0,0,.4);              /* 카드 뒷면 견본 */
+  --shadow-1: 0 2px 6px rgba(0,0,0,.4);               /* 카드, 첫 카드, 블록 카드 */
+  --shadow-card-hover: 0 6px 16px rgba(0,0,0,.5);     /* 카드 hover */
+  --shadow-2: 0 6px 20px rgba(0,0,0,.5);              /* 떠 있는 패널, 오늘의 5분 버튼, 토스트 */
+  --shadow-3: 0 8px 24px rgba(0,0,0,.65);             /* 차트 칸 말풍선 창 */
+  --shadow-4: 0 10px 32px rgba(0,0,0,.6);             /* 명장면 카드 창 */
+  --shadow-modal: 0 12px 40px rgba(0,0,0,.6);         /* 백업 창 */
+  --shadow-sheet: 0 -10px 30px rgba(0,0,0,.6);        /* 노드 시트(위로) */
+  --shadow-sheet-chart: 0 -8px 28px rgba(0,0,0,.65);  /* 폰 차트 시트 */
+  --shadow-sheet-puzzle: 0 -8px 24px rgba(0,0,0,.5);  /* 퍼즐 해설 시트 */
+  --shadow-bubble: 0 2px 8px rgba(0,0,0,.35);         /* 띵킹 말풍선 */
+  --shadow-bubble-2: 0 2px 10px rgba(0,0,0,.45);      /* 극장 좌석 말풍선 */
+  --shadow-badge: 0 2px 8px rgba(0,0,0,.6);           /* 승자 배지 */
+  --shadow-gold: 0 0 0 2px var(--gold), 0 4px 12px rgba(212,175,55,.4);   /* 히어로 카드 금테 빛 */
+  --shadow-table: 0 0 0 4px var(--wood-light), 0 20px 60px rgba(0,0,0,.8), inset 0 2px 8px rgba(255,255,255,.05);   /* 데스크톱 테이블 */
+  --shadow-table-m: 0 0 0 3px var(--wood-light), 0 10px 30px rgba(0,0,0,.8);   /* 세로 폰 테이블 */
+  --ring-gold: 0 0 0 2px var(--gold);                 /* 금테 고리(히어로 손, 오늘 칸) */
+  --ring-hl: 0 0 0 3px var(--hl);                     /* 강조 노랑 고리(주목 좌석) */
 }
 input[type=checkbox], input[type=radio] { accent-color: var(--gold); }
 
 body {
-  background: #0a0e14;
+  background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
   height: 100vh;
@@ -52,14 +270,14 @@ body {
   font-size: 3rem;
   font-weight: 900;
   color: var(--gold);
-  text-shadow: 0 0 30px rgba(212,175,55,0.5);
+  text-shadow: 0 0 30px var(--gold-a50);
   letter-spacing: 4px;
   margin-bottom: 24px;
 }
 
 .menu-btn {
   background: var(--btn-primary);
-  color: #fff;
+  color: var(--white);
   border: 1px solid var(--btn-primary-border);
   padding: 14px 48px;
   font-size: 1.1rem;
@@ -71,18 +289,18 @@ body {
 }
 .menu-btn:hover { filter: brightness(1.12); transform: translateY(-2px); box-shadow: var(--shadow-1); }
 .menu-btn.secondary { background: var(--btn-neutral); border-color: var(--hud-border); }
-.menu-btn.secondary:hover { background: #30363d; }
+.menu-btn.secondary:hover { background: var(--hud-border); }
 
 /* 빌런 선택 */
 .villain-select-container { margin: auto; text-align: center; }
 .villain-select-container h2 { font-size: 1.8rem; color: var(--gold); margin-bottom: 24px; }
 .villain-options { display: flex; gap: 20px; margin-bottom: 24px; }
 .villain-opt {
-  background: #161b22;
+  background: var(--tile-bg);
   border: 2px solid var(--hud-border);
   color: var(--text);
   padding: 24px 32px;
-  border-radius: var(--r-lg, 14px);
+  border-radius: var(--r-lg);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -96,24 +314,24 @@ body {
 
 /* 세션 */
 .curriculum-container { display:flex; flex-direction:column; height:100vh; }
-.session-nav { padding:12px 20px; background:#0d1117; border-bottom:1px solid var(--hud-border); display:flex; gap:16px; font-size:0.9rem; align-items:center; }
+.session-nav { padding:12px 20px; background:var(--hud-bg); border-bottom:1px solid var(--hud-border); display:flex; gap:16px; font-size:0.9rem; align-items:center; }
 .session-content { flex:1; overflow-y:auto; }
-.session-actions { padding:16px 20px; background:#0d1117; border-top:1px solid var(--hud-border); display:flex; gap:12px; flex-wrap:wrap; }
+.session-actions { padding:16px 20px; background:var(--hud-bg); border-top:1px solid var(--hud-border); display:flex; gap:12px; flex-wrap:wrap; }
 .session-section { max-width:760px; margin:0 auto; padding:20px; }
 .session-title { color:var(--gold); font-size:1.4rem; margin-bottom:16px; }
-.session-block { background:#161b22; border-left:3px solid var(--gold); padding:14px; border-radius: 0 var(--r-md, 10px) var(--r-md, 10px) 0; margin-bottom:12px; }
+.session-block { background:var(--tile-bg); border-left:3px solid var(--gold); padding:14px; border-radius: 0 var(--r-md) var(--r-md) 0; margin-bottom:12px; }
 .session-block h3 { color:var(--blue); font-size:0.85rem; margin-bottom:6px; }
 
 /* 시나리오 */
 .scenario-container { max-width:760px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:14px; height:100vh; box-sizing:border-box; overflow-y:auto; }
-.scenario-question { font-size:1.05rem; font-weight:600; line-height:1.6; padding:16px; background:#161b22; border-radius: var(--r-md, 10px); border-left:3px solid var(--blue); }
-.scenario-feedback { padding:14px; border-radius: var(--r-md, 10px); }
+.scenario-question { font-size:1.05rem; font-weight:600; line-height:1.6; padding:16px; background:var(--tile-bg); border-radius: var(--r-md); border-left:3px solid var(--blue); }
+.scenario-feedback { padding:14px; border-radius: var(--r-md); }
 /* VIS-09: 퀴즈 보기를 하단 엄지 영역으로(세로 폰). 데스크톱 미디어 쿼리에서 해제 */
 #scenario-choices { margin-top: auto; }
 @media (min-width: 761px) and (orientation: landscape), (min-width: 1024px) { #scenario-choices { margin-top: 0; } }
-.feedback-correct { background:rgba(63,185,80,0.1); border:1px solid var(--green); }
-.feedback-wrong { background:rgba(248,81,73,0.1); border:1px solid var(--red); }
-.seat-action { display:block; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); border-radius: var(--r-sm, 6px); padding:4px 7px; font-size:0.72rem; font-style:italic; color:#ccc; margin-top:4px; line-height:1.6; }
+.feedback-correct { background:var(--green-a10); border:1px solid var(--green); }
+.feedback-wrong { background:var(--red-a10); border:1px solid var(--red); }
+.seat-action { display:block; background:var(--black-a70); border:1px solid var(--white-a15); border-radius: var(--r-sm); padding:4px 7px; font-size:0.72rem; font-style:italic; color:var(--silver); margin-top:4px; line-height:1.6; }
 
 /* 딜 애니메이션 개선 */
 @keyframes dealSlide {
@@ -137,14 +355,14 @@ body {
    드릴 허브(index.html 마크업은 ↩가 끝이라 order로 왼쪽), 히스토리, 실력 확인(.pv-top)이 같은 모양 */
 .top-bar, .drill-topbar, .history-topbar { display: flex; align-items: center; gap: 10px; font-weight: 700; min-height: 44px; }
 .top-bar .j-back, .drill-topbar .menu-btn, .history-topbar .menu-btn { order: -1; flex: 0 0 auto; width: auto; min-width: 44px; height: 44px; min-height: 44px; padding: 0 12px; margin: 0;
-  border-radius: 999px; background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border); font-size: 1.1rem; font-weight: 600; line-height: 1; }
-.drill-topbar .menu-btn { width: 44px; padding: 0; border-radius: 50%; }
+  border-radius: var(--r-pill); background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border); font-size: 1.1rem; font-weight: 600; line-height: 1; }
+.drill-topbar .menu-btn { width: 44px; padding: 0; border-radius: var(--r-round); }
 .top-bar .j-back:hover, .drill-topbar .menu-btn:hover, .history-topbar .menu-btn:hover { transform: none; box-shadow: none; }
 .top-bar-t, .drill-topbar #drill-title { flex: 1; font-size: 1.15rem; color: var(--gold); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drill-topbar #drill-progress { color: var(--text-dim); font-size: .9rem; font-variant-numeric: tabular-nums; }
 .drill-topbar #drill-streak { color: var(--gold); font-size: .9rem; font-variant-numeric: tabular-nums; }
 .drill-intro { color: var(--text-dim); font-size: .85rem; line-height: 1.5; }
-.drill-tile { display: block; width: 100%; text-align: left; background: var(--hud-bg); border: 1px solid var(--hud-border); border-radius: var(--r-md, 10px); padding: 14px 16px; margin: 8px 0; color: var(--text); cursor: pointer; font: inherit; }
+.drill-tile { display: block; width: 100%; text-align: left; background: var(--hud-bg); border: 1px solid var(--hud-border); border-radius: var(--r-md); padding: 14px 16px; margin: 8px 0; color: var(--text); cursor: pointer; font: inherit; }
 .drill-tile:hover { border-color: var(--gold); }
 .tile-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
 .tile-sub { font-size: .85rem; line-height: 1.45; }
@@ -153,35 +371,35 @@ body {
 .drill-today { text-align: center; color: var(--text-dim); font-size: .9rem; margin-top: auto; padding-top: 8px; }
 #drill-stage { display: flex; flex-direction: column; gap: 14px; }
 #drill-prompt { font-size: 1.05rem; font-weight: 600; line-height: 1.5; word-break: keep-all; }
-.drill-tag { display: inline-block; background: #1f6feb; color: #fff; font-size: .72rem; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: middle; }
+.drill-tag { display: inline-block; background: var(--blue-fill); color: var(--white); font-size: .72rem; border-radius: var(--r-xs); padding: 1px 6px; margin-right: 6px; vertical-align: middle; }
 #drill-cards, .drill-quick-cards { display: flex; gap: 10px; justify-content: center; }
 .card.drill-card { width: 64px; height: 90px; font-size: 1.5rem; }
-.drill-pot { font-size: 1.2rem; text-align: center; padding: 10px; background: var(--felt); border-radius: var(--r-md, 10px); width: 100%; }
+.drill-pot { font-size: 1.2rem; text-align: center; padding: 10px; background: var(--felt); border-radius: var(--r-md); width: 100%; }
 #drill-choices, .drill-quick-choices { display: flex; flex-wrap: wrap; gap: 8px; }
-.drill-choice { flex: 1 1 120px; min-height: 48px; border-radius: var(--r-md, 10px); border: 1px solid var(--hud-border); background: #161b22; color: var(--text); font: inherit; font-weight: 700; cursor: pointer; padding: 8px; }
-.drill-choice.drill-fold { border-color: #6e7681; }
+.drill-choice { flex: 1 1 120px; min-height: 48px; border-radius: var(--r-md); border: 1px solid var(--hud-border); background: var(--tile-bg); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; padding: 8px; }
+.drill-choice.drill-fold { border-color: var(--border-mute); }
 .drill-choice.drill-call { border-color: var(--blue); }
 .drill-choice.drill-raise { border-color: var(--gold); }
 .drill-choice:disabled { cursor: default; opacity: .75; }
-.drill-choice.is-answer { background: rgba(63,185,80,.25); border-color: var(--green); opacity: 1; }
-.drill-choice.is-wrong { background: rgba(248,81,73,.25); border-color: var(--red); opacity: 1; }
+.drill-choice.is-answer { background: var(--green-a25); border-color: var(--green); opacity: 1; }
+.drill-choice.is-wrong { background: var(--red-a25); border-color: var(--red); opacity: 1; }
 .drill-key { display: inline-block; font-size: .7rem; color: var(--text-dim); margin-right: 6px; font-weight: 400; }
 .fb-ok { color: var(--green); font-weight: 700; font-size: 1.05rem; }
 .fb-bad { color: var(--red); font-weight: 700; font-size: 1.05rem; }
 .fb-line { font-size: .85rem; line-height: 1.5; margin: 6px 0; word-break: keep-all; }
 .drill-next { margin-top: 8px; }
 .drill-mini { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; width: 100%; max-width: 312px; margin: 6px auto 4px; }
-.mini-cell { aspect-ratio: 1; font-size: max(7px, .4375rem); display: flex; align-items: center; justify-content: center; color: #fff; overflow: hidden; }
-.mini-raise { background: #b8860b; }
-.mini-call { background: #1f6feb; }
-.mini-fold { background: #30363d; }
-.mini-none { background: #161b22; }
-.mini-hit { outline: 2px solid #fff; z-index: 1; font-weight: 700; }
+.mini-cell { aspect-ratio: 1; font-size: max(7px, .4375rem); display: flex; align-items: center; justify-content: center; color: var(--white); overflow: hidden; }
+.mini-raise { background: var(--raise-gold); }
+.mini-call { background: var(--blue-fill); }
+.mini-fold { background: var(--hud-border); }
+.mini-none { background: var(--tile-bg); }
+.mini-hit { outline: 2px solid var(--white); z-index: 1; font-weight: 700; }
 .drill-legend { display: flex; gap: 10px; justify-content: center; font-size: .75rem; color: var(--text-dim); }
 .drill-legend .lg::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: middle; }
-.lg-raise::before { background: #b8860b; }
-.lg-call::before { background: #1f6feb; }
-.lg-fold::before { background: #30363d; }
+.lg-raise::before { background: var(--raise-gold); }
+.lg-call::before { background: var(--blue-fill); }
+.lg-fold::before { background: var(--hud-border); }
 #drill-result { display: flex; flex-direction: column; gap: 8px; }
 .res-head { font-size: 1.3rem; font-weight: 700; text-align: center; }
 .res-sub { color: var(--text-dim); font-size: .85rem; margin-top: 6px; }
@@ -189,7 +407,7 @@ body {
 .res-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .res-btns .menu-btn { flex: 1 1 120px; width: auto; margin: 0; }
 /* 결과바 ⚡ 1문제: 상단에 떠 있는 패널(하단 결과바를 가리지 않음) */
-.drill-quick { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); background: var(--hud-bg); border: 1px solid var(--gold); border-radius: var(--r-lg, 14px); padding: 14px; z-index: 900; box-shadow: var(--shadow-2, 0 6px 20px rgba(0,0,0,.5)); display: flex; flex-direction: column; gap: 10px; }
+.drill-quick { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); background: var(--hud-bg); border: 1px solid var(--gold); border-radius: var(--r-lg); padding: 14px; z-index: 900; box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: 10px; }
 .drill-quick-close { position: absolute; top: 6px; right: 8px; background: none; border: none; color: var(--text-dim); font-size: 1.1rem; cursor: pointer; }
 .drill-quick-title { font-weight: 700; color: var(--gold); }
 .drill-quick-prompt { font-size: .95rem; line-height: 1.4; padding-right: 20px; }

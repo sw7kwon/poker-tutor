@@ -76,7 +76,14 @@ var App = (function() {
     if (typeof TheaterUI !== 'undefined' && TheaterUI && typeof TheaterUI.refresh === 'function') { try { TheaterUI.refresh(); } catch (e) {} }
   }
 
+  // (final 3번) 극장(TheaterUI)을 끝내지 않고 다른 화면으로 나가거나 새 테이블을 열면 극장을 조용히 정리한다
+  // (안 하면 극장 조작줄 #th-root와 th-on이 다음 테이블에 남고 자동 재생 타이머가 계속 돈다)
+  function _theaterAbort() {
+    if (typeof TheaterUI === 'undefined' || !TheaterUI || typeof TheaterUI.abort !== 'function') return false;
+    try { return !!TheaterUI.abort(); } catch (e) { return false; }
+  }
   function showScreen(id) {
+    if (id !== 'screen-game') _theaterAbort();
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     document.getElementById(id).classList.add('active');
     if (typeof Nav !== 'undefined' && Nav.onShow) Nav.onShow(id);
@@ -211,6 +218,7 @@ var App = (function() {
   }
 
   function _newHand() {
+    _theaterAbort();   // 새 테이블 핸드는 극장 관전을 이어 가지 않는다(게임 화면 안에서 바로 넘어오는 경로 방어)
     if (!_gtoMode && typeof GtoChart !== 'undefined') GtoChart.hide();
     var playersSpec = _buildPlayersSpec(_villainConfig);
     _state = GameState.buildInitialState(playersSpec, _heroPos, _seed, _carryoverStacks);
