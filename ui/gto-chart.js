@@ -15,6 +15,9 @@
 //      "학습실에서 크게 보기"(JourneyUI.view('rangeLab', { pos, facing, opener })).
 //   8. update(state, heroPos, opts): 3번째 인자가 불리언이면 예전 의미(gtoMode), 객체면 { gtoMode, view, boss, el(테스트) }.
 //      refresh()(칩 토글 뒤 다시 그림), shownForDecision()(이 결정에 차트가 보였나, 호출 = 결정 시점이라 내 손 공개), reveal().
+// n2-G3(설계 docs/NEXT2_DESIGN.md 1절, 차트에서 내 손 찾기): 내 칸이 보일 때 격자에 has-hero와 --hr, --hc(css가 금색 줄과 칸 안내선을 그린다),
+//   regionOf(model, r, c)(내 손이 속한 같은 주 액션 연속 영역, 4방향 flood fill, 폴드와 자료 없음은 null)의 경계 칸에 rg, rg-t/r/b/l(영역 밖과
+//   맞닿은 변만, css가 흰 윤곽), 범례 1줄. 가림(L1 이상 결정 전)에는 금테와 함께 셋 다 없고 결정 뒤 reveal에서 같이 나온다. 격자 HTML 캐시는 그대로.
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener만). 문구는 해요체, 가운뎃점과 긴줄표 없음.
 var GtoChart = (function() {
   var RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
@@ -205,6 +208,55 @@ var GtoChart = (function() {
     if (mx.call > v + 1e-9) { best = 'C'; v = mx.call; }
     if (mx.fold > v + 1e-9) { best = 'F'; v = mx.fold; }
     return best + Math.round(v * 100);
+  }
+
+  // ── 내 손이 속한 범위 영역(n2-G3, 순수) ──
+  // 칸의 주 액션: 혼합 칸(w)은 가장 큰 비율(mixTop)의 액션, 그 밖은 cell.action
+  var MIX_ACT = { R: 'raise', C: 'call', F: 'fold' };
+  function primaryAction(cell) {
+    if (!cell) return 'none';
+    var mx = mixOf(cell);
+    if (mx) return MIX_ACT[mixTop(mx).charAt(0)] || cell.action || 'none';
+    return cell.action || 'none';
+  }
+  // regionOf(model, r, c) → { action, cells: ['r,c', ...], edges: { 'r,c': 'trbl 중 조합' }, size } 또는 null.
+  //   (r,c) 칸과 같은 주 액션으로 4방향 이어진 연속 영역. 주 액션이 fold나 none이면 null(폴드 영역은 너무 커서 윤곽이 소음이 된다).
+  //   edges는 영역 밖(격자 밖 포함)과 맞닿은 변이 있는 칸만, 변 글자는 t, r, b, l 순. 캐시: 모델 키가 있으면 _regions[key|r,c], 없으면 모델 객체에.
+  //   한 영역은 객체 하나로 그 영역의 모든 칸에 같이 캐시한다(같은 영역의 다른 손은 조회만, 모델당 객체 수 = 영역 수라 메모리가 손 수에 비례해 늘지 않는다).
+  //   169칸 flood fill은 0.1ms 안(테스트가 0.3ms 상한으로 고정). 학습실(range-lab) 등 다른 화면에서도 쓸 수 있는 공개 API
+  var _regions = {};
+  function regionOf(model, r, c) {
+    if (!model || !model.cells || !model.cells[r] || !model.cells[r][c]) return null;
+    var ck = r + ',' + c, store = null;
+    if (model.key) store = _regions;
+    else store = (model._regions = model._regions || {});
+    var k = model.key ? (model.key + '|' + ck) : ck;
+    if (Object.prototype.hasOwnProperty.call(store, k)) return store[k];
+    var act = primaryAction(model.cells[r][c]);
+    var out = null;
+    if (act === 'raise' || act === 'call') {
+      var seen = {}, stack = [[r, c]], cells = [], edges = {};
+      seen[ck] = true;
+      while (stack.length) {
+        var cur = stack.pop(), cr = cur[0], cc = cur[1];
+        cells.push(cr + ',' + cc);
+        var e = '';
+        // t, r, b, l 순서(css 변 변수와 같다)
+        var nb = [[cr - 1, cc, 't'], [cr, cc + 1, 'r'], [cr + 1, cc, 'b'], [cr, cc - 1, 'l']];
+        for (var i = 0; i < 4; i++) {
+          var nr = nb[i][0], nc = nb[i][1];
+          var inside = nr >= 0 && nr < 13 && nc >= 0 && nc < 13 && primaryAction(model.cells[nr][nc]) === act;
+          if (!inside) { e += nb[i][2]; continue; }
+          var nk = nr + ',' + nc;
+          if (!seen[nk]) { seen[nk] = true; stack.push([nr, nc]); }
+        }
+        if (e) edges[cr + ',' + cc] = e;
+      }
+      cells.sort();
+      out = { action: act, cells: cells, edges: edges, size: cells.length };
+      for (var j = 0; j < cells.length; j++) store[model.key ? (model.key + '|' + cells[j]) : cells[j]] = out;
+    } else store[k] = out;
+    return out;
   }
 
   // ── 문구(순수) ──
@@ -408,22 +460,32 @@ var GtoChart = (function() {
       if (kin && /-other$/.test(String(kin))) kin = null;
     }
     var grid = gridHTML(model);
+    var rg = hc ? regionOf(model, hc.r, hc.c) : null;   // n2-G3: 내 손이 속한 범위 영역(폴드, 자료 없음은 null)
+    var edges = rg ? rg.edges : null;
     if (hc) {
-      // 내 손 칸(금테, 반짝임)과 같은 분류 칸(옅은 강조)은 캐시된 격자 문자열에 클래스만 끼운다
+      // 내 손 칸(금테, 반짝임)과 같은 분류 칸(옅은 강조), 영역 경계 칸(rg + 변 클래스)은 캐시된 격자 문자열에 클래스만 끼운다
       grid = grid.replace(/<div class="gto-cell ([^"]*)" data-r="(\d+)" data-c="(\d+)"/g, function(all, cls, r, c) {
         r = +r; c = +c;
-        if (r === hc.r && c === hc.c) return '<div class="gto-cell ' + cls + ' hero-cell' + (o.flash === false ? '' : ' flash') + '" data-r="' + r + '" data-c="' + c + '"';
+        var add = '';
+        var e = edges ? edges[r + ',' + c] : null;
+        if (e) { add = ' rg'; for (var i = 0; i < e.length; i++) add += ' rg-' + e.charAt(i); }
+        if (r === hc.r && c === hc.c) return '<div class="gto-cell ' + cls + ' hero-cell' + (o.flash === false ? '' : ' flash') + add + '" data-r="' + r + '" data-c="' + c + '"';
         if (kin) {
           var cat = null;
-          try { cat = RangeNotes.category(model.cells[r][c].label); } catch (e) { cat = null; }
-          if (cat === kin) return '<div class="gto-cell ' + cls + ' kin-cell" data-r="' + r + '" data-c="' + c + '"';
+          try { cat = RangeNotes.category(model.cells[r][c].label); } catch (e2) { cat = null; }
+          if (cat === kin) return '<div class="gto-cell ' + cls + ' kin-cell' + add + '" data-r="' + r + '" data-c="' + c + '"';
         }
+        if (add) return '<div class="gto-cell ' + cls + add + '" data-r="' + r + '" data-c="' + c + '"';
         return all;
       });
     }
+    // 내 칸이 보이면 격자에 has-hero와 내 칸 좌표(css가 금색 줄과 칸 안내선을 그린다), 범례에 안내 1줄
+    var gridAttr = hc ? ' has-hero" style="--hr:' + hc.r + ';--hc:' + hc.c + '"' : '"';
+    var heroNote = hc ? '<span class="gto-lg-note gto-lg-hero">금색 선 = 내 손의 줄과 칸' +
+      (rg ? ', ' + (rg.action === 'call' ? '진한 윤곽' : '흰 윤곽') + ' = 내 손이 속한 ' + (rg.action === 'call' ? callWord(model) : '레이즈') + ' 영역(' + rg.size + '칸)' : '') + '</span>' : '';
     return head +
-      '<div class="gto-chart-grid" role="img" aria-label="' + _esc(contextText(model) + ' 레인지 차트 13x13') + '">' + grid + '</div>' +
-      '<div class="gto-chart-legend">' + legendHTML(model) + '</div>' +
+      '<div class="gto-chart-grid' + gridAttr + ' role="img" aria-label="' + _esc(contextText(model) + ' 레인지 차트 13x13') + '">' + grid + '</div>' +
+      '<div class="gto-chart-legend">' + legendHTML(model) + heroNote + '</div>' +
       stripHTML(model, heroPos, o.viewPos || null) +
       footHTML();
   }
@@ -963,6 +1025,7 @@ var GtoChart = (function() {
     handCell: handCell, update: update, hide: hide, refresh: refresh, shownForDecision: shownForDecision, reveal: reveal,
     cachedModel: cachedModel, tally: tally, readout: readout, contextText: contextText, stripData: stripData, previewPos: previewPos, openLab: openLab,
     preheat: preheat, _preheatJobs: preheatJobs, cellWeight: cellWeight, mixOf: mixOf, POS6: POS6.slice(),
+    regionOf: regionOf, primaryAction: primaryAction,   // n2-G3 공개 API(학습실 등 다른 화면도 쓸 수 있다)
     _renderHTML: _renderHTML, _gridHTML: gridHTML, _legendHTML: legendHTML, _bubbleHTML: bubbleHTML,
     _setPeek: function(on) { _setPeek(on, false); },   // 손잡이 탭과 같다(테스트용)
     _sheet: function() { return _sheet; },

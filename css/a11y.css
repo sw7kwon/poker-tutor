@@ -26,6 +26,9 @@ html.cb .gto-raise::after { content: 'R'; }
 html.cb .gto-call::after { content: 'C'; }
 html.cb .gto-fold::after { content: 'F'; }
 html.cb .gto-chart-legend::before { content: 'R 레이즈, C 콜, F 폴드. '; font-weight: 700; color: var(--text); }
+/* n2-G3 내 손 찾기(chart.css): 색약 모드는 안내선을 흰색, 영역 윤곽을 더 진하게(레이즈 칸 흰 95%, 콜 칸 검정 80%) */
+html.cb .gto-big .gto-chart-grid.has-hero::before, html.cb .gto-big .gto-chart-grid.has-hero::after { background: var(--white-a72); }
+html.cb .gto-big .rg { --rg-c: var(--white-a95); }  html.cb .gto-big .gto-call.rg { --rg-c: var(--black-a80); }
 /* 드릴 미니 격자(레이즈/폴드 휘도 0.27/0.04 = 3.7:1은 그대로): 빈 칸에만 글자, 정답 칸은 손 이름 유지 */
 html.cb .mini-cell:not(.mini-hit)::after { font-size: .6rem; line-height: 1; opacity: .85; }
 html.cb .mini-raise:not(.mini-hit)::after { content: 'R'; }

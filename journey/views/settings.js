@@ -8,6 +8,7 @@
 //   자유 게임 코칭과 차트 패널에만 쓰고 승급 시험과 미션은 늘 입문 차트다(GtoStd.active).
 //   (웨이브2 후속) '👀 보기' 카드의 '칩 그림 보이기' 행(키 chipVisual, 기본 켜짐). 끄면 게임 테이블이 칩 그림 없이 숫자만 보인다(ChipsUI).
 //   html(settings, sup, opts)의 opts.adaptive(true/false)로 표시 여부를 직접 줄 수 있다(테스트용, 없으면 VillainAdaptive.unlocked()).
+//   (n2 G2 PACE) '🎬 움직임' 카드의 '상대 액션 속도' 행(키 pace: slow | normal | fast | instant, 기본 normal, Pacer 순차 공개).
 //   효과음은 WebAudio, 진동은 navigator.vibrate가 없으면 그 줄을 숨긴다. 둘 다 기본 꺼짐.
 // 누르면 A11y.save(patch)로 바로 저장하고 적용한 뒤 다시 그린다. 맨 위 미리보기 줄(카드 4장, 차트 칸 3개)로 결과를 바로 본다.
 // ↩는 JourneyUI.back. 클래스는 journey.css(.j-sub, .j-sub-top, .j-back, .j-card, .j-set-row, .j-picks, .j-pick, .j-btn) 재사용.
@@ -16,7 +17,7 @@ var SettingsView = (function() {
   var SUIT_SYM = { s: '♠', h: '♥', d: '♦', c: '♣' };
   var RED = { h: 1, d: 1 };
   var PREVIEW = [['A', 's'], ['K', 'h'], ['Q', 'd'], ['J', 'c']];
-  var FALLBACK = { v: 1, fontScale: 100, fourColor: true, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, chartTier: 'auto', chipVisual: true };   // fourColor, chipVisual 기본 켜짐
+  var FALLBACK = { v: 1, fontScale: 100, fourColor: true, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, chartTier: 'auto', chipVisual: true, pace: 'normal' };   // fourColor, chipVisual 기본 켜짐
   var _el = null;
 
   function _a11y(fn) { return (typeof A11y !== 'undefined' && A11y && typeof A11y[fn] === 'function') ? A11y : null; }
@@ -105,7 +106,10 @@ var SettingsView = (function() {
       _row('chipVisual', '칩 그림 보이기', '게임 테이블의 스택, 벳, 팟을 칩 그림으로도 보여요. 끄면 숫자만 보여요.',
         _onOff('chipVisual', s.chipVisual !== false, '숫자만', '칩 그림'))
     ];
+    var paceNow = ['slow', 'normal', 'fast', 'instant'].indexOf(s.pace) >= 0 ? s.pace : 'normal';
     var motion = [
+      _row('pace', '상대 액션 속도', '상대가 한 명씩 차례로 움직여요. 즉시는 예전처럼 한 번에 보여요.',
+        [['slow', '느림'], ['normal', '보통'], ['fast', '빠름'], ['instant', '즉시']].map(function(x) { return _pick('pace', x[0], paceNow === x[0], x[1]); })),
       _row('reduceMotion', '카드 돌리기와 화면 효과', '줄이면 카드와 화면이 기다림 없이 바로 나타나요. 시스템 따름은 폰의 동작 줄이기 설정을 따라요.',
         [_pick('reduceMotion', null, rm === null, '시스템 따름'), _pick('reduceMotion', true, rm === true, '줄이기'), _pick('reduceMotion', false, rm === false, '보통')])
     ];
@@ -152,7 +156,7 @@ var SettingsView = (function() {
   var LIVE = { fontScale: '글자 크기를 바꿨어요', fourColor: '4색 덱을 바꿨어요', cbChart: '색약용 차트를 바꿨어요',
     reduceMotion: '움직임 설정을 바꿨어요', sound: '효과음을 바꿨어요', vibrate: '진동을 바꿨어요', adaptive: '상대 적응 설정을 바꿨어요',
     goal: '하루 목표를 바꿨어요', winChance: '액션별 이길 확률 설정을 바꿨어요', chartTier: '프리플랍 차트 설정을 바꿨어요',
-    chipVisual: '칩 그림 설정을 바꿨어요' };
+    chipVisual: '칩 그림 설정을 바꿨어요', pace: '상대 액션 속도를 바꿨어요' };
 
   // set(key, value): 바로 저장 + 적용 + 다시 그리기. 반환 = 저장된 설정
   // (UX-02) key 'goal'은 A11y가 아니라 Journey 상태(goal.minutes)에 저장. 반환은 { goal } (TodayUI.preview는 _cache.goal이 다르면 스스로 다시 계산)

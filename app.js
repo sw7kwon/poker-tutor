@@ -19,6 +19,14 @@ var App = (function() {
   var _practice = null;  // 활성 시: { seed, heroPos, config, attempts:[{n,delta}], resume:{...}|null }
   var _sessionNet = 0;
   var _buyin = null;     // 세션 동안 좌석별로 사들인 칩(시작 스택 + 리바이). 좌석 손익 배지(Table .seat-delta)의 기준. GTO 미러와 연습은 null
+  // (n2-P0, 설계 docs/NEXT2_DESIGN.md 2절, 5절) 리바이 회계, 핸드 로그 메모, 완전 분석
+  var _rebuys = { n: 0, add: 0 };   // 이번 세션 히어로 리바이(자동 + 수동) 횟수와 더한 칩. 세션 요약 줄
+  var _pendingNotes = [];           // 다음 핸드 로그(HandLog.begin 직후)에 붙일 메모 [{ kind, data }](리바이)
+  var _rebuyToast = 0;              // 다음 핸드를 연 뒤 띄울 자동 리바이 토스트(히어로에게 더한 칩)
+  var _lastSettled = null, _lastResult = null;   // 마지막 정산 그리기 사본과 쇼다운 결과(수동 리바이 뒤 다시 그리기)
+  var _omni = false;     // 이번 핸드가 완전 분석 세션인가(코어 준비 + 설정 omniMode + 허용 구성 + 여정, 보스, 연습 아님)
+  var _omniAsk = false;  // 빌런 선택 화면에서 고른 세션: 첫 핸드에서 완전 분석을 못 쓰는 구성이면 토스트 1회
+  var _frames = [];      // 마지막 빌런 걸음 루프의 프레임 [{ pre, action, post }](테스트용, G2 순차 공개 입력)
   // 결정 전 계산 체인(승률 MC → 판정 → HUD)을 다음 프레임으로 미루는 순번. 새 핸드, 다음 핸드, 히어로 액션마다 올려 묵은 결과를 버린다
   var _calcSeq = 0;
   var _pendingCalc = null;  // 다음 프레임 대기 중인 계산 체인. heroAction이 먼저 들어오면 동기로 끝내 지난 결정의 판정으로 채점하지 않는다
@@ -65,7 +73,7 @@ var App = (function() {
     // 핸드가 끝난 뒤(쇼다운 카드 표시 중)와 극장 관전 중에는 게임 테이블을 다시 그리지 않는다(renderShowdown이 패치한 공개 카드, 극장 화면이 지워진다)
     var sg = (typeof document !== 'undefined' && document.getElementById) ? document.getElementById('screen-game') : null;
     var theater = !!(sg && sg.classList && sg.classList.contains('th-on'));
-    if (_state && !_state.handOver && !theater) {
+    if (_state && !_state.handOver && !theater && !_paceBusy()) {   // 순차 공개 중에는 다음 프레임이 새 설정으로 그린다(최종 상태를 미리 보이지 않게)
       if (_state.waitingForHero) {
         // 결정 대기 중: 계산 체인(판정, 코칭 예측, 속마음)을 다시 돌리지 않고 마지막 결과에 승률 가림만 다시 적용. 계산이 아직이면 그 체인이 새 설정을 읽는다
         if (key === 'showEq' && !_pendingCalc && _lastEV) _reapplyEqView();
@@ -82,8 +90,17 @@ var App = (function() {
     if (typeof TheaterUI === 'undefined' || !TheaterUI || typeof TheaterUI.abort !== 'function') return false;
     try { return !!TheaterUI.abort(); } catch (e) { return false; }
   }
+  // (n2-P0) 순차 공개(Pacer)와 완전 분석 리플레이(OmniUI) 정리. 둘 다 typeof 가드, 스텁이면 아무 일 없음
+  function _paceCancel() {
+    if (typeof Pacer === 'undefined' || !Pacer || typeof Pacer.cancel !== 'function') return false;
+    try { return !!Pacer.cancel(); } catch (e) { return false; }
+  }
+  function _omniAbort() {
+    if (typeof OmniUI === 'undefined' || !OmniUI || typeof OmniUI.abort !== 'function') return false;
+    try { return !!OmniUI.abort(); } catch (e) { return false; }
+  }
   function showScreen(id) {
-    if (id !== 'screen-game') _theaterAbort();
+    if (id !== 'screen-game') { _theaterAbort(); _paceCancel(); _omniAbort(); _hlUI('toggle', false); }
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     document.getElementById(id).classList.add('active');
     if (typeof Nav !== 'undefined' && Nav.onShow) Nav.onShow(id);
@@ -188,7 +205,66 @@ var App = (function() {
     return !!(scr && scr.classList && typeof scr.classList.contains === 'function' && scr.classList.contains('active'));
   }
 
-  function startGame() { showScreen('screen-villain-select'); _syncQuickStart(); }
+  function startGame() { showScreen('screen-villain-select'); _syncQuickStart(); syncOmniToggle(); }
+
+  // ── 완전 분석 오픈 모드(n2-P0, 설계 5.1절): 자유 게임 3구성만, 코어(HandLog, Replay, Reasoning)가 스텁이 아닐 때만 진입점을 보인다 ──
+  var OMNI_CONFIGS = { 'sixmax': true, 'headsup-tag': true, 'mixed': true };
+  function _ready(m) { return !!(m && typeof m === 'object' && !m.STUB); }
+  // 코어 3개가 모두 실제 구현인가(클라우드 L1 머지 전에는 스텁이라 false = 체크박스와 ⏪ 리플레이 숨김)
+  function _omniReady() {
+    return _ready(typeof HandLog !== 'undefined' ? HandLog : null) && _ready(typeof Replay !== 'undefined' ? Replay : null) &&
+      _ready(typeof Reasoning !== 'undefined' ? Reasoning : null);
+  }
+  // 이 구성에서 완전 분석을 쓸 수 있나(순수 판정, ctx = { boss, journey, practice } 생략하면 지금 상태).
+  // 제외: 승급 시험, 미션과 오늘의 5분, 커리어, GTO 미러, 유형 숨김, 연습 재생
+  function _omniAllowed(config, ctx) {
+    if (!OMNI_CONFIGS[config]) return false;
+    if (!ctx) {
+      var jr = false;
+      try { jr = !!(typeof Journey !== 'undefined' && Journey && typeof Journey.active === 'function' && Journey.active()); } catch (e) { jr = false; }
+      ctx = { boss: _bossOn(), journey: jr, practice: !!_practice };
+    }
+    return !(ctx.boss || ctx.journey || ctx.practice);
+  }
+  function setOmniMode(on) {
+    if (typeof A11y === 'undefined' || !A11y || typeof A11y.save !== 'function') return false;
+    try { A11y.save({ omniMode: !!on }); } catch (e) { return false; }
+    return !!on;
+  }
+  // 빌런 선택 화면의 체크박스 상자: 코어가 준비됐을 때만 보이고 체크 상태는 설정(omniMode)을 따른다. 보였으면 true
+  function syncOmniToggle() {
+    if (typeof document === 'undefined' || !document.getElementById) return false;
+    var ready = _omniReady();
+    var box = document.getElementById('omni-toggle-box');
+    if (box && box.style) box.style.display = ready ? '' : 'none';
+    var cb = document.getElementById('omni-toggle');
+    if (cb) cb.checked = !!(_eqSettings().omniMode);
+    return ready;
+  }
+  // 이번 핸드를 완전 분석으로 칠까(설정, 코어 준비, 허용 판정)
+  function _omniOn() { return !!(_eqSettings().omniMode) && _omniReady() && _omniAllowed(_villainConfig); }
+  function omni() { return _omni; }
+
+  // ── 핸드 로그(n2-P0 훅, 설계 5.2절): HandLog 호출은 전부 여기를 거친다(typeof 가드, 실패는 게임에 영향 없음) ──
+  function _hl(name) {
+    _hlUI('track', name, arguments[1], arguments[2], arguments[3]);   // (G2 PACE) 액션 로그 줄은 같은 훅 인자를 따로 쌓는다(HandLog가 기록하지 않는 판 포함)
+    if (typeof HandLog === 'undefined' || !HandLog || typeof HandLog[name] !== 'function') return null;
+    try { return HandLog[name].apply(HandLog, Array.prototype.slice.call(arguments, 1)); } catch (e) { return null; }
+  }
+  // 액션 로그 줄(ui/pacer.js HandLogUI) 호출, typeof 가드
+  function _hlUI(fn) {
+    if (typeof HandLogUI === 'undefined' || !HandLogUI || typeof HandLogUI[fn] !== 'function') return null;
+    try { return HandLogUI[fn].apply(HandLogUI, Array.prototype.slice.call(arguments, 1)); } catch (e) { return null; }
+  }
+  function _paceBusy() {
+    try { return !!(typeof Pacer !== 'undefined' && Pacer && typeof Pacer.busy === 'function' && Pacer.busy()); } catch (e) { return false; }
+  }
+  function _sessionKind() {
+    try {
+      var s = (typeof Journey !== 'undefined' && Journey && typeof Journey.session === 'function') ? Journey.session() : null;
+      return (s && s.kind) || null;
+    } catch (e) { return null; }
+  }
 
   function selectVillains(config) {
     if (_villainScreenActive()) rememberVillainConfig(config);   // (UX-06) 빌런 선택 화면의 구성 5종만 기억(커리어, 여정 캐스트 구성은 무시)
@@ -204,6 +280,8 @@ var App = (function() {
     _sessionId = Date.now();
     _practice = null;
     _sessionNet = 0; _buyin = null; if (typeof VillainTracker !== 'undefined') VillainTracker.reset(_sessionId);
+    _rebuys = { n: 0, add: 0 }; _pendingNotes = []; _rebuyToast = 0; _lastSettled = null; _lastResult = null;
+    _omniAsk = _villainScreenActive();
     if (config === 'career' && typeof Career !== 'undefined' && Career) _carryoverStacks = Career.stacksFor(); // 커리어(P0 훅, F2): 이어 칠 스택
     else if (typeof CareerTable !== 'undefined' && CareerTable && typeof CareerTable.syncBand === 'function') CareerTable.syncBand(false); // 커리어 아닌 게임: 토너먼트 띠 치우기
     // 초보자 코칭 패널(에쿼티 오버레이) 전 모드 기본 표시 — 원하면 📊 버튼으로 접기
@@ -219,6 +297,7 @@ var App = (function() {
 
   function _newHand() {
     _theaterAbort();   // 새 테이블 핸드는 극장 관전을 이어 가지 않는다(게임 화면 안에서 바로 넘어오는 경로 방어)
+    _paceCancel(); _omniAbort();   // (n2-P0) 앞 핸드의 남은 순차 공개와 리플레이 화면 정리
     if (!_gtoMode && typeof GtoChart !== 'undefined') GtoChart.hide();
     var playersSpec = _buildPlayersSpec(_villainConfig);
     _state = GameState.buildInitialState(playersSpec, _heroPos, _seed, _carryoverStacks);
@@ -233,12 +312,24 @@ var App = (function() {
     syncEqChips();
     if (typeof ThinkingUI !== 'undefined') ThinkingUI.onNewHand(_state); // WP8
     showScreen('screen-game');
-    Table.render(_state);
+    var omni0 = _omni = _omniOn();   // (n2-P0) 첫 그리기용 판정(여정 세션 정리 뒤 아래에서 다시 본다). 완전 분석이면 전원 공개 사본
+    if (_omni) _renderTable(); else Table.render(_state);
     HUD.clear();
     _lastEV = null;
     _lastVerdict = null; _lastView = null;
     if (typeof CoachUI !== 'undefined') CoachUI.onNewHand({handNum:_round, gtoMode:_gtoMode, gtoRound:_gtoRound, practice:!!_practice, sessionId:_sessionId, mode:_villainConfig});
     if (typeof Journey !== 'undefined' && Journey.onNewHand) Journey.onNewHand({ state: _state, handNum: _round, mode: _villainConfig, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, sessionId: _sessionId, heroPos: _heroPos, hu: playersSpec.length === 1 });
+    // (n2-P0) 완전 분석 판정(여정 세션 정리 뒤라 Journey.active가 맞다)과 핸드 로그 시작. 제외 구성이면 begin이 null이고 뒤 훅은 no-op
+    _omni = _omniOn();
+    if (_omniAsk) {
+      _omniAsk = false;
+      if (!_omni && _eqSettings().omniMode && _omniReady()) _showToast('이 테이블에서는 완전 분석을 쓸 수 없어요');
+    }
+    _hl('begin', { state: _state, sid: _sessionId, mode: _villainConfig, heroPos: _heroPos, omni: _omni, practice: !!_practice,
+      gtoMode: _gtoMode, sessionKind: _sessionKind(), career: _villainConfig === 'career' });
+    var notes = _pendingNotes; _pendingNotes = [];
+    notes.forEach(function(x) { _hl('note', x.kind, x.data); });
+    if (_omni !== omni0) _renderTable();   // 여정 세션 정리로 판정이 바뀌었으면 다시 그린다
     // 결과 배너 숨기기
     var banner = document.getElementById('result-banner');
     if (banner) banner.style.display = 'none';
@@ -247,6 +338,7 @@ var App = (function() {
     if (actionBar) actionBar.style.display = '';
     var resultBar = document.getElementById('result-actions-bar');
     if (resultBar) resultBar.style.display = 'none';
+    _showBtn('btn-rebuy', false); _showBtn('btn-replay', false);   // (n2-P0) 결과바 리바이, 리플레이는 핸드가 끝난 뒤에만
     // GTO 패널 초기화
     var commentary = document.getElementById('gto-commentary');
     if (commentary) { commentary.style.display = _gtoMode ? 'flex' : 'none'; commentary.innerHTML = ''; }
@@ -261,6 +353,8 @@ var App = (function() {
     if (ring) ring.style.display = 'none';
     // 세로 폰 학습 도크: 패널 초기화가 끝난 뒤 탭/접힘 리셋 (총평 패널 비운 뒤라 탭 판정이 정확)
     if (typeof MobileUI !== 'undefined' && MobileUI.onNewHand) MobileUI.onNewHand();
+    _hlUI('onNewHand');   // (G2 PACE) 로그 시트는 새 핸드에서 접는다
+    if (_rebuyToast > 0) { _rebuyToast = 0; _showToast('💰 스택이 20bb 아래로 떨어져 100bb로 다시 샀어요(세션 손익은 그대로)', 2600); }
     ActionBar.render(_state);
     Animator.dealCards(_state, function() {
       _processVillainActions();
@@ -359,17 +453,78 @@ var App = (function() {
   }
   // 캐시게임 리바이(순수, R2): 히어로는 100bb 미만이면 100으로, 빌런은 20bb 미만일 때만 100으로(그 외 스택 이월).
   // → { stacks, topups: {이름: 더한 칩} }. 입력은 바꾸지 않는다
+  // (n2-P0, 설계 2.2절) policy: 생략이나 'reset100'이면 위 규칙(승급 시험, 미션). 'cash'면 전원 같은 규칙(0 또는 20bb 미만일 때만 100, 나머지 이월)
   var REBUY_HERO = 100, REBUY_VILLAIN_MIN = 20;
-  function _rebuyStacks(stacks) {
-    var out = {}, topups = {};
+  function _rebuyStacks(stacks, policy) {
+    var out = {}, topups = {}, cash = policy === 'cash';
     Object.keys(stacks || {}).forEach(function(n) {
       var v = Number(stacks[n]);
-      var low = n === 'Hero' ? !(v >= REBUY_HERO) : !(v >= REBUY_VILLAIN_MIN);
+      var low = (n === 'Hero' && !cash) ? !(v >= REBUY_HERO) : !(v >= REBUY_VILLAIN_MIN);
       if (low) { out[n] = 100; topups[n] = Math.round((100 - (isFinite(v) ? Math.max(0, v) : 0)) * 100) / 100; }
       else out[n] = v;
     });
     return { stacks: out, topups: topups };
   }
+  // 리바이 정책(순수, n2-P0): ctx = { mode, practice, gtoMode, sessionKind } → 'career' | 'gto' | 'reset100' | 'cash'.
+  // 커리어는 Career.beforeNextHand가 정하고, GTO 미러는 3회 비교용 100 리셋, 여정 미션과 승급 시험은 100bb 차트 기준이라 reset100,
+  // 그 밖(자유 게임 5종, 여정 free 세션, 오늘의 5분 자유 3핸드)은 cash. 연습 재생은 reset100(리바이 대상 아님)
+  function _rebuyPolicy(ctx) {
+    ctx = ctx || {};
+    if (ctx.mode === 'career') return 'career';
+    if (ctx.gtoMode || ctx.mode === 'gto-mirror') return 'gto';
+    if (ctx.practice) return 'reset100';
+    if (ctx.sessionKind === 'mission' || ctx.sessionKind === 'boss') return 'reset100';
+    return 'cash';
+  }
+  function _rebuyCtx() { return { mode: _villainConfig, practice: !!_practice, gtoMode: _gtoMode, sessionKind: _sessionKind() }; }
+  function _r2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
+  function _fmtBB(x) { var n = Math.round((Number(x) || 0) * 10) / 10; return (n % 1 === 0) ? String(n) : n.toFixed(1); }
+  // 수동 리바이 판정(지금 상태만 읽음) → { ok, reason, add }: 핸드가 끝났고, 연습 아님, 정책 cash, 히어로 스택 100 미만
+  function canRebuy() {
+    if (!_state) return { ok: false, reason: 'no-hand', add: 0 };
+    if (!_state.handOver) return { ok: false, reason: 'in-hand', add: 0 };
+    if (_practice) return { ok: false, reason: 'practice', add: 0 };
+    if (_rebuyPolicy(_rebuyCtx()) !== 'cash') return { ok: false, reason: 'policy', add: 0 };
+    var v = Number(_state.stacks && _state.stacks.Hero);
+    if (!(v < REBUY_HERO)) return { ok: false, reason: 'full', add: 0 };
+    return { ok: true, reason: null, add: _r2(REBUY_HERO - Math.max(0, v)) };
+  }
+  // 결과바 '💰 리바이 100bb': 히어로 스택을 100으로 채우고 사들인 칩(_buyin)에 더한다(세션 손익 그대로). 더한 칩을 돌려준다(못 하면 0)
+  function rebuyNow() {
+    var c = canRebuy();
+    if (!c.ok) { _syncRebuyBtn(); return 0; }
+    var add = c.add;
+    _state.stacks = Object.assign({}, _state.stacks, { Hero: REBUY_HERO });
+    if (!_buyin) _buyin = {};
+    _buyin.Hero = _r2((_buyin.Hero != null ? _buyin.Hero : REBUY_HERO - add) + add);
+    _state.buyin = Object.assign({}, _state.buyin || {}, { Hero: _buyin.Hero });
+    _rebuys.n++; _rebuys.add = _r2(_rebuys.add + add);
+    // 이번 핸드 로그는 이미 끝났으므로 다음 핸드 로그 머리에 메모를 붙인다
+    _pendingNotes.push({ kind: 'rebuy', data: { name: 'Hero', add: add, manual: true } });
+    // 정산 그리기 사본의 스택만 바꿔 다시 그린다(승자 배지와 공개 카드 유지)
+    if (_lastSettled && typeof Table !== 'undefined' && Table) {
+      _lastSettled = Object.assign({}, _lastSettled, { stacks: Object.assign({}, _lastSettled.stacks, { Hero: REBUY_HERO }), buyin: Object.assign({}, _state.buyin) });
+      Table.render(_lastSettled);
+      if (_lastResult && typeof Table.renderShowdown === 'function') Table.renderShowdown(_lastResult);
+      if (typeof Table.fitWinnerBadges === 'function') Table.fitWinnerBadges();
+    }
+    _showToast('💰 +' + _fmtBB(add) + 'bb 리바이, 세션 손익은 그대로');
+    _syncRebuyBtn();
+    return add;
+  }
+  function _showBtn(id, on) {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    var b = document.getElementById(id);
+    if (b && b.style) b.style.display = on ? '' : 'none';
+  }
+  function _syncRebuyBtn() { var ok = canRebuy().ok; _showBtn('btn-rebuy', ok); return ok; }
+  // ⏪ 리플레이: 코어가 준비됐고 이 핸드 로그가 있을 때만(연습 제외)
+  function _syncReplayBtn(logKey) {
+    var ok = !!(logKey && !_practice && _omniReady() && _hl('get', logKey));
+    _showBtn('btn-replay', ok);
+    return ok;
+  }
+
   // (웨이브2 후속, 결정 50) 히어로 폴드 뒤 빌런끼리 진행은 엔진 옵션 keepPlaying(클라우드 I)으로 한다: 연습이 아니고 관전이 아니면
   // applyHeroAction(..., { keepPlaying: true }). 엔진이 남은 사람 2명 이상일 때만 handOver를 세우지 않는다(예전 되돌림과 같은 조건).
   function _foldOpts(st, practice) { return (!st || practice || st.spectator) ? undefined : { keepPlaying: true }; }
@@ -402,32 +557,93 @@ var App = (function() {
     return VillainAdaptive.opts({ state: _state, mode: _villainConfig, practice: !!_practice, sessionId: _sessionId }) || undefined;
   }
 
+  // (n2-P0, 설계 4.2절 1번) 동기 걸음 루프: 엔진을 stepOne으로 한 액션씩 돌려 프레임 { pre, action, post }를 모은다.
+  // 종료 조건은 예전 한 번 호출과 같다(히어로 차례, 핸드 끝, 큐 소진). 빌런 결정 순서와 무작위 소비도 같다. → { frames, final, actions }
+  function _villainSteps(st, opts) {
+    var stepOpts = Object.assign({ stepOne: true }, opts || {});
+    var cur = st, frames = [], actions = [];
+    for (var guard = 0; guard < 500; guard++) {
+      var r = GameState.applyVillainActions(cur, stepOpts);
+      var a = r.villainActions && r.villainActions[0];
+      if (a) { frames.push({ pre: cur, action: a, post: r.newState }); actions.push(a); }
+      cur = r.newState;
+      if (!a || cur.waitingForHero || cur.handOver) break;
+    }
+    return { frames: frames, final: cur, actions: actions };
+  }
+  // 공개(G2 PACE): Pacer.run(frames, { frame, done }, ctx). 동기 조건(node, 즉시, 프레임 0, 연습)이면 모두 즉시 = 예전 동작
+  function _revealFrames(frames, frame, done, ctx) {
+    if (typeof Pacer === 'undefined' || !Pacer || typeof Pacer.run !== 'function') { frames.forEach(frame); done(); return; }
+    Pacer.run(frames, { frame: frame, done: done }, ctx);
+  }
+  // 순차 공개가 동기로 끝나는가(Pacer 스텁은 늘 true). 비동기일 때만 승률 선계산을 예약한다
+  function _paceSync(frames) {
+    if (typeof Pacer === 'undefined' || !Pacer || typeof Pacer.sync !== 'function') return true;
+    try { return !!Pacer.sync({ frames: frames, practice: !!_practice }); } catch (e) { return true; }
+  }
+  // 승률 선계산(설계 4.2절 6번): 공개가 끝나기 전에 _computeEVAndShow와 같은 레인지와 캐시 키로 Equity.calc를 돌려 _eqCache에 넣는다. 상태 불변
+  function _prefetchEq(st) {
+    if (!st || !st.waitingForHero || typeof Equity === 'undefined' || !Equity || typeof Equity.calc !== 'function') return false;
+    var vr = st.villainRange || null;
+    if (typeof Gto !== 'undefined' && Gto) {
+      if (st.street === 'preflop') { var r = Gto.villainRangeFor ? Gto.villainRangeFor(st) : null; vr = r ? Array.from(r) : null; }
+      else if (!vr && Gto.callerRangeFor) { var c = Gto.callerRangeFor(st); if (c) vr = Array.from(c); }
+    }
+    var view = Object.assign({}, st, { villainRange: vr });
+    var key = _eqCacheKey(view);
+    if (_eqCache.key === key) return true;
+    Equity.calc(view, function(eq) { _eqCache = { key: key, eq: eq }; });
+    return true;
+  }
+  // 스트리트 전환 뒤 공통(승률 배지 초기화 + 로그 줄)
+  function _afterStreetAdvance() {
+    _state.seatEq = null;
+    if (_state.street !== 'showdown') _hl('street', _state);   // 쇼다운 전환은 끝 이벤트(end)가 맡는다
+  }
+
   function _processVillainActions() {
     if (_state.street === 'showdown') { _showResult(); return; }
-    var result = GameState.applyVillainActions(_state, _villainOpts());
+    var opts = _villainOpts();
+    var ov = (opts && typeof opts.decide === 'function') ? (_villainConfig === 'career' ? 'career' : 'adaptive') : null;
+    var steps = _villainSteps(_state, opts);
+    var acts = steps.actions;
+    _frames = steps.frames;
     // 유형 숨김 테이블: 엔진 말버릇(phrase)은 유형마다 달라 정체가 드러나므로 지운다(말풍선은 액션만)
-    if (_state.hideTypes) result.villainActions.forEach(function(a) { if (a) a.phrase = null; });
-    if (typeof ThinkingUI !== 'undefined') result.villainActions.forEach(function(a) { ThinkingUI.onVillainAction(_state, a.name, a.action, a.amount, a); }); // WP8 (액션 전 상태, a에 potBefore 등 스냅샷)
-    _state = result.newState;
-    if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, result.villainActions);
-    // TABLE-09: 말풍선 없이 바로 스트리트 전환이 뒤따르면 전환 전 렌더를 생략하고 전환 뒤 1회만 그린다(말풍선이 있으면 기존 2회)
-    var skipPre = result.villainActions.length === 0 && !_state.waitingForHero && !_state.handOver && GameState.needsStreetAdvance(_state);
-    if (!skipPre) _renderTable();
-    if (result.villainActions.length > 0) {
-      Table.updateVillainActions(result.villainActions);
-    }
-    if (_state.waitingForHero) {
-      _computeEVAndShow();
-    } else if (_state.handOver) {
-      _showResult();
-    } else if (GameState.needsStreetAdvance(_state)) {
-      _state = GameState.advanceStreet(_state);
-      _state.seatEq = null;
-      _renderTable();
-      Animator.dealBoard(_state, function() { _processVillainActions(); });
-    } else {
-      _showResult();
-    }
+    if (_state.hideTypes) acts.forEach(function(a) { if (a) a.phrase = null; });
+    _hlUI('hold');   // (G2 PACE) 로그 줄은 공개된 프레임까지만 보인다
+    steps.frames.forEach(function(f) { _hl('villain', f.action, f.pre, f.post, ov); });   // (n2-P0) 핸드 로그, 걸음마다
+    _state = steps.final;
+    if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, acts);
+    var paced = !_paceSync(steps.frames);
+    if (_state.waitingForHero && paced) { var fin = _state; _defer(function() { if (_state === fin) _prefetchEq(fin); }); }
+    if (paced && typeof Pacer !== 'undefined' && Pacer.toastOnce && Pacer.toastOnce()) _showToast('상대가 한 명씩 움직여요. 테이블을 누르면 빨리 넘겨요(속도는 ⏩)', 3200);
+    var next = _state.waitingForHero ? 'hero' : (_state.handOver ? 'end' : 'street');
+    _revealFrames(steps.frames, function(f, i) {
+      // 공개 시점의 속마음(WP8, 그 걸음 직전 상태, a에 potBefore 등 스냅샷). 'live'면 말풍선이 프레임과 같이 뜬다
+      if (typeof ThinkingUI !== 'undefined') ThinkingUI.onVillainAction(f.pre, f.action.name, f.action.action, f.action.amount, f.action);
+      if (paced) _paceFrame(f);
+      _hlUI('reveal', i + 1);
+    }, function() {
+      _hlUI('reveal');
+      // TABLE-09: 말풍선 없이 바로 스트리트 전환이 뒤따르면 전환 전 렌더를 생략하고 전환 뒤 1회만 그린다(말풍선이 있으면 기존 2회)
+      var skipPre = acts.length === 0 && !_state.waitingForHero && !_state.handOver && GameState.needsStreetAdvance(_state);
+      if (!skipPre) _renderTable();
+      if (acts.length > 0 && !paced) {   // 순차 공개는 프레임마다 붙였다(같은 스트리트 말풍선은 다시 그려도 남는다)
+        Table.updateVillainActions(acts);
+      }
+      if (_state.waitingForHero) {
+        _computeEVAndShow();
+      } else if (_state.handOver) {
+        _showResult();
+      } else if (GameState.needsStreetAdvance(_state)) {
+        _state = GameState.advanceStreet(_state);
+        _afterStreetAdvance();
+        _renderTable();
+        Animator.dealBoard(_state, function() { _processVillainActions(); });
+      } else {
+        _showResult();
+      }
+    }, { practice: !!_practice, heroOut: !!_state.heroOut, next: next });
   }
 
   // ── 올인 런아웃 공개(TABLE-03a): 폴드 안 한 좌석 2명 이상, 칩이 남은 사람은 많아야 1명(더 벳이 오갈 수 없음), 핸드 종료 아님 ──
@@ -461,7 +677,7 @@ var App = (function() {
   }
   // 캐시된 좌석별 승률({이름: 0..1}) 또는 null. null이면 다음 프레임에 EquityMulti로 계산해 .seat-eq만 패치(없으면 1회 렌더)
   function _seatEqFor(st) {
-    if (!_eqSettings().showAllEq || typeof EquityMulti === 'undefined' || !EquityMulti.multiway) return null;
+    if (!(_eqSettings().showAllEq || _omni) || typeof EquityMulti === 'undefined' || !EquityMulti.multiway) return null;
     var key = _seatEqKey(st);
     if (_seatEqCache.key === key) return _seatEqCache.eq;
     var names = (st.names || Object.keys(st.players || {})).filter(function(n) { return !(st.folded && st.folded[n]); }).sort();
@@ -487,23 +703,50 @@ var App = (function() {
       });
       // 핸드가 끝났으면 다시 그리지 않는다: 정산 그리기(승자 배지, renderShowdown 공개 카드)에는 승률 배지 자리가 없어서
       // 다시 그리면 정산 화면이 지워진다(모션 줄이기면 런아웃이 이 지연 작업보다 먼저 끝난다)
-      if (!patched && !(_state && _state.handOver)) _renderTable();
+      if (!patched && !(_state && _state.handOver) && !_paceBusy()) _renderTable();
     });
     return null;
   }
   // 게임 진행 중 테이블 그리기: 전원 올인 런아웃이면 사본만 공개(revealAll, seatEq). 엔진 _state 불변
-  function _renderTable() {
-    if (_allInRunout(_state)) {
-      var seatEq = _seatEqFor(_state);
-      var view = Object.assign({}, _state, { revealAll: true, seatEq: seatEq || _pendingSeatEq(_state) || _state.seatEq || null });
-      Table.render(view);
-      return;
+  // (n2-P0) 완전 분석 세션은 늘 전원 공개(같은 경로), 히어로 차례면 사본에 acting: 'Hero'(행동 좌석 강조, G1이 .active-turn 스타일)
+  // (G2 PACE) st와 acting을 주면 순차 공개 중간 프레임: 그 걸음 뒤 상태를 그리고 행동 좌석은 acting. 런아웃 공개는 최종 프레임에서만,
+  //   완전 분석의 좌석 승률은 캐시가 맞을 때만(자리 표시 0%를 잠깐 보이지 않게)
+  function _renderTable(st, acting) {
+    var step = !!st, cur = st || _state;
+    var extra = null;
+    if ((!step && _allInRunout(cur)) || (_omni && cur && !cur.handOver)) {
+      var seatEq = step ? (_seatEqCache.key === _seatEqKey(cur) ? _seatEqCache.eq : null) : _seatEqFor(cur);
+      extra = { revealAll: true, seatEq: step ? seatEq : (seatEq || _pendingSeatEq(cur) || cur.seatEq || null) };
     }
-    Table.render(_state);
+    if (acting) { extra = extra || {}; extra.acting = acting; }
+    else if (cur && cur.waitingForHero && !cur.handOver) { extra = extra || {}; extra.acting = 'Hero'; }
+    Table.render(extra ? Object.assign({}, cur, extra) : cur);
+  }
+  // 순차 공개 프레임 1개(설계 4.2절 3번): 걸음 뒤 상태, 행동 좌석, 그 액션 말풍선. 앞 말풍선은 페이드를 끝난 상태로 둔다(다시 그릴 때 깜빡임 방지)
+  function _paceFrame(f) {
+    var a = f.action;
+    if (typeof document !== 'undefined' && document.querySelectorAll) {
+      var olds = document.querySelectorAll('#screen-game .seat-action.fadein');
+      for (var i = 0; i < olds.length; i++) olds[i].classList.remove('fadein');
+    }
+    _renderTable(f.post, a.name);
+    Table.updateVillainActions([a]);
+    _markActing(a.name);
+  }
+  // 행동 좌석 강조 보강: Table.render가 state.acting을 아직 모르면(G1 머지 전) 이름으로 좌석을 찾아 .active-turn을 붙인다. 이미 있으면 그대로
+  function _markActing(name) {
+    if (typeof document === 'undefined' || !document.querySelector || !name) return false;
+    if (document.querySelector('#screen-game .seat.active-turn')) return true;
+    var seats = document.querySelectorAll('#screen-game .seat');
+    for (var i = 0; i < seats.length; i++) {
+      var nm = seats[i].querySelector('.seat-name');
+      if (nm && nm.textContent.trim().split(/\s+/)[0] === name) { seats[i].classList.add('active-turn'); return true; }
+    }
+    return false;
   }
   // 계산 전 자리 표시(배지 자리를 먼저 만들어 재렌더 없이 패치)
   function _pendingSeatEq(st) {
-    if (!_eqSettings().showAllEq) return null;
+    if (!(_eqSettings().showAllEq || _omni)) return null;
     var out = {}, names = st.names || Object.keys(st.players || {});
     for (var i = 0; i < names.length; i++) if (!(st.folded && st.folded[names[i]])) out[names[i]] = 0;
     return out;
@@ -592,6 +835,7 @@ var App = (function() {
       _lastView = view;
       _state.seatEq = eqOn ? { Hero: eq } : null;
       _patchHeroSeatEq(eq, eqOn);
+      _markHeroTurn();   // (n2-P0) 히어로 차례 좌석 강조(.active-turn, 다시 그리기 없이 클래스만)
       HUD.update(eq, ev, _state, _gtoMode ? _gtoRound : 0, view);
       if (typeof GtoChart !== 'undefined') {
         // P0 계약(G4): 새 API(shownForDecision이 있는 GtoChart)는 가림(view.hide)이어도 늘 부르고 객체 인자로 넘긴다. 옛 API는 예전 호출 그대로
@@ -652,6 +896,13 @@ var App = (function() {
     }
   }
 
+  function _markHeroTurn() {
+    if (typeof document === 'undefined' || !document.querySelector) return false;
+    var seat = document.querySelector('.seat.hero');
+    if (!seat || !seat.classList) return false;
+    seat.classList.add('active-turn');
+    return true;
+  }
   // 히어로 좌석의 '승률 NN%' 배지만 갱신(재렌더 없이). 배지 자리가 없으면 1회 렌더
   function _patchHeroSeatEq(eq, on) {
     if (typeof document === 'undefined' || !document.querySelector) return;
@@ -676,6 +927,8 @@ var App = (function() {
   }
 
   function heroAction(action) {
+    // (n2-P0, 설계 4.2절 7번) 상대 액션 공개 중의 탭은 빨리 감기만 하고 액션으로 쓰지 않는다(_state는 이미 최종이라 이중 적용 방지)
+    if (typeof Pacer !== 'undefined' && Pacer && typeof Pacer.busy === 'function' && Pacer.busy()) { if (typeof Pacer.finish === 'function') Pacer.finish(); return; }
     if (!_state || !_state.waitingForHero) return; // 이중 클릭 가드
     // 결정 전 계산 체인이 아직 다음 프레임 대기 중이면 지금 동기로 끝낸다(_lastEV, _lastVerdict가 지난 결정의 값으로 채점되는 일 방지)
     if (_pendingCalc) { var flush = _pendingCalc; _pendingCalc = null; flush(); }
@@ -750,8 +1003,9 @@ var App = (function() {
         dec.bestEV = _lastEV[_lastEV.bestAction] || 0;
       }
     }
-    // 학습 기록: 연습 모드와 GTO 2회차(힌트 회차)는 제외
-    var logIt = !_practice && !(_gtoMode && _gtoRound === 2);
+    _hl('hero', { pre: pre, post: _state, intended: n.intended, executed: n.action, amount: amount, dec: dec, verdict: V, grade: g, eq: _lastEQ });   // (n2-P0) 핸드 로그
+    // 학습 기록: 연습 모드와 GTO 2회차(힌트 회차)는 제외. 완전 분석 세션(n2-P0)도 제외(실수 노트, 약점, 플래시카드)
+    var logIt = !_practice && !(_gtoMode && _gtoRound === 2) && !_omni;
     var cardStr = function(cs) { return (cs || []).map(function(c){ return c.rank + c.suit; }); };
     if (logIt && dec) {
       if (g) {
@@ -804,13 +1058,13 @@ var App = (function() {
         eq: _lastEQ, view: _lastView, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound,
         sessionId: _sessionId, dec: dec });
     }
-    if (typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) || chartShown });
+    if (!_omni && typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) || chartShown });
     if (typeof MobileUI !== 'undefined' && MobileUI.onAfterDecision) MobileUI.onAfterDecision();
     if (_state.handOver) {
       _showResult();
     } else if (GameState.needsStreetAdvance(_state)) {
       _state = GameState.advanceStreet(_state);
-      _state.seatEq = null;
+      _afterStreetAdvance();
       _renderTable();
       Animator.dealBoard(_state, function() { _processVillainActions(); });
     } else {
@@ -1044,11 +1298,14 @@ var App = (function() {
       var cbn = (_villainConfig === 'career' && !_practice && typeof Career !== 'undefined' && Career) ? Career.beforeNextHand(_carryoverStacks) : null;
       if (cbn && cbn.end) { showSessionSummary(); return; }
       if (cbn && cbn.stacks && typeof cbn.stacks === 'object') _carryoverStacks = cbn.stacks;
-      // 캐시게임 자동 리바이(R2): 히어로는 100bb 미만이면 100으로, 빌런은 20bb 미만일 때만 100으로(나머지는 이월, 스택 변화가 보인다)
+      // 캐시게임 자동 리바이(n2-P0, 설계 2.2절): 정책 cash(자유 게임)는 나와 상대 모두 20bb 미만일 때만 100으로, 그 밖은 이월.
+      // 미션과 승급 시험(reset100)은 예전처럼 히어로 100 미만 → 100. 커리어가 null을 돌려준 경우도 예전 규칙
       else if (_carryoverStacks) {
-        var rb = _rebuyStacks(_carryoverStacks);
+        var rb = _rebuyStacks(_carryoverStacks, _rebuyPolicy(_rebuyCtx()) === 'cash' ? 'cash' : 'reset100');
         _carryoverStacks = rb.stacks;
         if (_buyin) Object.keys(rb.topups).forEach(function(n) { if (_buyin[n] != null) _buyin[n] = Math.round((_buyin[n] + rb.topups[n]) * 100) / 100; });
+        Object.keys(rb.topups).forEach(function(n) { if (rb.topups[n] > 0) _pendingNotes.push({ kind: 'rebuy', data: { name: n, add: rb.topups[n] } }); });
+        if (rb.topups.Hero > 0) { _rebuys.n++; _rebuys.add = _r2(_rebuys.add + rb.topups.Hero); _rebuyToast = rb.topups.Hero; }
       }
     }
     if (_buildPlayersSpec(_villainConfig).length === 1) {
@@ -1078,7 +1335,11 @@ var App = (function() {
     // 정산 뒤 다시 그린다(R2 칩 고정 버그): 스택은 팟을 받은 값, 팟 0, 승자 좌석 '🏆 +순이익' 배지. 엔진 _state는 그대로, 그리기 사본만
     // 좌석 앞 베팅 칩(playerBets)은 팟으로 모여 승자에게 갔으므로 그리기 사본에서 비운다
     var settled = Object.assign({}, _state, { winner: result.winner, payouts: _handNet(_state.stacks, startStacks), playerBets: {} });
-    if (wasRunout) settled.revealAll = true;
+    if (wasRunout || _omni) settled.revealAll = true;
+    // (n2-P0) 핸드 로그 끝(id는 기록 화면 연결 logKey), 수동 리바이용 정산 사본
+    var curLog = _hl('current'), logKey = (curLog && curLog.id) || null, omniHand = _omni;
+    _hl('end', { settled: settled, result: result, startStacks: startStacks });
+    _lastSettled = settled; _lastResult = result;
     Table.render(settled);
     Table.renderShowdown(result);
     // 총평과 '▶ 다음 핸드'를 먼저(350ms), 기록 저장(여정 XP, 운 미터, 히스토리)은 지역 스냅샷으로 한 틱 뒤에(모션 줄이기면 즉시)
@@ -1091,9 +1352,9 @@ var App = (function() {
       // 신호등 + 핸드 복기는 총평 패널에 통합 (연습 모드에서도 동일하게 렌더)
       if (typeof CoachUI !== 'undefined' && CoachUI.onHandEnd) CoachUI.onHandEnd({decisions:decisionsSnap, practice:!!_practice, gtoMode:_gtoMode, gtoRound:_gtoRound, sessionId:_sessionId});
       later(function() {
-        if (typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, heroFolded: !!(st.folded && st.folded.Hero) });
+        if (!omniHand && typeof Journey !== 'undefined' && Journey.onHandEnd) Journey.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, heroFolded: !!(st.folded && st.folded.Hero) });
         if (mode === 'career' && !practice && typeof Career !== 'undefined' && Career) Career.onHandEnd({ decisions: decisionsSnap, result: res, state: st, net: heroNet, startStacks: startStacks, heroPos: heroPos, sessionId: sessionId, round: round, heroFolded: !!(st.folded && st.folded.Hero) }); // 커리어(P0 훅, F2)
-        if (typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: res, state: st, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, sessionId: sessionId, hu: (st.names || []).length === 2, heroFolded: !!(st.folded && st.folded.Hero) }); // 운 미터(M5-HUD, F1)
+        if (!omniHand && typeof HeroStats !== 'undefined' && HeroStats.recordLuck) HeroStats.recordLuck({ decisions: decisionsSnap, result: res, state: st, startStacks: startStacks, net: heroNet, pot: finalPot, practice: !!practice, gtoMode: gtoMode, gtoRound: gtoRound, heroPos: heroPos, mode: mode, sessionId: sessionId, hu: (st.names || []).length === 2, heroFolded: !!(st.folded && st.folded.Hero) }); // 운 미터(M5-HUD, F1)
       });
       _renderHandSummary(result);
       // 액션바 교체
@@ -1108,6 +1369,7 @@ var App = (function() {
       var endBtn = document.getElementById('btn-session-end');
       if (histBtn) histBtn.style.display = _practice ? 'none' : '';
       if (endBtn) endBtn.style.display = _practice ? 'none' : '';
+      _syncRebuyBtn(); _syncReplayBtn(logKey);   // (n2-P0) 💰 리바이(정책 cash, 100 미만), ⏪ 리플레이(코어 준비, 로그 있음)
       if (typeof MobileUI !== 'undefined' && MobileUI.onHandEnd) MobileUI.onHandEnd(); // 총평 탭 자동 펼침
       if (_practice) {
         // 연습 핸드는 localStorage·세션 기록 어디에도 남기지 않고 추이만 갱신
@@ -1116,7 +1378,7 @@ var App = (function() {
       } else {
         later(function() {
           Storage.saveHandHistory(st, res, { sessionId: sessionId, mode: mode, heroPos: heroPos,
-            pot: finalPot, net: heroNet, gtoRound: gtoMode ? gtoRound : 0 });
+            pot: finalPot, net: heroNet, gtoRound: gtoMode ? gtoRound : 0, logKey: logKey || undefined, omni: omniHand || undefined });
         });
         _sessionNet += heroNet;
         _sessionHands.push({
@@ -1257,6 +1519,7 @@ var App = (function() {
     }
     var heroPos = record.heroPos || _heroPos || 'BTN';
     var config = record.mode || _villainConfig || 'sixmax';
+    _paceCancel();   // (n2-P0) 남은 순차 공개 버림
     _practice = { seed: record.seed, heroPos: heroPos, config: config, attempts: [], resume: resume };
     _gtoMode = false; // 연습은 항상 일반 모드
     _seed = record.seed;
@@ -1288,7 +1551,7 @@ var App = (function() {
     }
   }
 
-  function _showToast(msg) {
+  function _showToast(msg, ms) {
     var old = document.getElementById('app-toast');
     if (old) old.remove();
     var t = document.createElement('div');
@@ -1296,7 +1559,7 @@ var App = (function() {
     t.textContent = msg;
     t.style.cssText = 'position:fixed;top:14%;left:50%;transform:translateX(-50%);background:rgba(20,20,30,0.95);color:#e3b341;border:1px solid #e3b341;border-radius:6px;padding:8px 18px;z-index:500;font-size:0.9rem;pointer-events:none';
     document.body.appendChild(t);
-    setTimeout(function(){ t.remove(); }, 2200);
+    setTimeout(function(){ t.remove(); }, ms > 0 ? ms : 2200);
   }
 
   // ── 핸드 리뷰 화면 진입 (ui/history.js HistoryUI가 렌더링 담당) ──
@@ -1437,9 +1700,10 @@ var App = (function() {
 
   // 세션 집계(순수 함수): 승/폴드/패 + 결정 신호등 분포 + EV 편차 + 칩 손익
   // M4-P9: evDelta는 EV로 계산한 결정만 더하고, 고정 벌점(d.estimated)은 big/small(큰 실수, 작은 실수 수)로 센다.
-  function _sessionStats(hands) {
+  // (n2-P0) rebuys = { n, add }(생략 가능): 히어로 리바이 횟수와 더한 칩 → st.rebuys, st.rebuyAdd
+  function _sessionStats(hands, rebuys) {
     var st = { hands: 0, showdownWins: 0, folds: 0, losses: 0, green: 0, yellow: 0, red: 0, decisions: 0, evDelta: 0, net: 0,
-      big: 0, small: 0 };
+      big: 0, small: 0, rebuys: (rebuys && rebuys.n) || 0, rebuyAdd: _r2(rebuys && rebuys.add) };
     (hands || []).forEach(function(h) {
       st.hands++;
       if (h.heroWon) st.showdownWins++;
@@ -1479,15 +1743,16 @@ var App = (function() {
     var statsEl = document.getElementById('summary-stats');
     var handsEl = document.getElementById('summary-hands');
     if (!handsEl) return;
-    var st = _sessionStats(_sessionHands);
+    var st = _sessionStats(_sessionHands, _rebuys);
     var goal = (typeof CoachUI !== 'undefined' && CoachUI.currentGoal) ? CoachUI.currentGoal() : '';
     if (statsEl) {
       statsEl.innerHTML =
+        (_omni ? '<div class="omni-session-head" style="color:#d2a8ff;font-weight:700;margin-bottom:0.4rem">🔍 완전 분석 세션(기록 제외)</div>' : '') +
         (goal ? '<div style="color:#e3b341;font-size:0.9rem;margin-bottom:0.5rem">🎯 다음 목표: ' + goal + '</div>' : '') +
         '<div>' + st.hands + '핸드 | 승 ' + st.showdownWins + ', 폴드 ' + st.folds + ', 패 ' + st.losses +
         ' | 결정 🟢' + st.green + ' 🟡' + st.yellow + ' 🔴' + st.red +
         ' | ' + _sessionLossText(st) +
-        ' | 칩 손익 ' + _signed(st.net) + 'bb</div>' +
+        ' | 칩 손익 ' + _signed(st.net) + 'bb' + (st.rebuys ? ' | 리바이 ' + st.rebuys + '회(+' + _fmtBB(st.rebuyAdd) + 'bb)' : '') + '</div>' +
         '<div style="font-size:0.75rem;margin-top:0.3rem">EV 편차는 추천 결정 대비 잃은 기대값의 합이에요(0에 가까울수록 좋아요). ' +
         (st.big || st.small ? '차트나 가이드로 판정한 실수는 bb 대신 큰 실수, 작은 실수로 셌어요. ' : '') +
         '칩 손익에는 운이 섞여 있어요.</div>';
@@ -1551,6 +1816,7 @@ var App = (function() {
     if (!_sessionHands.length) { showMenu(); return; }
     _closeToasts();
     _renderSessionSummary();
+    _hl('releaseHidden', _sessionId);   // (n2-P0, 설계 9.2절 9번) 숨김 테이블 로그는 세션 요약(정체 공개) 뒤에 연다
     _careerLeave();
     showScreen('screen-session-summary');
     _state = null; // 종료한 세션이 연습 resume으로 되살아나지 않게
@@ -1593,6 +1859,7 @@ var App = (function() {
     showScreen: showScreen,
     toggleEquity: toggleEquity,
     toggleEq: toggleEq,
+    toast: function(msg, ms) { if (typeof document !== 'undefined' && document.body) _showToast(msg, ms); },   // (G2 PACE) 속도 토글 안내
     syncEqChips: syncEqChips,
     startGame: startGame,
     selectVillains: selectVillains,
@@ -1629,6 +1896,24 @@ var App = (function() {
     _allInRunout: _allInRunout,
     // R2(테이블 고침) 순수 함수: 리바이, 폴드 뒤 진행, 6인 랜덤 배정과 정체 공개, 핸드 순이익
     _rebuyStacks: _rebuyStacks,
+    // (n2-P0) 리바이 정책과 수동 리바이, 완전 분석, 걸음 루프(설계 6.1절 8번)
+    _rebuyPolicy: _rebuyPolicy, canRebuy: canRebuy, rebuyNow: rebuyNow,
+    setOmniMode: setOmniMode, syncOmniToggle: syncOmniToggle, _omniAllowed: _omniAllowed, _omniReady: _omniReady, omni: omni,
+    _frames: function() { return _frames; }, _villainSteps: _villainSteps, _prefetchEq: _prefetchEq,
+    _rebuys: function() { return { n: _rebuys.n, add: _rebuys.add }; },
+    // 테스트용(n2-P0): 수동 리바이 판정과 회계를 실제 핸드 없이 고정 상태로 시험한다. 넘긴 필드만 바꾼다
+    _testSet: function(o) {
+      o = o || {};
+      if ('state' in o) _state = o.state;
+      if ('config' in o) _villainConfig = o.config;
+      if ('practice' in o) _practice = o.practice;
+      if ('gtoMode' in o) _gtoMode = !!o.gtoMode;
+      if ('buyin' in o) _buyin = o.buyin;
+      if ('settled' in o) { _lastSettled = o.settled; _lastResult = o.result || null; }
+      if ('rebuys' in o) _rebuys = o.rebuys || { n: 0, add: 0 };
+      if ('pendingNotes' in o) _pendingNotes = o.pendingNotes || [];
+    },
+    _pendingNotes: function() { return _pendingNotes.slice(); },
     _foldContinue: _foldContinue, _foldOpts: _foldOpts, _closeToasts: _closeToasts,
     _hiddenSpec: _hiddenSpec,
     _hiddenTypes: _hiddenTypes,
@@ -1636,6 +1921,6 @@ var App = (function() {
     _handNet: _handNet,
     _renderCards: _renderCards,
     // 테스트용: 실제 핸드를 시작한 시험이 뒤 테스트에 게임 상태를 남기지 않도록 비운다(M7 FLOW-02 시험)
-    _resetForTest: function() { _state = null; _practice = null; _gtoMode = false; }
+    _resetForTest: function() { _state = null; _practice = null; _gtoMode = false; _omni = false; _frames = []; _pendingNotes = []; _rebuyToast = 0; _lastSettled = null; _lastResult = null; }
   };
 })();

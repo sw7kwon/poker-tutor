@@ -34,7 +34,7 @@
 
 .history-empty { color: var(--text-dim); padding: 20px; text-align: center; font-size: 0.9rem; }
 
-/* 최근 실수 (07-19 2차 패스 — Storage.getMistakes 최초 소비처) */
+/* 최근 실수 (07-19 2차 패스, Storage.getMistakes 최초 소비처) */
 .history-mistakes { padding: 8px 20px; background: var(--panel-bg); border-bottom: 1px solid var(--hud-border); }
 .hm-title { color: var(--text-dim); font-size: 0.78rem; margin-bottom: 6px; }
 .hm-list { display: flex; flex-direction: column; gap: 3px; max-height: 120px; overflow-y: auto; }
@@ -122,6 +122,12 @@
 .hs-comment { color: var(--text-dim); font-size: 0.85rem; line-height: 1.6; }
 
 .history-practice-btn { width: auto; padding: 10px 28px; }
+/* (n2 G4) 상세 아래 버튼 줄: 🔁 이 핸드 연습, 🔍 완전 분석(핸드 로그가 있을 때만). 폰에서는 줄바꿈 */
+.history-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.history-actions .menu-btn { margin: 0; }
+.history-omni-btn { width: auto; min-height: 44px; padding: 10px 24px; color: var(--purple-text); border-color: var(--purple); }
+/* 완전 분석 세션 표시(기록 제외): 목록 줄과 상세 머리 */
+.hh-omni, .hdh-omni { color: var(--purple-text); font-size: .85em; flex-shrink: 0; }
 
 /* 카드/공통 */
 .hist-card { font-weight: 800; }

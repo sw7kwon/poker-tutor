@@ -43,7 +43,7 @@
 }
 .pot-display {
   font-variant-numeric: tabular-nums;
-  font-size: 1.1rem;
+  font-size: 1.25rem; /* n2-G1: 1.1 → 1.25rem(칩 그림을 끈 경우의 팟 숫자) */
   font-weight: 700;
   color: var(--gold);
   text-shadow: 0 1px 4px var(--black-a50);
@@ -83,16 +83,26 @@
   align-items: center;
 }
 
+/* 핸드 정보 줄(n2-G1): 어두운 알약 위에 글자(펠트 위 대비 4.5:1), 세션 손익 .pnl은 오르면 초록, 내리면 붉게, 0 근처는 회색 */
 .hand-info {
   font-size: 0.85rem;
-  color: var(--white-a72);
+  color: var(--text-soft);
+  background: var(--bg-a55);
+  border-radius: var(--r-pill);
+  padding: 1px 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
+.hand-info .pnl { font-weight: 800; }
+.hand-info .pnl.up { color: var(--green-text); }
+.hand-info .pnl.down { color: var(--red-soft); }
+.hand-info .pnl.flat { color: var(--text-soft); font-weight: 700; }
 
 /* 자리 배치 — 6-max 타원 */
 .seat {
   position: absolute;
   width: 110px;
-  background: var(--black-a55);
+  background: var(--black-a70); /* n2-G1: .55 → .70, 어두운 펠트 위 글자 대비를 올린다 */
   border: 1px solid var(--white-a12);
   border-radius: var(--r-md);
   padding: 8px 14px 8px 8px;
@@ -128,16 +138,75 @@
 .seat-sb  { right: -120px; top: 50%; transform: translateY(-50%); }
 .seat-co  { left: -120px; top: 50%; transform: translateY(-50%); }
 
-.seat.hero { border-color: var(--gold); background: var(--gold-a12); }
-.seat.active-turn { border-color: var(--blue); box-shadow: 0 0 12px var(--blue-a40); }
+/* 히어로 좌석: 금색 기운은 어두운 바탕 위에(스택 금색 글자 대비 4.5:1) */
+.seat.hero { border-color: var(--gold); background: linear-gradient(var(--gold-a12), var(--gold-a12)), var(--black-a70); }
 .seat.folded { opacity: 0.35; }
+/* 행동 좌석(n2-G1, 설계 3.2절 6번): state.acting 좌석. 빌런은 파란 고리, 내 차례는 금색 고리와 1.2초 펄스(모션 줄이기면 정지) */
+.seat.active-turn { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue), 0 0 14px var(--blue-a40); z-index: 7; }
+.seat.hero.active-turn { border-color: var(--gold); box-shadow: var(--ring-gold), 0 0 14px var(--gold-a40); }
+.seat.hero.active-turn::after {
+  content: ''; position: absolute; inset: -5px; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--gold-a50), 0 0 16px var(--gold-a50); opacity: 0; animation: seat-turn-pulse 1.2s ease-in-out infinite;
+}
+@keyframes seat-turn-pulse { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+html.reduce-motion .seat.hero.active-turn::after { animation: none !important; opacity: .6; }
+@media (prefers-reduced-motion: reduce) { html:not(.motion-full) .seat.hero.active-turn::after { animation: none !important; opacity: .6; } }
 
 .seat-name { font-weight: 700; color: var(--text); margin-bottom: 4px; }
-.seat-pos  { font-size: 0.7rem; color: var(--text-soft); font-weight: 600; letter-spacing: 0.04em; }
-.seat-stack { color: var(--gold); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* 포지션 묶음(n2-G1, 설계 3.2절 1, 2번): 좌석 흐름 밖 왼쪽 위 모서리. 포지션 알약 + 딜러 버튼(D)과 블라인드 마커(0.5, 1) */
+.seat-tag {
+  position: absolute; top: -15px; left: -4px; z-index: 4; display: flex; align-items: center; gap: 2px;
+  pointer-events: none; white-space: nowrap; line-height: 1;
+}
+.seat-pos {
+  display: inline-flex; align-items: center; height: 18px; box-sizing: border-box; padding: 0 5px;
+  font-size: 0.74rem; font-weight: 800; letter-spacing: 0.04em; color: var(--text);
+  background: var(--hud-a85); border: 1px solid var(--white-a18); border-radius: var(--r-pill);
+}
+.seat.hero .seat-pos { color: var(--gold); border-color: var(--gold-a40); }
+.seat-mark {
+  display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 20px; min-width: 20px;
+  font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; border-radius: var(--r-pill); color: var(--black);
+}
+.seat-mark.mark-d { width: 24px; height: 24px; background: var(--white); border-radius: var(--r-round); box-shadow: 0 1px 3px var(--black-a60); }
+.seat-mark.mark-sb { height: 18px; padding: 0 4px; background: var(--hud-a85); color: var(--amber-text); border: 1px solid var(--amber-text); }
+.seat-mark.mark-bb { height: 18px; padding: 0 5px; background: var(--amber-text); color: var(--black); }
+/* 스택(n2-G1, 설계 3.2절 3번): 크고 굵게, 색 등급 ok 금색 / warn 앰버 / short 빨강 점선 */
+.seat-stack { color: var(--gold); font-size: 0.95rem; font-weight: 800; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.seat-stack small { font-size: .6em; font-weight: 700; margin-left: 1px; }
+.seat-stack.tier-warn { color: var(--warn); }
+.seat-stack.tier-short { color: var(--red-bright); border: 1px dashed var(--red-bright); border-radius: var(--r-sm); padding: 0 3px; }
 .seat-bet  { color: var(--amber-text); border-color: var(--gold-a70); background: var(--black-a60); font-size: 0.75rem; } /* 돈=금색, 빨강은 실수와 패배 전용 */
 .seat-cards { display: flex; gap: 4px; justify-content: center; margin-top: 6px; min-height: 28px; }
-.seat-action { font-size: 0.75rem; color: var(--green); margin-top: 2px; }
+/* 액션 말풍선(n2-G1, 설계 3.2절 4번): data-act로 왼쪽 띠와 글자색. 공격 주황, 콜 파랑, 체크 밝은 회색, 폴드 흐린 회색,
+   올인은 ⚡과 띠만 빨강(글자는 기본색, 빨강은 실수와 패배 전용 규약) */
+.seat-action { font-size: 0.8rem; color: var(--text); margin-top: 2px; font-style: normal; border-left: 3px solid var(--white-a18); }
+.seat-action .act-main { font-weight: 800; color: inherit; }
+.seat-action .act-ic { font-style: normal; margin-right: 3px; }
+.seat-action .act-say { color: var(--text-dim); font-size: .7rem; font-style: italic; font-weight: 400; }
+.seat-action[data-act="bet"], .seat-action[data-act="raise"], .seat-action[data-act="3bet"], .seat-action[data-act="4bet"] { color: var(--orange); border-left-color: var(--orange); }
+.seat-action[data-act="call"] { color: var(--blue-2); border-left-color: var(--blue-2); }
+.seat-action[data-act="check"] { color: var(--text-soft); border-left-color: var(--text-soft); }
+.seat-action[data-act="fold"] { color: var(--text-dim); border-left-color: var(--text-dim); }
+.seat-action[data-act="allin"] { color: var(--text); border-left-color: var(--red-bright); border-color: var(--red-bright); }
+.seat-action[data-act="allin"] .act-ic { color: var(--red-bright); }
+/* (n2-verify) 아래 두 규칙은 데스크톱 배치에만(폰 세로 조건 '(max-width: 600px), (orientation: portrait) and (max-width: 760px)'의 반대) */
+@media (min-width: 601px) and (orientation: landscape), (min-width: 761px) {
+  /* (n2-verify) 히어로 말풍선은 좌석 흐름 밖, 좌석 아래 바깥에 띄운다. 흐름 안이면 좌석이 위로 자라 포지션 묶음(BTN, D)이
+     핸드 정보 줄(세션 손익)을 덮는다(1366 실측). transform 없이 가운데 정렬(fadein 애니메이션의 transform과 충돌 방지).
+     폰 세로는 css/mobile.css가 좌석 위쪽 이름 줄을 덮는 한 줄로 바꾼다 */
+  .poker-table .seat.hero .seat-action { position: absolute; top: calc(100% + 4px); left: 0; right: 0; margin: 0 auto; width: max-content; max-width: 220px; z-index: 7; }
+  /* (n2-verify) 데스크톱도 상대 말풍선은 자기 카드 칸(뒷면, 62px)을 덮는다(설계 3.2절 4번, 폰과 같은 규칙). 흐름 안이면 카드 아래로
+     좌석이 자라 위 가운데(UTG) 좌석의 레이즈 말풍선이 팟 금액을 덮었다(1366, 1920 실측). 카드가 공개되면 말풍선을 치운다.
+     카드 칸 높이를 지켜(폴드로 카드가 사라져도) 좌석 크기가 그대로다. 폰 세로는 css/mobile.css의 같은 규칙(카드 45px) */
+  .poker-table .seat:not(.hero) .seat-cards { min-height: 62px; }
+  .poker-table .seat:not(.hero) .seat-action {
+    position: absolute; left: 6px; right: 12px; bottom: 8px; margin: 0; z-index: 4; box-sizing: border-box;
+    min-height: 62px; display: flex; flex-direction: column; justify-content: center; background: var(--black-a86); line-height: 1.35;
+  }
+  .poker-table .seat:not(.hero) .seat-action br { display: none; }
+  .poker-table .seat:not(.hero):has(.seat-cards .card:not(.back)) .seat-action { display: none; }
+}
 
 /* 핸드 결과 배너 */
 .result-banner {
@@ -175,6 +244,10 @@
   margin: 0 auto;
 }
 .result-actions-bar button { flex: 1; min-height: 48px; }
+/* (n2-verify) 데스크톱 결과바 버튼이 6개(💰 리바이 추가, 코어가 들어오면 ⏪ 리플레이로 7개)라 같은 폭으로 나누면 116px로 좁아져
+   '리바/이 100bb', '히스/토리'처럼 낱말 가운데서 끊겼다(1366 실측). 글자 폭만큼 나누고 줄바꿈은 낱말 사이에서만 */
+.result-actions-bar { gap: 10px; padding: 12px 20px; }
+.result-actions-bar button.action-btn { flex: 1 1 auto; padding: 10px 12px; word-break: keep-all; }
 
 /* 에쿼티 토글 버튼 */
 .equity-toggle-btn {

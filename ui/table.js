@@ -12,7 +12,8 @@ var Table = (function() {
   function render(state) {
     if (!state) return;
     document.getElementById('pot-amount').textContent = state.pot.toFixed(1);
-    document.getElementById('hand-info').textContent = 'Hand #' + (state.handNum||1) + (state.round ? '  Round ' + state.round + '/3' : '');
+    var hiEl = document.getElementById('hand-info');
+    if (hiEl) hiEl.innerHTML = handInfoText(state, { short: _shortInfo() });
     var handKey = state.seed + '#' + state.handNum;
     var bKey = handKey + '#' + state.street;
     var keptBubbles = {};
@@ -43,7 +44,7 @@ var Table = (function() {
       var isFolded = !!(state.folded&&state.folded[name]);
       var isHero = player.isHero;
       var isWinner = isWinnerSeat(state, name);
-      seatEl.className = 'seat seat-'+pos.toLowerCase() + (isHero?' hero':'') + (isFolded?' folded':'') + (isWinner?' winner':'');
+      seatEl.className = 'seat seat-'+pos.toLowerCase() + (isHero?' hero':'') + (isFolded?' folded':'') + (isWinner?' winner':'') + (isActing(state, name)?' active-turn':'');
       seatEl.setAttribute('data-slot', slots[pos]);
       // 승자 좌석 금색 테두리(outline은 배치에 영향 없음). 다음 그리기에서 지운다
       if (seatEl.style) seatEl.style.outline = isWinner ? '2px solid #ffd700' : '';
@@ -55,8 +56,8 @@ var Table = (function() {
         winnerBadgeHTML(state, name, slots[pos], _portraitLayout())+
         '<div class="seat-name">'+name+((isHero || state.hideTypes)?'':' <small style="color:#8b949e">('+player.type+')</small>')+'</div>'+
         (isHero ? '' : _hudHTML(name, !!state.hideTypes))+
-        '<div class="seat-pos">'+pos+'</div>'+
-        '<div class="seat-stack">'+stack.toFixed(1)+'bb</div>'+seatDeltaHTML(state, name)+
+        seatTagHTML(state, name, pos)+
+        seatStackHTML(stack)+seatDeltaHTML(state, name)+
         (bet>0?'<div class="seat-bet">'+bet.toFixed(1)+'bb</div>':'')+
         '<div class="seat-cards">'+cardsHtml+'</div>'+
         seatEqHTML(state, name)+
@@ -85,7 +86,7 @@ var Table = (function() {
   }
 
   // ── 스택 막대, 손익 배지, 승자 배지(R2, 순수 함수) ──
-  // 막대 분모: 앉은 사람 최대 스택과 100bb 중 큰 값(이월 스택이 100을 넘어도 비교가 된다). 색 기준은 bb 절대값 60/30
+  // 막대 분모: 앉은 사람 최대 스택과 100bb 중 큰 값(이월 스택이 100을 넘어도 비교가 된다). 색 기준은 bb 절대값 40/20(stackTier와 같음, n2-G1)
   function tableMaxStack(state, seated) {
     var mx = 100, st = (state && state.stacks) || {};
     Object.keys(seated || (state && state.players) || {}).forEach(function(k) {
@@ -98,7 +99,81 @@ var Table = (function() {
     var s = Number(stack); if (!isFinite(s)) s = 0;
     var m = Number(maxStack); if (!(m >= 100)) m = 100;
     var pct = Math.min(100, Math.max(0, s / m * 100));
-    return { pct: pct.toFixed(0), color: s > 60 ? '#3d9e4a' : s > 30 ? '#e3b341' : '#f85149' };
+    var tier = stackTier(s);
+    return { pct: pct.toFixed(0), color: tier === 'ok' ? '#3d9e4a' : tier === 'warn' ? '#e3b341' : '#f85149' };
+  }
+
+  // ── 좌석 가독성(n2-G1, 설계 docs/NEXT2_DESIGN.md 3.2절, 순수 함수) ──
+  // 스택 색 등급: 40bb 이상 ok(금색), 20 이상 40 미만 warn(앰버), 20 미만 short(빨강 점선). 숫자 아님은 0으로
+  function stackTier(bb) {
+    var v = Number(bb); if (!isFinite(v)) v = 0;
+    return v >= 40 ? 'ok' : v >= 20 ? 'warn' : 'short';
+  }
+  // 스택 숫자: 소수 1자리 + 작은 bb('63.5<small>bb</small>'). 숫자 아님과 음수는 0.0
+  function fmtStack(v) {
+    var n = Number(v); if (!isFinite(n) || n < 0) n = 0;
+    return (Math.round(n * 10) / 10).toFixed(1) + '<small>bb</small>';
+  }
+  function seatStackHTML(v) {
+    var n = Number(v); if (!isFinite(n) || n < 0) n = 0;
+    var exact = String(Math.round(n * 100) / 100);
+    return '<div class="seat-stack tier-' + stackTier(n) + '" title="스택 ' + exact + 'bb">' + fmtStack(n) + '</div>';
+  }
+  // 딜러 버튼과 블라인드 마커: BTN → D, SB → 0.5, BB → 1. 헤즈업(앉은 사람 2명)은 BTN(없으면 SB)이 딜러이자 스몰 블라인드.
+  // 금액 글자는 bb 단위라 늘 0.5와 1(토너먼트 칩 단위는 커리어 띠가 보인다)
+  function seatMarkHTML(state, name) {
+    var p = state && state.players && name != null ? state.players[name] : null;
+    if (!p || !p.pos) return '';
+    var seated = _seatPlayers(state), list = Object.keys(seated).map(function(k) { return seated[k]; });
+    var hasPos = function(ps) { return list.some(function(q) { return q && q.pos === ps; }); };
+    var hu = list.length === 2;
+    var dealer = hasPos('BTN') ? 'BTN' : (hu && hasPos('SB') ? 'SB' : null);
+    var sb = hasPos('SB') ? 'SB' : (hu && hasPos('BTN') ? 'BTN' : null);
+    var out = '';
+    if (p.pos === dealer) out += '<span class="seat-mark mark-d" title="딜러 버튼">D</span>';
+    if (p.pos === sb) out += '<span class="seat-mark mark-sb" title="스몰 블라인드 0.5bb">0.5</span>';
+    if (p.pos === 'BB') out += '<span class="seat-mark mark-bb" title="빅 블라인드 1bb">1</span>';
+    return out;
+  }
+  // 좌석 왼쪽 위 바깥 묶음: 포지션 알약 + 마커(좌석 흐름 밖, css/table.css .seat-tag)
+  function seatTagHTML(state, name, pos) {
+    return '<div class="seat-tag"><span class="seat-pos">' + pos + '</span>' + seatMarkHTML(state, name) + '</div>';
+  }
+  // 행동 좌석: 상태 사본의 acting(이름)이 그 좌석이면 true(설계 6.2절 1번)
+  function isActing(state, name) { return !!(state && name != null && state.acting != null && state.acting === name); }
+  // 핸드 정보 줄(#hand-info): '핸드 #7'(short면 '#7') + GTO 회차 ' 2/3회차' + 세션 손익(히어로가 앉고 buyin이 있을 때).
+  // 손익은 seatDelta와 같은 계산, |값| 0.5bb 미만은 '±0.0bb'
+  function handInfoText(state, opts) {
+    if (!state) return '';
+    var s = ((opts && opts.short) ? '#' : '핸드 #') + (state.handNum || 1);
+    if (state.round) s += ' ' + state.round + '/3회차';
+    var hero = state.players && state.players.Hero;
+    if (hero && !state.spectator) {
+      var d = seatDelta(state, 'Hero');
+      if (d != null) {
+        var cls = Math.abs(d) < 0.5 ? 'flat' : d > 0 ? 'up' : 'down';
+        var txt = cls === 'flat' ? '±0.0bb' : cls === 'up' ? '▲+' + _fmt1(d) + 'bb' : '▼-' + _fmt1(d) + 'bb';
+        s += ', 세션 <b class="pnl ' + cls + '">' + txt + '</b>';
+      }
+    }
+    return s;
+  }
+  // 좁은 폰(360 이하)은 '#7'로 줄인다(CSS 미디어가 아니라 MobileUI와 창 폭으로 판단, 설계 2.3절 1번)
+  // (n2-verify) 창 폭은 resize 때만 다시 읽는다: render 첫머리에서 window.innerWidth를 읽으면 앞 그리기의 DOM 변경 때문에
+  // 강제 레이아웃이 한 번 더 생겨 render가 3.6ms → 17ms(412x915 4배 스로틀)로 느려지고 결정 동기 블록 p90이 20 → 70ms가 됐다
+  var _vwCache = 0, _vwBound = false;
+  function _viewportW() {
+    if (typeof window === 'undefined' || !window) return 0;
+    if (!_vwBound && typeof window.addEventListener === 'function') {
+      _vwBound = true;
+      window.addEventListener('resize', function() { _vwCache = 0; });
+      window.addEventListener('orientationchange', function() { _vwCache = 0; });
+    }
+    if (!_vwCache) _vwCache = Number(window.innerWidth) || 0;
+    return _vwCache;
+  }
+  function _shortInfo() {
+    try { var w = _viewportW(); return w > 0 && w <= 360 && _portraitLayout(); } catch (e) { return false; }
   }
   function _fmt1(v) { return (Math.round(Math.abs(v) * 10) / 10).toFixed(1); }
   // 세션 손익: state.buyin = { 이름: 세션 동안 사들인 칩(시작 100 + 리바이) }가 있을 때만(App이 채운다).
@@ -247,6 +322,41 @@ var Table = (function() {
 
   var ACTION_LABEL = { fold:'폴드', call:'콜', check:'체크', raise:'레이즈', allin:'올인', '3bet':'3벳', bet:'벳' };
 
+  // ── 말풍선 액션 유형(n2-G1): data-act와 아이콘, 색은 css/table.css가 data-act로. ActionText(ui/action-text.js)가 없으면 아래 표 ──
+  var ACT_KEYS = { fold: 1, check: 1, call: 1, bet: 1, raise: 1, '3bet': 1, '4bet': 1, allin: 1 };
+  var ACT_ICON = { fold: '✕', check: '✓', call: '●', bet: '▲', raise: '▲', '3bet': '▲', '4bet': '▲', allin: '⚡' };
+  var LABEL_KEY = { '3벳': '3bet', '4벳': '4bet', '올인': 'allin' };
+  function _hasAT(fn) { return typeof ActionText !== 'undefined' && !!ActionText && typeof ActionText[fn] === 'function'; }
+  // 표시용 액션 키(라벨 3벳, 4벳, 올인 우선. 폴드, 체크, 콜은 그대로) → fold|check|call|bet|raise|3bet|4bet|allin 또는 ''
+  function actKey(va) {
+    if (!va) return '';
+    if (_hasAT('actKey')) { try { var k = ActionText.actKey(va); if (k) return k; } catch (e) { /* 아래 */ } }
+    var a = String(va.action == null ? (va.act == null ? '' : va.act) : va.action);
+    if (!ACT_KEYS[a]) return '';
+    var lb = va.label != null ? va.label : va.lbl;
+    if (lb && LABEL_KEY[lb] && a !== 'fold' && a !== 'check' && a !== 'call') return LABEL_KEY[lb];
+    return a;
+  }
+  function actIcon(key) {
+    if (_hasAT('icon')) { try { var i = ActionText.icon(key); if (i) return i; } catch (e) { /* 아래 */ } }
+    return ACT_ICON[key] || '';
+  }
+  function _atCls(key) {
+    if (_hasAT('cls')) { try { return ActionText.cls(key) || ''; } catch (e) { return ''; } }
+    return '';
+  }
+  // 말풍선 금액: 소수 1자리, 정수면 소수점 없이(2.5, 3, 97.5. ActionText.fmt와 같은 규칙, 좁은 좌석에서 한 줄에 들게)
+  function _amt(v) {
+    if (_hasAT('fmt')) { try { return ActionText.fmt(v); } catch (e) { /* 아래 */ } }
+    var n = Math.round((Number(v) || 0) * 10) / 10;
+    return (n % 1 === 0) ? String(n) : n.toFixed(1);
+  }
+  // 말풍선 첫 줄: 아이콘 + 액션과 금액(굵게). 아이콘은 읽기 프로그램에 읽히지 않게 aria-hidden
+  function bubbleMainHTML(key, text) {
+    var ic = actIcon(key);
+    return '<b class="act-main">' + (ic ? '<i class="act-ic" aria-hidden="true">' + ic + '</i>' : '') + text + '</b>';
+  }
+
   function updateVillainActions(actions) {
     actions.forEach(function(va) {
       document.querySelectorAll('.seat').forEach(function(el) {
@@ -256,11 +366,13 @@ var Table = (function() {
           if (old) old.remove();
           var label = va.label || ACTION_LABEL[va.action] || va.action;
           var amt = (va.amount && va.amount > 0 && va.action !== 'fold' && va.action !== 'check')
-            ? ' ' + Number(va.amount).toFixed(1) + 'bb' : '';
+            ? ' ' + _amt(va.amount) + 'bb' : '';
+          var key = actKey(va);
           var div = document.createElement('div');
-          div.className = 'seat-action fadein';
-          div.innerHTML = '<b style="color:#fff">' + label + amt + '</b>'
-            + (va.phrase ? '<br><span style="color:#8b949e">' + va.phrase + '</span>' : '');
+          div.className = 'seat-action fadein' + (_atCls(key) ? ' ' + _atCls(key) : '');
+          if (key && div.setAttribute) div.setAttribute('data-act', key);
+          div.innerHTML = bubbleMainHTML(key, label + amt)
+            + (va.phrase ? '<br><span class="act-say">' + va.phrase + '</span>' : '');
           el.appendChild(div);
         }
       });
@@ -306,20 +418,23 @@ var Table = (function() {
     var HERO_LABEL = { fold:'폴드', call:'콜', check:'체크', raise:'레이즈', allin:'올인' };
     var label = HERO_LABEL[action] || action;
     var amt = (action === 'raise' || action === 'allin') && amount > 0
-      ? ' ' + Number(amount).toFixed(1) + 'bb' : '';
+      ? ' ' + _amt(amount) + 'bb' : '';
     var phrases = HERO_PHRASES[action] || [];
     var phrase = phrases[Math.floor(Math.random() * phrases.length)] || '';
     var dot = (light && LIGHT_COLOR[light])
       ? '<span class="hero-light-dot" style="background:' + LIGHT_COLOR[light] + '"></span>' : '';
+    var key = actKey({ action: action });
     var div = document.createElement('div');
-    div.className = 'seat-action fadein';
-    div.innerHTML = dot + '<b style="color:#fff">' + label + amt + '</b>'
-      + (phrase ? '<br><span style="color:#8b949e;font-size:0.7rem">' + phrase + '</span>' : '');
+    div.className = 'seat-action fadein' + (_atCls(key) ? ' ' + _atCls(key) : '');
+    if (key && div.setAttribute) div.setAttribute('data-act', key);
+    div.innerHTML = dot + bubbleMainHTML(key, label + amt)
+      + (phrase ? '<br><span class="act-say">' + phrase + '</span>' : '');
     seatEl.appendChild(div);
   }
 
   var api = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML,
-    tableMaxStack, stackBar, seatDelta, seatDeltaHTML, isWinnerSeat, winnerBadgeHTML, fitWinnerBadges };
+    tableMaxStack, stackBar, seatDelta, seatDeltaHTML, isWinnerSeat, winnerBadgeHTML, fitWinnerBadges,
+    stackTier, fmtStack, seatStackHTML, seatMarkHTML, seatTagHTML, isActing, handInfoText, actKey, actIcon, bubbleMainHTML };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

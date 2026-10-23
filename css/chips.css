@@ -44,7 +44,7 @@
 .chips-stack { position: absolute; left: calc(100% + 4px); top: 50%; transform: translateY(-50%); z-index: 2; white-space: nowrap; line-height: 0; }
 .seat-hj .chips-stack { left: auto; right: calc(100% + 4px); }
 /* CO는 화면 왼쪽 끝이라 좌석 위 왼쪽 정렬 */
-.seat-co .chips-stack { left: 0; right: auto; top: auto; bottom: calc(100% + 4px); transform: none; }
+.seat-co .chips-stack { left: auto; right: 0; top: auto; bottom: calc(100% + 4px); transform: none; }   /* n2-G1: 왼쪽 위는 포지션 묶음 자리라 오른쪽 정렬 */
 /* 반짝임: 늘면 초록, 줄면 붉게(투명도만 애니메이션) */
 .chips-stack::after { content: ''; position: absolute; inset: -3px; border-radius: var(--r-sm); opacity: 0; pointer-events: none; }
 .chips-stack.chips-up::after   { background: var(--green-a60); animation: chips-flash .7s ease-out; }
@@ -63,8 +63,9 @@
 .chips-bets, .chips-fx, .chips-fx-group { position: absolute; inset: 0; }
 /* 데스크톱은 위아래 좌석과 팟 사이가 좁아 칩 옆에 숫자(가로), 폰은 칩 아래 숫자(세로, 아래 미디어 쿼리) */
 .chips-bet, .chips-fly { position: absolute; display: flex; flex-direction: row; align-items: center; gap: 4px; transform: translate(-50%, -50%); }
-.chips-amt { font-size: .66rem; font-weight: 700; line-height: 1.3; color: var(--amber-text); background: var(--black-a60); border: 1px solid var(--gold-a60);
-  padding: 0 5px; border-radius: var(--r-8); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* n2-G1: 벳 금액 .66 → .8rem 800(폰 .6 → .78rem), 돈 = 금색 유지(액션 색은 말풍선이 맡는다) */
+.chips-amt { font-size: .8rem; font-weight: 800; line-height: 1.3; color: var(--amber-text); background: var(--black-a70); border: 1px solid var(--gold-a60);
+  padding: 1px 6px; border-radius: var(--r-8); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chips-bet { animation: chips-in .2s ease-out; }
 @keyframes chips-in { from { opacity: 0; transform: translate(-50%, -50%) scale(.85); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
 /* 칩이 켜져 있으면 기존 금색 알약 벳 숫자는 숨긴다(칩 더미가 같은 숫자를 보인다) */
@@ -84,8 +85,9 @@
 .chips-pot-piles { grid-row: 1 / span 2; display: flex; align-items: flex-end; gap: 10px; line-height: 0; }
 .chips-pot-pile.chips-side { position: relative; padding-left: 8px; }
 .chips-pot-pile.chips-side::before { content: ''; position: absolute; left: 2px; top: 10%; bottom: 10%; border-left: 1px dashed var(--white-a35); }
-.chips-pot-label { font-size: 1.15rem; font-weight: 800; line-height: 1.1; color: var(--gold); text-shadow: 0 1px 4px var(--black-a60); white-space: nowrap; }
-.chips-pot-label b { font-variant-numeric: tabular-nums; }
+/* n2-G1: "팟" 낱말은 작게(.72rem), 숫자는 크게(데스크톱 1.3rem, 폰 1.15rem) */
+.chips-pot-label { font-size: .72rem; font-weight: 800; line-height: 1.1; color: var(--gold); text-shadow: 0 1px 4px var(--black-a60); white-space: nowrap; }
+.chips-pot-label b { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .chips-pot-sub { font-size: .66rem; line-height: 1.3; color: var(--text-soft); white-space: nowrap; }
 .chips-pot.chips-bump .chips-pot-label { animation: chips-bump .3s ease-out; transform-origin: left center; }
 @keyframes chips-bump { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
@@ -96,22 +98,27 @@
 @media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
   .chips-pot { column-gap: 6px; }
   .chips-pot-piles { gap: 6px; }
-  .chips-pot-label { font-size: .95rem; }
+  .chips-pot-label b { font-size: 1.15rem; }
   .chips-pot-sub { font-size: .6rem; }
-  .chips-amt { font-size: .6rem; }
+  .chips-amt { font-size: max(11px, .78rem); padding: 1px 6px; }
   .chips-win { font-size: .7rem; padding: 1px 6px; }
   .chips-bet, .chips-fly { flex-direction: column; gap: 1px; }
   /* 화면 가장자리라 옆에 자리가 없다: 아래 열(1, 5)은 좌석 위, 위 열(2, 4)은 좌석 아래(위는 승률 칩 버튼이 있다), 바깥쪽 정렬.
      위 좌석(3)은 오른쪽 바깥 가운데, 히어로(0)는 오른쪽 바깥 아래(오른쪽 아래 좌석과 겹치지 않게. 벳 더미와 말풍선은 왼쪽과 위) */
-  .poker-table .seat[data-slot="1"] .chips-stack { left: auto; right: 0; top: auto; bottom: calc(100% + 2px); transform: none; }
-  .poker-table .seat[data-slot="2"] .chips-stack { left: auto; right: 0; top: calc(100% + 2px); bottom: auto; transform: none; }
-  .poker-table .seat[data-slot="4"] .chips-stack { left: 0; right: auto; top: calc(100% + 2px); bottom: auto; transform: none; }
-  .poker-table .seat[data-slot="5"] .chips-stack { left: 0; right: auto; top: auto; bottom: calc(100% + 2px); transform: none; }
+  /* n2-G1: 위아래 모서리는 포지션 묶음(바깥쪽)과 벳 더미(안쪽)가 쓰므로 옆 좌석 4곳의 기둥은 화면 가장자리 쪽 옆 바깥 가운데(기둥 폭 13px,
+     좌석 바깥 여유 412에서 22px, 320에서 28px) */
+  .poker-table .seat[data-slot="1"] .chips-stack, .poker-table .seat[data-slot="2"] .chips-stack { left: calc(100% + 3px); right: auto; top: 50%; bottom: auto; transform: translateY(-50%); }
+  .poker-table .seat[data-slot="4"] .chips-stack, .poker-table .seat[data-slot="5"] .chips-stack { left: auto; right: calc(100% + 3px); top: 50%; bottom: auto; transform: translateY(-50%); }
   .poker-table .seat[data-slot="3"] .chips-stack { left: calc(100% + 4px); right: auto; top: 50%; bottom: auto; transform: translateY(-50%); }
   .poker-table .seat[data-slot="0"] .chips-stack { left: calc(100% + 4px); right: auto; top: auto; bottom: 4px; transform: none; }
   /* 폰 승자 배지는 좌석 가운데(위에는 기둥이나 말풍선이 있다) */
   .poker-table .seat .chips-win { top: 50%; transform: translate(-50%, -50%); }
   @keyframes chips-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.6); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+}
+
+/* (n2-G1) 좁은 폰(n2-verify: 360 이하, 360과 320 폭): 가운데 띠가 좁아 벳 더미는 금액 알약만(칩 그림 숨김, ui/chips.js _pileH가 높이 20으로 어림) */
+@media (max-width: 360px) {
+  .chips-bet .chips-pile { display: none; }
 }
 
 /* ── 모션 줄이기: JS가 이동과 반짝임을 만들지 않지만, 혹시 남은 것도 숨긴다 ── */

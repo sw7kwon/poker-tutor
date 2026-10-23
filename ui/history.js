@@ -175,7 +175,7 @@ var HistoryUI = (function() {
           return '<div class="history-hand-item' + selCls + '" onclick="HistoryUI.selectHand(' + gi + ',' + hi + ')">' +
             '<span class="hh-cards">' + _cardsHTML(h.heroCards) + '</span>' +
             '<span class="hh-pot">' + (h.pot != null ? h.pot.toFixed(1) + 'bb' : '') + '</span>' +
-            resHtml +
+            omniMarkHTML(h) + resHtml +
           '</div>';
         }).join('');
       }
@@ -208,6 +208,7 @@ var HistoryUI = (function() {
       '<span class="hdh-cards">' + _cardsHTML(record.heroCards) + '</span>' +
       (record.heroPos ? '<span class="hdh-pos">' + record.heroPos + '</span>' : '') +
       '<span class="hdh-mode">' + (MODE_KOR[record.mode] || record.mode || '') + '</span>' +
+      omniMarkHTML(record, 'hdh-omni') +
       '<span class="hdh-date">' + _fmtDate(record.date) + '</span>' +
       _resultHTML(record.result, 'hdh-result') +
       '<span class="hdh-pot">팟 ' + (record.pot != null ? record.pot.toFixed(1) + 'bb' : '-') + '</span>' +
@@ -244,11 +245,53 @@ var HistoryUI = (function() {
     var practiceBtn = (record.seed != null)
       ? '<button class="menu-btn history-practice-btn" onclick="HistoryUI.practice(' + gi + ',' + hi + ')">🔁 이 핸드 연습</button>'
       : '';
+    // (n2 G4) 핸드 로그가 남아 있는 자유 게임 핸드는 '🔍 완전 분석'(OmniUI.open이 게임 화면을 빌려 리플레이)
+    var omniBtn = analysisButtonHTML(record, gi, hi);
 
     // 세로 폰 전용 "↩ 목록" (데스크톱은 css/mobile-screens.css 전역 규칙으로 숨김)
     var listBackBtn = '<button class="menu-btn secondary history-list-back" onclick="HistoryUI.showList()">↩ 목록</button>';
 
-    el.innerHTML = listBackBtn + headerHtml + '<div class="history-streets">' + streetsHtml + '</div>' + summaryHtml + practiceBtn;
+    el.innerHTML = listBackBtn + headerHtml + '<div class="history-streets">' + streetsHtml + '</div>' + summaryHtml +
+      '<div class="history-actions">' + practiceBtn + omniBtn + '</div>';
+  }
+
+  // ── (n2 G4, 설계 5.4절 7번) 지난 핸드 완전 분석 ──
+  // 레코드에 logKey가 있고 HandLog.get이 로그를 돌려주며(최근 30핸드 링 버퍼) 숨김 대기(hiddenUntil)가 아니고 OmniUI가 스텁이 아닐 때만. 순수(DOM 없음)
+  function analysisAvailable(record) {
+    if (!record || !record.logKey) return false;
+    if (typeof OmniUI === 'undefined' || !OmniUI || OmniUI.STUB || typeof OmniUI.open !== 'function') return false;
+    if (typeof HandLog === 'undefined' || !HandLog || typeof HandLog.get !== 'function') return false;
+    // 코어(HandLog, Replay, Reasoning)가 스텁이면 진입점을 숨긴다(App._omniReady와 같은 판정, 체크박스와 ⏪ 리플레이도 같은 규칙)
+    if (HandLog.STUB) return false;
+    if (typeof Replay !== 'undefined' && Replay && Replay.STUB) return false;
+    if (typeof Reasoning !== 'undefined' && Reasoning && Reasoning.STUB) return false;
+    var log = null;
+    try { log = HandLog.get(record.logKey); } catch (e) { log = null; }
+    return !!(log && !log.hiddenUntil);
+  }
+  function analysisButtonHTML(record, gi, hi) {
+    if (!analysisAvailable(record)) return '';
+    return '<button class="menu-btn history-omni-btn" onclick="HistoryUI.analyze(' + Number(gi) + ',' + Number(hi) + ')">🔍 완전 분석</button>';
+  }
+  // 완전 분석 세션에서 저장된 핸드(meta.omni) 표시
+  function omniMarkHTML(record, cls) {
+    return (record && record.omni) ? '<span class="' + (cls || 'hh-omni') + '" title="완전 분석 세션(기록 제외)" aria-label="완전 분석 세션">🔍</span>' : '';
+  }
+  var _lastSel = null;   // 완전 분석으로 나갈 때 보던 핸드 { gi, hi }, reopen이 되돌린다
+  function analyze(gi, hi) {
+    var g = _groups[gi];
+    var record = g && g.hands[hi];
+    if (!record || !analysisAvailable(record)) return false;
+    _lastSel = { gi: gi, hi: hi, returnTo: _returnTo };
+    return !!OmniUI.open(record.logKey, { from: _returnTo });
+  }
+  // 완전 분석에서 '↩ 기록으로': 같은 되돌아갈 곳으로 기록 화면을 다시 열고 보던 핸드를 다시 고른다
+  function reopen() {
+    var sel = _lastSel;
+    open(sel ? sel.returnTo : _returnTo);
+    if (sel && _groups[sel.gi] && _groups[sel.gi].hands[sel.hi]) selectHand(sel.gi, sel.hi);
+    _lastSel = null;
+    return !!sel;
   }
 
   // ── 카드/날짜 렌더 헬퍼 ──
@@ -390,6 +433,11 @@ var HistoryUI = (function() {
     back: back,
     practice: practice,
     practiceMistake: practiceMistake,
+    analyze: analyze,
+    reopen: reopen,
+    analysisAvailable: analysisAvailable,
+    analysisButtonHTML: analysisButtonHTML,
+    omniMarkHTML: omniMarkHTML,
     buildStreetSegments: buildStreetSegments,
     lightFor: lightFor,
     decisionDeltaLabel: decisionDeltaLabel,

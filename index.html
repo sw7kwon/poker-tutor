@@ -32,6 +32,8 @@
 <link rel="stylesheet" href="css/home-extra.css">
 <link rel="stylesheet" href="css/range-lab.css">
 <link rel="stylesheet" href="css/chips.css">
+<link rel="stylesheet" href="css/pace.css">
+<link rel="stylesheet" href="css/omni.css">
 <link rel="stylesheet" href="css/a11y.css">
 </head>
 <body>
@@ -87,6 +89,10 @@
       </button>
     </div>
     <div class="coach-level-row">코칭 보조: <select id="coach-level-select" onchange="CoachUI.setLevel(this.value)"><option value="auto">자동(추천)</option><option value="0">L0 풀코칭(정답 항상 보기)</option><option value="1">L1 먼저 판단</option><option value="2">L2 예측(승률도 직접)</option><option value="3">L3 실전</option></select></div>
+    <!-- (n2-P0) 완전 분석 오픈 모드(6인 풀링, 헤즈업 TAG, 카멜레온만). 코어(HandLog, Replay, Reasoning)가 스텁이면 App.syncOmniToggle이 숨긴다 -->
+    <div class="thinking-toggle-box omni-toggle-box" id="omni-toggle-box" style="display:none">
+      <label><input type="checkbox" id="omni-toggle" onchange="App.setOmniMode(this.checked)"> 🔍 완전 분석 오픈 모드(상대 카드와 생각이 다 보여요, 기록과 레이팅에 안 들어가요)</label>
+    </div>
     <!-- WP8 띵킹 프로세스 모드 토글 (ThinkingUI.init이 바인딩) -->
     <div class="thinking-toggle-box">
       <label><input type="checkbox" id="thinking-toggle"> 💭 띵킹 프로세스 모드(상대 속마음 중계)</label>
@@ -215,7 +221,9 @@
   <!-- 핸드 종료 액션 버튼 -->
   <div id="result-actions-bar" class="result-actions-bar" style="display:none">
     <button class="action-btn" id="btn-next-round" onclick="App.nextRound()">▶ 다음 핸드</button>
+    <button class="action-btn" id="btn-rebuy" onclick="App.rebuyNow()" style="display:none">💰 리바이 100bb</button>
     <button class="action-btn" id="btn-practice-same" onclick="App.practiceSame()">🔁 같은 핸드 다시</button>
+    <button class="action-btn" id="btn-replay" onclick="OmniUI.openLast()" style="display:none">⏪ 리플레이</button>
     <button class="action-btn" id="btn-quick-drill" onclick="DrillUI.quickOne()">⚡ 1문제</button>
     <button class="action-btn" id="btn-history" onclick="App.showHistory()">📜 히스토리</button>
     <button class="action-btn fold-btn" id="btn-session-end" onclick="App.showSessionSummary()">세션 종료</button>
@@ -317,6 +325,13 @@
 <script src="ui/range-notes.js"></script>
 <!-- WP8 띵킹 프로세스 UI -->
 <script src="ui/thinking-ui.js"></script>
+<!-- (n2-P0) 완전 분석 코어(스텁, 클라우드 L1), 액션 문구, 순차 공개(G2), 완전 분석 화면(G4) -->
+<script src="engine/hand-log.js"></script>
+<script src="engine/replay.js"></script>
+<script src="engine/reasoning.js"></script>
+<script src="ui/action-text.js"></script>
+<script src="ui/pacer.js"></script>
+<script src="ui/omni-ui.js"></script>
 <script src="ui/mobile-ui.js"></script>
 <script src="ui/touch.js"></script>
 <!-- 포커 여정 (M1-P0 선등록, 순서는 test.html 신규 모듈 블록과 동일) -->

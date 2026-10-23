@@ -1,0 +1,87 @@
+/* css/pace.css (n2 G2 PACE, 설계 docs/NEXT2_DESIGN.md 4.4절): 상대 액션 순차 공개, 액션 로그 줄 #hand-log(ui/pacer.js HandLogUI), 공개 중 액션바 .revealing.
+   데스크톱: .table-area 왼쪽 위 300px 패널(최근 4줄, 누르면 최대 60vh). 띵킹 피드가 보이면 그 아래(.has-feed).
+   폰: 도크 상단부 첫 줄(36px, 속도 토글은 44px로 위아래 4px씩 겹침), 펼치면 하단 시트 #hand-log-sheet(액션바 위, z-index 36). */
+
+/* 공개 중 액션바: 흐리게, 버튼과 슬라이더는 눌리지 않고 바 전체 탭 = 빨리 감기(Pacer가 받는다) */
+.action-bar.revealing { opacity: .55; cursor: pointer; }
+.action-bar.revealing > * { pointer-events: none; }
+
+/* ── 액션 로그 패널(데스크톱 기본) ── */
+.hand-log {
+  position: absolute; top: 8px; left: 8px; z-index: 21; width: 300px; max-width: calc(100% - 16px); max-height: 128px;
+  display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
+  background: var(--hud-a85); border: 1px solid var(--hud-border); border-radius: var(--r-md); color: var(--text); font-size: .8rem;
+}
+.hand-log.has-feed { top: 166px; }
+.hand-log.hl-open { max-height: 60vh; }
+#screen-game.th-on .hand-log { display: none; }
+.hl-head { display: flex; align-items: center; flex: 0 0 auto; min-height: 44px; }
+.hl-line {
+  flex: 1 1 auto; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 4px 0 8px;
+  background: transparent; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.hl-count {
+  flex: 0 0 auto; min-width: 22px; height: 22px; padding: 0 5px; box-sizing: border-box; border-radius: var(--r-pill, 999px);
+  display: inline-flex; align-items: center; justify-content: center; background: var(--tile-bg); border: 1px solid var(--hud-border);
+  color: var(--text-dim); font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.hl-text { font-size: max(12px, 1em); flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.hl-arrow { flex: 0 0 auto; color: var(--text-dim); font-size: .85rem; }
+.hl-ic { display: inline-block; width: 1.1em; text-align: center; margin-right: 2px; }
+.hl-speed {
+  flex: 0 0 auto; min-width: 44px; min-height: 44px; padding: 0 8px; margin-right: 2px;
+  background: transparent; border: 0; border-left: 1px solid var(--hud-border); color: var(--gold); font: inherit; font-weight: 700; white-space: nowrap; cursor: pointer;
+}
+.hl-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 10px 6px; cursor: pointer; }
+.hl-list:empty { display: none; }
+.hl-row { font-size: max(12px, .8rem); line-height: 1.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hl-open .hl-row, .hl-sheet .hl-row { white-space: normal; }
+.hl-street { color: var(--gold); font-weight: 700; margin-top: 3px; }
+.hl-street:first-child { margin-top: 0; }
+.hl-end { color: var(--text); font-weight: 700; }
+.hl-note { color: var(--warn); }
+.hl-hero { font-weight: 700; }
+
+/* 액션 색(ActionText.cls). 어두운 바탕 위 4.5:1 이상 */
+.hand-log .act-aggr, .hl-sheet .act-aggr { color: var(--orange); }
+.hand-log .act-call, .hl-sheet .act-call { color: var(--blue-2); }
+.hand-log .act-check, .hl-sheet .act-check { color: var(--green-text); }
+.hand-log .act-fold, .hl-sheet .act-fold { color: var(--text-dim); }
+.hand-log .act-allin, .hl-sheet .act-allin { color: var(--red-bright); }
+
+/* ── 폰: 도크 상단부 첫 줄 ── */
+/* 상단부 높이 상한에 로그 줄(36 + 틈 6)을 더한다(css/mobile.css의 clamp와 같은 식 + 42px). 판정 띠 44 + 리마인더 44 + 로그 36 + 틈과 여백 18 = 142px이
+   360(원래 상한 약 127)과 320(120)에서 상단부 안쪽 스크롤을 만들지 않게(L0, L1, L2). 띵킹 패널을 켠 사람은 기존처럼 넘치면 안쪽 스크롤 */
+@media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
+  html.m-mobile .m-dock-top {
+    max-height: calc(38dvh + 42px);
+    max-height: clamp(162px, calc(100dvh - var(--oval-w) * 1.3 - 331px - var(--safe-b) + 42px), calc(38dvh + 42px));
+  }
+}
+html.m-mobile .m-dock-top .hand-log {
+  position: static; width: auto; max-width: none; max-height: none; height: 36px; overflow: visible;
+  background: var(--tile-bg); border-radius: var(--r-8, 8px);
+}
+html.m-mobile .m-dock-top .hl-head { min-height: 36px; height: 36px; }
+html.m-mobile .m-dock-top .hl-line { min-height: 44px; margin: -4px 0; padding-left: 6px; }   /* 탭 영역 44px(줄 36px에 위아래 4px씩 겹침) */
+html.m-mobile .m-dock-top .hl-speed {
+  margin: -4px 0; padding: 0 10px; border-left: 0;   /* 44px 버튼이 36px 줄 밖으로 나가므로 구분선은 줄 높이 안쪽 24px만 */
+  background: linear-gradient(var(--hud-border), var(--hud-border)) left center / 1px 24px no-repeat;
+}
+html.m-mobile .m-dock-top .hl-list { display: none; }
+
+/* ── 폰: 펼침 하단 시트(손잡이 44px, 액션바 위, bottom은 HandLogUI가 액션바 높이로 맞춘다) ── */
+.hl-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 36; height: 50dvh; max-height: 50vh;
+  display: flex; flex-direction: column; box-sizing: border-box;
+  background: var(--hud-bg); border-top: 1px solid var(--gold); border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: var(--shadow-sheet-chart);
+}
+.hl-sheet-handle {
+  flex: 0 0 44px; height: 44px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
+  background: transparent; border: none; color: var(--gold); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer;
+}
+.hl-sheet-grip { width: 36px; height: 4px; border-radius: var(--r-2, 2px); background: var(--text-dim); flex: 0 0 auto; }
+.hl-sheet-title { flex: 1; text-align: left; }
+.hl-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 12px; }
+.hl-sheet .hl-row { font-size: max(12px, .85rem); line-height: 1.7; }
+html:not(.m-mobile) .hl-sheet { display: none !important; }

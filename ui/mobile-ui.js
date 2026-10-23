@@ -7,9 +7,11 @@
 // R7(G2 DOCK, 설계 6절 2번): 상단부는 판정 띠(#coach-line 44px), 리마인더 1줄, 띵킹 패널만(합 132px 이하).
 //   판정 상세(#last-verdict)와 체크리스트, 예측 카드(#coach-pre)는 본문 코칭 탭(#equity-overlay 안)으로 내려갔고 L2도 자동 펼침.
 //   openTab(key)는 공개 계약(G4 차트 시트, 극장, CoachUI.lineTap이 부른다).
+// (n2 G2 PACE, 설계 docs/NEXT2_DESIGN.md 4.4절 3번) 상단부 맨 앞에 액션 로그 줄 #hand-log(36px, ui/pacer.js HandLogUI가 만든다).
+//   예산 132px: 판정 띠 44 + 리마인더 44 + 로그 36 = 124(띵킹 패널은 켠 사람만, 넘치면 상단부 안쪽 스크롤). _mount가 먼저 HandLogUI.ensure()를 부른다.
 var MobileUI = (function() {
   var MQ = '(max-width: 600px), (orientation: portrait) and (max-width: 760px)';   // css/mobile.css와 같은 문자열
-  var TOP = ['coach-line', 'coach-reminder', 'thinking-panel'];                       // 항상 보이는 상단부(R7)
+  var TOP = ['hand-log', 'coach-line', 'coach-reminder', 'thinking-panel'];           // 항상 보이는 상단부(R7, n2 액션 로그 줄 맨 앞)
   var BODY = ['equity-overlay', 'gto-chart', 'thinking-feed', 'gto-commentary'];      // 탭 + 접기 본문
   var TABS = [
     { key: 'coach', label: '🎓 코칭' },
@@ -64,6 +66,7 @@ var MobileUI = (function() {
     area.parentNode.insertBefore(dock, area.nextSibling);
     _dock = dock;
     var top = dock.querySelector('.m-dock-top'), body = dock.querySelector('.m-dock-body');
+    if (typeof HandLogUI !== 'undefined' && HandLogUI && typeof HandLogUI.ensure === 'function') { try { HandLogUI.ensure(); } catch (e) { /* noop */ } }
     _moved = [];
     TOP.forEach(function(id) { _move(id, top); });
     BODY.forEach(function(id) { _move(id, body); });

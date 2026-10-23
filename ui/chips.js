@@ -289,7 +289,7 @@ var ChipsUI = (function() {
     // 가로 한계(테이블 안쪽 좌표): 화면 폭 안. 벳 더미가 좁은 폰(320, 360)에서 화면 밖으로 나가 가로 스크롤을 만들지 않게(로컬 확인 수정)
     var vw = 0;
     try { vw = (doc && doc.documentElement && doc.documentElement.clientWidth) || ((typeof window !== 'undefined' && window && window.innerWidth) || 0); } catch (e) { vw = 0; }
-    if (vw > 0) g.xLim = [(0 - tr.left) / scale - bl, (vw - tr.left) / scale - bl];
+    if (vw > 0) { g.xLim = [(0 - tr.left) / scale - bl, (vw - tr.left) / scale - bl]; g.vw = vw; }
     var potWrap = _q(doc, '.pot-display-wrap');
     var pr = local(potWrap);
     g.pot = pr ? { x: pr.x + pr.w / 2, y: pr.y + pr.h / 2 } : g.center;
@@ -305,15 +305,39 @@ var ChipsUI = (function() {
       var el = _byId(doc, 'seat-' + pos);
       var r = local(el);
       if (!r) return;
+      var tag = local(_q(el, '.seat-tag'));   // (n2-G1) 좌석 바깥 모서리 포지션 묶음(자기 좌석 더미는 마지막 수단으로 덮을 수 있다, r.tag)
+      if (tag) g.avoid.push(tag);
       r.slot = (el.getAttribute && el.getAttribute('data-slot')) || null;
+      if (tag) r.tag = tag;
       g.seats[pos] = r;
     });
     return g;
   }
 
   // 벳 더미 자리: 좌석 테두리에서 팟 쪽으로 조금 나간 점. 팟 표시와 보드 카드(g.avoid)에 겹치면 좌석 쪽으로 물린다.
-  // 폰 히어로(slot 0)는 말풍선이 위에 있으니 좌석 왼쪽 위 모서리.
-  // 더미 크기 어림: 데스크톱은 가로 배치(칩 옆에 숫자) 90x32, 폰은 세로 배치 45x38.
+  // 폰 히어로(slot 0)는 말풍선이 위 가운데, 포지션 묶음이 왼쪽 위라 좌석 오른쪽 위 모서리(n2-G1).
+  // 더미 크기 어림: 데스크톱은 가로 배치(칩 옆에 숫자) 90x32, 폰은 세로 배치 56x42(n2-G1: 금액 글자 .78rem).
+  // 좌석 포지션 묶음(.seat-tag, readGeom이 g.avoid에 넣는다)도 피한다.
+  //   폰 폭은 벳 금액을 알면 글자 수로 어림한다(금액 글자 약 7px + 안쪽 여백과 테두리 14px, '3.0bb' 49, '12.5bb' 56, '100.0bb' 63). 모르면 56
+  var PILE_W_M = 56, PILE_H_M = 42, PILE_W_D = 90, PILE_H_D = 32;
+  function _pileW(g, bet) {
+    if (!g.mobile) return PILE_W_D;
+    if (!(bet > 0)) return PILE_W_M;
+    return Math.max(42, Math.round(fmt(bet).length * 7 + 14));
+  }
+  //   폰 높이도 금액을 알면 칩 기둥 높이(윗면 13 + 아래 칩마다 4) + 틈 1 + 금액 줄 20으로 어림한다(1bb 34, 3bb 42, 5개 기둥 50). 모르면 42
+  //   (n2-G1) 320 폭(330 이하)은 벳 더미의 칩 그림을 숨기고 금액 알약만(css/chips.css) 보이므로 높이 20
+  //   (n2-verify) 360 폭까지 넓힘: 360에서 위 가운데(UTG) 좌석 아래와 팟 사이 틈이 약 36px라 42px 더미가 들어가지 못해
+  //   자기 포지션 묶음과 레이즈 말풍선 위에 내려앉았다(412x915 밖 360x780 실측)
+  var COMPACT_VW = 360;
+  function _pileH(g, bet) {
+    if (!g.mobile) return PILE_H_D;
+    if (g.vw > 0 && g.vw <= COMPACT_VW) return 20;
+    if (!(bet > 0)) return PILE_H_M;
+    var c = columns(bet, COLS_BET), n = 1;
+    for (var i = 0; i < c.cols.length; i++) n = Math.max(n, c.cols[i].count);
+    return 34 + (n - 1) * 4;
+  }
   function _hits(x, y, w, h, rects) {
     for (var i = 0; i < rects.length; i++) {
       var r = rects[i];
@@ -328,20 +352,29 @@ var ChipsUI = (function() {
     var lo = g.xLim[0] + 2 + pw / 2, hi = g.xLim[1] - 2 - pw / 2;
     return lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, x));
   }
-  function betAnchor(seat, g) {
-    var a = _betAnchor(seat, g), pw = g.mobile ? 45 : 90;
+  function betAnchor(seat, g, bet) {
+    var a = _betAnchor(seat, g, bet), pw = _pileW(g, bet);
     return { x: _clampX(a.x, pw, g), y: a.y };
   }
-  function _betAnchor(seat, g) {
+  function _betAnchor(seat, g, bet) {
     var cx = seat.x + seat.w / 2, cy = seat.y + seat.h / 2;
-    var pw = g.mobile ? 45 : 90, ph = g.mobile ? 38 : 32;
+    var pw = _pileW(g, bet), ph = _pileH(g, bet);
     // (웨이브2 후속) 좁은 폰(320, 360)에서 벳 더미가 이웃 좌석 상자에 걸리던 것: 이웃 좌석도 피한다(화면 폭 안으로 민 자리 기준)
     var others = [];
     Object.keys(g.seats || {}).forEach(function(p) { var r = g.seats[p]; if (r && r !== seat) others.push(r); });
     if (g.mobile && String(seat.slot) === '0') {
-      // 폰 히어로: 좌석 왼쪽 위 모서리(가운데 말풍선을 피함). 왼쪽 이웃 좌석에 걸리면 오른쪽으로 민다(좌석 가운데 왼쪽까지)
-      var hx = seat.x + 10, hy = seat.y - 8, lim = seat.x + seat.w / 2 - pw / 2;
-      while (hx < lim && _hits(_clampX(hx, pw, g), hy, pw, ph, others)) hx += 4;
+      // 폰 히어로: 좌석 오른쪽 위 모서리(가운데 말풍선과 왼쪽 위 포지션 묶음을 피함). 오른쪽 이웃 좌석에 걸리면 왼쪽으로 민다(좌석 가운데 오른쪽까지)
+      // (n2-G1) 헤즈업은 포지션 묶음이 길어(BTN, D, 0.5) 왼쪽 위 묶음에 걸리면 오른쪽(좌석 밖)으로 먼저 민다
+      var hx = seat.x + seat.w - 10, hy = seat.y - 8, lim = seat.x + seat.w / 2 + pw / 2;
+      var hav = g.avoid || [];
+      var hxs = [hx];
+      for (var hr = hx + 4; hr <= seat.x + seat.w + pw / 2 + 8; hr += 4) hxs.push(hr);
+      for (var hl = hx - 4; hl >= lim; hl -= 4) hxs.push(hl);
+      for (var hi = 0; hi < hxs.length; hi++) {
+        var hc = _clampX(hxs[hi], pw, g);
+        if (!_hits(hc, hy, pw, ph, others) && !_hits(hc, hy, pw, ph, hav)) return { x: hxs[hi], y: hy };
+      }
+      while (hx > lim && _hits(_clampX(hx, pw, g), hy, pw, ph, others)) hx -= 4;
       return { x: hx, y: hy };
     }
     var dx = g.pot.x - cx, dy = g.pot.y - cy, len = Math.sqrt(dx * dx + dy * dy);
@@ -350,29 +383,75 @@ var ChipsUI = (function() {
     var t = Math.min(seat.w / 2 / Math.max(Math.abs(ux), 1e-6), seat.h / 2 / Math.max(Math.abs(uy), 1e-6));
     var off = g.mobile ? 24 : 26;
     var avoid = g.avoid || [];
-    for (var o = off; o >= -8; o -= 4) {
-      // (웨이브2 검증) 폰에서 바깥 자리(o >= 0)가 다 막히면 좌석 안으로 물리기(o < 0, 이름 글자를 가림) 전에 좌석 위나 아래 변 바깥을 먼저 본다.
-      // 토너먼트 띠(#ct-band)가 가운데를 막을 때 옆 좌석(CO, SB) 벳이 그 좌석 이름 위로 내려앉던 것
-      if (o < 0 && g.mobile) {
-        var ey = (g.pot.y < cy) ? seat.y - ph / 2 - 2 : seat.y + seat.h + ph / 2 + 2;
-        var toC = (g.pot.x < cx) ? -1 : 1, exs = [cx, cx + toC * seat.w / 4, cx - toC * seat.w / 4];
-        for (var e = 0; e < exs.length; e++) {
-          if (_inX(exs[e], pw, g) && !_hits(exs[e], ey, pw, ph, avoid) && !_hits(exs[e], ey, pw, ph, others)) return { x: exs[e], y: ey };
-        }
+    // (n2-G1 리뷰) 폰: 바깥 자리를 찾는 동안은 자기 좌석 안으로 6px 넘게 들어가지 않는다(더미가 56px로 커져 옆 좌석 말풍선과 스택 막대를 가리던 것).
+    // 좌석 안쪽(o < 0)은 맨 마지막 수단 그대로(free0)
+    var OWN_TOL = 6;
+    var ownIn = g.mobile ? { x: seat.x + OWN_TOL, y: seat.y + OWN_TOL, w: Math.max(0, seat.w - 2 * OWN_TOL), h: Math.max(0, seat.h - 2 * OWN_TOL) } : null;
+    function ok(x, y, av) { return !_hits(x, y, pw, ph, av) && !_hits(x, y, pw, ph, others) && !(ownIn && _hits(x, y, pw, ph, [ownIn])); }
+    function free(x, y, av) { return ok(_clampX(x, pw, g), y, av); }
+    function free0(x, y, av) { var xc = _clampX(x, pw, g); return !_hits(xc, y, pw, ph, av) && !_hits(xc, y, pw, ph, others); }
+    function along(o) { return { x: cx + ux * (t + o), y: cy + uy * (t + o) }; }
+    // (n2-G1) 기본 자리가 포지션 묶음 같은 작은 것에 걸리면 먼저 조금 더 바깥(+6, +12)을 본다. 그다음 좌석 쪽으로 물린다
+    function farther(av) {
+      var p0 = along(off);
+      if (_hits(_clampX(p0.x, pw, g), p0.y, pw, ph, av)) {
+        var fs = [off + 6, off + 12];
+        for (var f = 0; f < fs.length; f++) { var p = along(fs[f]); if (free(p.x, p.y, av)) return p; }
       }
-      var x = cx + ux * (t + o), y = cy + uy * (t + o), xc = _clampX(x, pw, g);
-      if (!_hits(xc, y, pw, ph, avoid) && !_hits(xc, y, pw, ph, others)) return { x: x, y: y };
+      return null;
     }
     // 팟 쪽에 자리가 없으면(데스크톱 히어로 위 보드와 핸드 번호) 좌석 모서리 바깥(팟 쪽 변, 오른쪽 먼저). 다른 좌석과도 안 겹치게
-    var cy2 = (cy < g.pot.y) ? seat.y + seat.h - ph / 2 + 2 : seat.y + ph / 2 - 2;
-    var gaps = [8, 16, 24];
-    for (var k = 0; k < gaps.length; k++) {
-      var cands = [seat.x + seat.w + gaps[k] + pw / 2, seat.x - gaps[k] - pw / 2];
-      for (var c = 0; c < cands.length; c++) {
-        if (_inX(cands[c], pw, g) && !_hits(cands[c], cy2, pw, ph, avoid) && !_hits(cands[c], cy2, pw, ph, others)) return { x: cands[c], y: cy2 };
+    function corner(av) {
+      var cy2 = (cy < g.pot.y) ? seat.y + seat.h - ph / 2 + 2 : seat.y + ph / 2 - 2;
+      var gaps = [8, 16, 24];
+      for (var k = 0; k < gaps.length; k++) {
+        var cands = [seat.x + seat.w + gaps[k] + pw / 2, seat.x - gaps[k] - pw / 2];
+        for (var c = 0; c < cands.length; c++) {
+          if (_inX(cands[c], pw, g) && ok(cands[c], cy2, av)) return { x: cands[c], y: cy2 };
+        }
       }
+      return null;
     }
-    return { x: cx + ux * (t - 8), y: cy + uy * (t - 8) };
+    // (웨이브2 검증) 폰에서 팟 쪽 바깥 자리가 다 막히면 좌석 안으로 물리기(이름 글자를 가림) 전에 좌석 위나 아래 변 바깥을 먼저 본다.
+    // 토너먼트 띠(#ct-band)가 가운데를 막을 때 옆 좌석(CO, SB) 벳이 그 좌석 이름 위로 내려앉던 것.
+    // (n2-G1) 변 바깥 줄을 4px씩 더 훑는다(팟 쪽 먼저): 바깥 모서리의 포지션 묶음과 가운데 핸드 정보 줄 사이 틈을 찾는다
+    function edgeRow(av) {
+      var dirY = (g.pot.y < cy) ? -1 : 1;
+      var ey0 = dirY < 0 ? seat.y - ph / 2 - 2 : seat.y + seat.h + ph / 2 + 2;
+      var toC = (g.pot.x < cx) ? -1 : 1, exs = [cx, cx + toC * seat.w / 4, cx - toC * seat.w / 4];
+      for (var d = 4; d <= seat.w / 2 + pw / 2; d += 4) { exs.push(cx + toC * d); exs.push(cx - toC * d); }
+      // (n2-G1 리뷰) 첫 줄이 다 막히면 팟 쪽으로 4px씩 더미 높이만큼 더 들어가며 본다(가까운 줄 먼저): 320과 360에서 옆 좌석 더미가
+      // 자기 포지션 묶음을 덮거나, 위아래 좌석 사이 한 칸(360에서 약 87px)에 더미 2개(42px씩)가 들어가야 할 때(HJ와 CO) 자기 좌석 이름 위로
+      // 내려앉던 것. 4px 간격이라 틈이 3px 남는 자리도 찾는다
+      // 줄 순서: 변 바깥 바로(0), 좌석 변에 2px 걸침(-4, 위 가운데 좌석의 더미가 자기 포지션 묶음 옆 모서리로 비켜 설 때), 그다음 팟 쪽으로
+      var rows = [ey0, ey0 - dirY * 4];
+      for (var k = 4; k <= ph + 8; k += 4) rows.push(ey0 + dirY * k);
+      for (var ri = 0; ri < rows.length; ri++) {
+        for (var e = 0; e < exs.length; e++) {
+          if (_inX(exs[e], pw, g) && ok(exs[e], rows[ri], av)) return { x: exs[e], y: rows[ri] };
+        }
+      }
+      return null;
+    }
+    // 바깥 자리 찾기: 더 바깥 → 팟 쪽 길(o = off..0) → (폰) 변 바깥 줄 → (폰) 옆 모서리
+    function outside(av) {
+      var r = farther(av);
+      if (r) return r;
+      for (var o = off; o >= 0; o -= 4) { var p = along(o); if (free(p.x, p.y, av)) return p; }
+      if (!g.mobile) return null;
+      return edgeRow(av) || corner(av);
+    }
+    var r = outside(avoid);
+    if (r) return r;
+    // (n2-G1) 폰: 바깥이 다 막히면 좌석 안보다 자기 포지션 묶음 위가 낫다(마커 0.5, 1은 더미 금액과 같은 정보)
+    if (g.mobile && seat.tag) {
+      var av2 = avoid.filter(function(q) { return q !== seat.tag; });
+      r = outside(av2);
+      if (r) return r;
+    }
+    for (var oi = off; oi >= -8; oi -= 4) { if (oi >= 0) continue; var pi = along(oi); if (free0(pi.x, pi.y, avoid)) return pi; }
+    if (!g.mobile) { r = corner(avoid); if (r) return r; }
+    return along(-8);
   }
   function seatCenter(seat) { return { x: seat.x + seat.w / 2, y: seat.y + seat.h / 2 }; }
 
@@ -439,6 +518,7 @@ var ChipsUI = (function() {
   function _apply(state, doc, opts) {
     var m = model(state, _prev);
     var noMotion = (opts && opts.reduced != null) ? !!opts.reduced : reduced();
+    if (state.replay) noMotion = true;   // (n2-G1) 리플레이 프레임(state.replay, 설계 6.2절 1번)은 칩 이동과 반짝임 없이 그 순간 모습만
     var table = _q(doc, '.poker-table');
     // 읽기: 좌석, 팟 위치(한 번)
     var g = table ? readGeom(doc, table, Object.keys(m.seats)) : null;
@@ -462,7 +542,14 @@ var ChipsUI = (function() {
       }
       box.innerHTML = html;
       seatEl.appendChild(box);
-      if (g && g.seats[pos]) anchors[s.name] = { bet: betAnchor(g.seats[pos], g), center: seatCenter(g.seats[pos]) };
+      if (g && g.seats[pos]) {
+        anchors[s.name] = { bet: betAnchor(g.seats[pos], g, s.bet), center: seatCenter(g.seats[pos]) };
+        // (n2-G1) 놓인 벳 더미는 다음 좌석의 더미가 피한다(좁은 폰에서 두 더미가 겹치던 것)
+        if (s.bet > 0) {
+          var bw = _pileW(g, s.bet), bh = _pileH(g, s.bet), ba = anchors[s.name].bet;
+          g.avoid.push({ x: ba.x - bw / 2, y: ba.y - bh / 2, w: bw, h: bh });
+        }
+      }
     });
     // 쓰기 2: 벳 더미 층
     var L = ensureLayer(doc, table);

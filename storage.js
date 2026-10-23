@@ -22,6 +22,8 @@ var Storage = (function() {
       pot:(meta&&meta.pot!=null)?meta.pot:state.pot,
       net:(meta&&meta.net!=null)?meta.net:undefined,
       gtoRound:meta&&meta.gtoRound, v:3,
+      // (n2-P0) 완전 분석 연결: logKey = HandLog 로그 id(poker_omni_log, 백업 제외), omni = 완전 분석 세션(레이팅, XP 제외). 없으면 JSON에서 빠진다
+      logKey:(meta&&meta.logKey)||undefined, omni:(meta&&meta.omni)?true:undefined,
       decisions:state.decisions });
     if (h.length>200) h=h.slice(-200);
     _set(K.history, h);

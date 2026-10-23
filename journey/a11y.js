@@ -19,9 +19,11 @@ var A11y = (function() {
   //   읽는 쪽은 load().fourColor(정규화 뒤 불리언). 글자 기호(.suit)는 설정과 상관없이 늘 4색(css/cards.css).
   // (웨이브2 후속) chipVisual: 게임 테이블 칩 그림(ui/chips.js). 기본 켜짐, fourColor와 같은 규칙(끄는 값만 false). 설정 '👀 보기'의 '칩 그림 보이기' 행.
   var DEFAULTS = { v: 1, fontScale: 100, fourColor: true, cbChart: false, reduceMotion: null, sound: false, vibrate: false, adaptive: true, showEq: false, showAllEq: false,
-    showChart: false, winChance: false, chartTier: 'auto', chipVisual: true };
-  var BOOL_KEYS = ['cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq', 'showChart', 'winChance'];   // 기본 꺼짐(없으면 false)
+    showChart: false, winChance: false, chartTier: 'auto', chipVisual: true, pace: 'normal', omniMode: false };
+  // (n2-P0) pace: 상대 액션 순차 공개 속도(ui/pacer.js), 모르는 값은 'normal'. omniMode: 빌런 선택 화면의 완전 분석 오픈 모드 체크(기본 꺼짐)
+  var BOOL_KEYS = ['cbChart', 'sound', 'vibrate', 'showEq', 'showAllEq', 'showChart', 'winChance', 'omniMode'];   // 기본 꺼짐(없으면 false)
   var CHART_TIERS = ['auto', 'beginner', 'standard'];
+  var PACES = ['slow', 'normal', 'fast', 'instant'];
   var MQ = '(prefers-reduced-motion: reduce)';
   // 진동 패턴(ms)과 비프(주파수 Hz, 길이 s). 짧게: 결과 알림용, 연속 재생으로 귀찮지 않게
   var VIB = { ok: 15, bad: [30, 40, 30], tap: 8, done: [20, 40, 60] };
@@ -67,6 +69,7 @@ var A11y = (function() {
     out.reduceMotion = _rm(src.reduceMotion);
     out.adaptive = _adaptive(src.adaptive);
     out.chartTier = CHART_TIERS.indexOf(src.chartTier) >= 0 ? src.chartTier : DEFAULTS.chartTier;
+    out.pace = PACES.indexOf(src.pace) >= 0 ? src.pace : DEFAULTS.pace;
     return out;
   }
 
@@ -178,7 +181,7 @@ var A11y = (function() {
   if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') window.addEventListener('DOMContentLoaded', init);
 
   var api = {
-    KEY: KEY, SCALES: SCALES.slice(), DEFAULTS: DEFAULTS, CHART_TIERS: CHART_TIERS.slice(),
+    KEY: KEY, SCALES: SCALES.slice(), DEFAULTS: DEFAULTS, CHART_TIERS: CHART_TIERS.slice(), PACES: PACES.slice(),
     load: load, save: save, apply: apply, reduced: reduced, fx: fx, supports: supports, normalize: normalize, init: init,
     _resetAudio: function() { _ac = null; }
   };
