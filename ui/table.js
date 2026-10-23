@@ -52,11 +52,12 @@ var Table = (function() {
       var bet = state.playerBets&&state.playerBets[name]||0;
       var stack = (state.stacks&&state.stacks[name])||0;
       var bar = stackBar(stack, maxStack);
+      var winB = winnerBadgeHTML(state, name, slots[pos], _portraitLayout()), winInTag = winB.indexOf('<span') === 0;
       seatEl.innerHTML =
-        winnerBadgeHTML(state, name, slots[pos], _portraitLayout())+
+        (winInTag ? '' : winB)+
         '<div class="seat-name">'+name+((isHero || state.hideTypes)?'':' <small style="color:#8b949e">('+player.type+')</small>')+'</div>'+
         (isHero ? '' : _hudHTML(name, !!state.hideTypes))+
-        seatTagHTML(state, name, pos)+
+        seatTagHTML(state, name, pos, winInTag ? winB : '')+
         seatStackHTML(stack)+seatDeltaHTML(state, name)+
         (bet>0?'<div class="seat-bet">'+bet.toFixed(1)+'bb</div>':'')+
         '<div class="seat-cards">'+cardsHtml+'</div>'+
@@ -112,7 +113,7 @@ var Table = (function() {
   // 스택 숫자: 소수 1자리 + 작은 bb('63.5<small>bb</small>'). 숫자 아님과 음수는 0.0
   function fmtStack(v) {
     var n = Number(v); if (!isFinite(n) || n < 0) n = 0;
-    return (Math.round(n * 10) / 10).toFixed(1) + '<small>bb</small>';
+    return round1(n).toFixed(1) + '<small>bb</small>';
   }
   function seatStackHTML(v) {
     var n = Number(v); if (!isFinite(n) || n < 0) n = 0;
@@ -135,9 +136,9 @@ var Table = (function() {
     if (p.pos === 'BB') out += '<span class="seat-mark mark-bb" title="빅 블라인드 1bb">1</span>';
     return out;
   }
-  // 좌석 왼쪽 위 바깥 묶음: 포지션 알약 + 마커(좌석 흐름 밖, css/table.css .seat-tag)
-  function seatTagHTML(state, name, pos) {
-    return '<div class="seat-tag"><span class="seat-pos">' + pos + '</span>' + seatMarkHTML(state, name) + '</div>';
+  // 좌석 왼쪽 위 바깥 묶음: 포지션 알약 + 마커(좌석 흐름 밖, css/table.css .seat-tag). extra = 같은 줄 끝에 붙일 것(정산 뒤 승자 배지, n2b)
+  function seatTagHTML(state, name, pos, extra) {
+    return '<div class="seat-tag"><span class="seat-pos">' + pos + '</span>' + seatMarkHTML(state, name) + (extra || '') + '</div>';
   }
   // 행동 좌석: 상태 사본의 acting(이름)이 그 좌석이면 true(설계 6.2절 1번)
   function isActing(state, name) { return !!(state && name != null && state.acting != null && state.acting === name); }
@@ -175,7 +176,11 @@ var Table = (function() {
   function _shortInfo() {
     try { var w = _viewportW(); return w > 0 && w <= 360 && _portraitLayout(); } catch (e) { return false; }
   }
-  function _fmt1(v) { return (Math.round(Math.abs(v) * 10) / 10).toFixed(1); }
+  // (n2b) 0.1bb 반올림 하나: 세션 손익(seatDelta, 핸드 정보 줄과 좌석 배지), 스택 글자(fmtStack), 승자 배지, 리바이 토스트와
+  // 세션 요약 리바이 합(App)이 같이 쓴다. 부호 그대로 Math.round(x 10)이라 스택 62.75는 62.8, 손익 -37.25는 -37.2(합이 100으로 맞는다)
+  function round1(v) { var n = Number(v); return isFinite(n) ? Math.round(n * 10) / 10 : 0; }
+  // 크기만 소수 첫째 자리 글자(부호는 부르는 쪽이 붙인다). 손익과 같은 쪽 부호로 넘겨야 같은 반올림이 된다(리바이 +add는 -add로)
+  function _fmt1(v) { return Math.abs(round1(v)).toFixed(1); }
   // 세션 손익: state.buyin = { 이름: 세션 동안 사들인 칩(시작 100 + 리바이) }가 있을 때만(App이 채운다).
   // 핸드 중에는 이번 핸드에 넣은 칩(totalContrib)을 더해 핸드 시작 기준으로, 정산 뒤(state.payouts 있음)는 스택 그대로 센다
   function seatDelta(state, name) {
@@ -184,7 +189,7 @@ var Table = (function() {
     if (state.buyin[name] == null || !isFinite(base)) return null;
     var stack = Number(state.stacks && state.stacks[name]) || 0;
     var contrib = state.payouts ? 0 : (Number(state.totalContrib && state.totalContrib[name]) || 0);
-    return Math.round((stack + contrib - base) * 10) / 10;
+    return round1(stack + contrib - base);
   }
   // 손익 배지(|손익| 0.5bb 이상): 색 + 화살표 + 숫자. '▲+2.5' 초록, '▼-18' 빨강(10bb 이상은 정수로 짧게, 정확한 값은 title).
   // 좌석 안 독립 요소(flex 0 0 auto): 폰 좌석은 스택 줄 옆에 들어가고 자리가 모자라면 다음 줄로, 데스크톱은 스택 아래 줄
@@ -211,17 +216,23 @@ var Table = (function() {
   function _portraitLayout() {
     try { return typeof MobileUI !== 'undefined' && !!MobileUI && typeof MobileUI.isMobile === 'function' && !!MobileUI.isMobile(); } catch (e) { return false; }
   }
-  // 승자 배지 '🏆 +12.5bb'(좌석 테두리에 띄움, 배치 밀림 없음). 폰 세로 배치(portrait)에서 slot 2, 3, 4는 화면 위쪽 줄이라
-  // 위 테두리에 두면 승률 칩 줄에 가려지므로 아래 테두리(테이블 안쪽)에 둔다. 데스크톱은 아래에 팟이 있어 늘 위 테두리
+  // 승자 배지 '🏆 +12.5bb'. 좌석 테두리 가운데에 띄우면 같은 모서리의 포지션 묶음(BTN, D, 0.5)을 가린다(n2b). 그래서
+  //   1. 묶음과 같은 모서리면(데스크톱 전부, 폰 히어로 slot 0, 폰 위쪽 줄 slot 2, 3, 4는 묶음과 배지 모두 아래) 묶음 줄 끝에 붙인다
+  //      → '<span class="seat-win" ...>'(render가 seatTagHTML의 extra로 넣는다). 승률 칩 줄에 가려지지 않고 마커와 겹치지 않는다.
+  //   2. 폰 옆 아래 좌석(slot 1, 5)은 묶음이 아래 모서리라 배지는 예전처럼 위 테두리 가운데 → '<div class="seat-win" ...>'(좌석 첫 자식).
+  //      slot 1 묶음 줄은 오른쪽 기준이라 배지를 붙이면 왼쪽 히어로 좌석 쪽으로 길어진다
   function winnerBadgeHTML(state, name, slot, portrait) {
     if (!isWinnerSeat(state, name)) return '';
     var v = Number(state.payouts && state.payouts[name]);
     var amt = (isFinite(v) && v > 0.005) ? ' +' + _fmt1(v) + 'bb' : '';
-    var low = !!portrait && (slot === 2 || slot === 3 || slot === 4);
-    var place = low ? 'top:auto;bottom:0;transform:translate(-50%,78%);' : 'top:0;transform:translate(-50%,-78%);';
-    return '<div class="seat-win" aria-label="이번 핸드 승리' + amt + '" style="position:absolute;left:50%;' + place +
-      'z-index:6;white-space:nowrap;background:#ffd700;color:#1a1300;font-weight:800;font-size:.74rem;line-height:1.2;padding:1px 7px;' +
-      'border-radius:999px;box-shadow:0 0 10px rgba(255,215,0,.6);pointer-events:none">🏆' + amt + '</div>';
+    var look = 'white-space:nowrap;background:#ffd700;color:#1a1300;font-weight:800;font-size:.74rem;' +
+      'border-radius:999px;box-shadow:0 0 10px rgba(255,215,0,.6);pointer-events:none">🏆' + amt;
+    if (!!portrait && (slot === 1 || slot === 5)) {
+      return '<div class="seat-win" aria-label="이번 핸드 승리' + amt + '" style="position:absolute;left:50%;top:0;transform:translate(-50%,-78%);' +
+        'z-index:6;line-height:1.2;padding:1px 7px;' + look + '</div>';
+    }
+    return '<span class="seat-win" aria-label="이번 핸드 승리' + amt + '" style="display:inline-flex;align-items:center;box-sizing:border-box;height:20px;' +
+      'margin-left:2px;line-height:1;padding:0 7px;' + look + '</span>';
   }
   // 정산 화면이 자리 잡은 뒤(App이 결과 패널을 띄운 다음 부른다) 승자 배지를 다시 맞춘다. 결과 패널이 나오면 테이블이 위로 밀려
   // 데스크톱 위쪽 줄 좌석의 배지가 문서 맨 위 밖으로 잘리고(스크롤로도 못 봄), 아래 중앙 좌석 배지는 보드 카드를 가릴 수 있다.
@@ -241,7 +252,8 @@ var Table = (function() {
         .filter(function(e) { return e && typeof e.getBoundingClientRect === 'function'; })
         .map(function(e) { return e.getBoundingClientRect(); });
       Array.prototype.forEach.call(badges, function(bd) {
-        var seat = bd.parentElement;
+        // 배지는 포지션 묶음(.seat-tag) 안에 있다(n2b). 옮길 때는 좌석으로 꺼내 이름 아래에 띄운다
+        var seat = (typeof bd.closest === 'function' && bd.closest('.seat')) || bd.parentElement;
         if (!seat || typeof bd.getBoundingClientRect !== 'function' || typeof seat.getBoundingClientRect !== 'function') return;
         var r = bd.getBoundingClientRect();
         var clipped = r.top + sy < 0;
@@ -252,6 +264,10 @@ var Table = (function() {
         var y = nameEl && typeof nameEl.getBoundingClientRect === 'function' ? nameEl.getBoundingClientRect().bottom - sr.top : 0;
         if (sr.top + sy + y < 2) y = 2 - (sr.top + sy);
         y = Math.max(0, Math.min(y, sr.height - r.height));
+        if (bd.parentElement !== seat && typeof seat.appendChild === 'function') seat.appendChild(bd);
+        bd.style.position = 'absolute';
+        bd.style.left = '50%';
+        bd.style.zIndex = '6';
         bd.style.top = Math.round(y) + 'px';
         bd.style.bottom = 'auto';
         bd.style.transform = 'translate(-50%,0)';
@@ -399,6 +415,85 @@ var Table = (function() {
     });
   }
 
+  // (n2b) 판정 토스트(#coach-toast, 화면 위 22%)와 앱 토스트(#app-toast, 14%)가 폰에서 팟 금액과 보드를 가린다(상대 공개 첫 1~2초에
+  // 팟이 바뀌는 게 안 보임). 순수 판정: t = 토스트 사각형, avoid = 가리면 안 되는 팟과 보드, barTop = 아래 막는 선(액션바나 결과바 위 끝),
+  // opts.keep = 옮긴 자리에서도 가리면 안 되는 것(액션 로그 줄), opts.below = 팟 아래 줄(핸드 정보) 아래 끝.
+  // → 새 top(px) 또는 null(겹치지 않으면 그대로). 1순위 액션바 바로 위(공개 중 액션바는 흐리고 눌리지 않는다), 2순위 팟과 보드 아래
+  function toastSpot(t, avoid, barTop, opts) {
+    if (!t || !(t.bottom > t.top)) return null;
+    opts = opts || {};
+    avoid = (avoid || []).filter(Boolean);
+    var keep = (opts.keep || []).filter(Boolean), h = t.bottom - t.top;
+    function hit(a, b) { return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; }
+    if (!avoid.some(function(a) { return hit(t, a); })) return null;
+    var all = avoid.concat(keep), lim = Number(barTop);
+    function ok(top) {
+      var c = { top: top, bottom: top + h, left: t.left, right: t.right };
+      return top >= 0 && (!isFinite(lim) || c.bottom <= lim) && !all.some(function(a) { return hit(c, a); });
+    }
+    // 액션바는 공개가 끝나 내 차례가 오면 슬라이더 줄만큼(폰 실측 28px) 위로 커진다. 그만큼 더 띄워 커진 바와도 겹치지 않게
+    if (isFinite(lim)) { var above = Math.round(lim - 8 - 28 - h); if (ok(above)) return above; }
+    var low = Math.max.apply(null, avoid.map(function(a) { return a.bottom; }).concat([Number(opts.below) || 0]));
+    var under = Math.round(low + 6);
+    return ok(under) ? under : null;
+  }
+  // 게임 화면(리플레이 화면 제외)에서 토스트를 팟과 보드 밖으로. 레이아웃 읽기는 다음 프레임 직전(rAF, 그리기 전이라 깜빡임 없음)으로 미뤄
+  // 결정 동기 블록에 강제 레이아웃을 더하지 않는다. → 미뤘으면 true
+  function placeToast(el) {
+    if (!el || typeof document === 'undefined' || !document || typeof document.getElementById !== 'function') return false;
+    var run = function() {
+      try {
+        if (!el.parentNode || typeof el.getBoundingClientRect !== 'function') return;
+        var sg = document.getElementById('screen-game');
+        if (!sg || !sg.classList || !sg.classList.contains('active') || sg.classList.contains('omni-replay')) return;
+        var rect = function(e) {
+          if (!e || typeof e.getBoundingClientRect !== 'function') return null;
+          var r = e.getBoundingClientRect();
+          return (r.width > 0.5 && r.height > 0.5) ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null;
+        };
+        var bar = null;
+        ['action-bar', 'result-actions-bar'].forEach(function(id) {
+          var b = document.getElementById(id);
+          if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
+        });
+        var vh = (typeof window !== 'undefined' && window && Number(window.innerHeight)) || 0;
+        var barTop = bar ? bar.getBoundingClientRect().top : (vh || Infinity);
+        // 팟과 보드가 다른 판(폰 차트 시트, 완전 분석 시트)에 덮여 안 보이면 피할 까닭이 없다(가운데 점이 그 요소 안인지로 판단)
+        var shown = function(e) {
+          var r = rect(e);
+          if (!r || typeof document.elementFromPoint !== 'function') return r;
+          var h = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+          return (h && (h === e || (typeof e.contains === 'function' && e.contains(h)))) ? r : null;
+        };
+        var info = rect(document.getElementById('hand-info'));
+        var top = toastSpot(rect(el), [shown(document.querySelector('.pot-display-wrap')), shown(document.getElementById('board-cards'))], barTop,
+          { keep: [rect(document.getElementById('hand-log')), rect(document.getElementById('gto-toast')), rect(document.getElementById('gto-commentary')),
+            rect(document.getElementById(el.id === 'coach-toast' ? 'app-toast' : 'coach-toast'))], below: info ? info.bottom : 0 });
+        if (top != null) {
+          if (el.dataset && !el.dataset.top0) el.dataset.top0 = el.style.top || '';   // 원래 자리(22%, 14%), replaceToasts가 되돌릴 때 쓴다
+          el.style.top = top + 'px';
+        }
+      } catch (e) { /* 자리 옮기기 실패는 토스트를 그대로 둔다 */ }
+    };
+    var raf = (typeof window !== 'undefined' && window && typeof window.requestAnimationFrame === 'function') ? window.requestAnimationFrame : null;
+    if (raf) { raf(run); return true; }
+    run();
+    return false;
+  }
+  // (n2b-verify) 핸드가 끝나 액션바가 결과바와 총평으로 바뀌면, 공개 중 액션바 위로 옮겨 둔 토스트가 '▶ 다음 핸드'와 총평을 덮었다(412x915 7/7핸드).
+  // 원래 자리로 되돌린 뒤 결과 화면 기준(결과바 위 끝, 총평 패널 보호)으로 다시 고른다. → 다시 고른 토스트 수
+  function replaceToasts() {
+    if (typeof document === 'undefined' || !document || typeof document.getElementById !== 'function') return 0;
+    var n = 0;
+    ['coach-toast', 'app-toast'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el || !el.style) return;
+      if (el.dataset && el.dataset.top0) el.style.top = el.dataset.top0;
+      placeToast(el); n++;
+    });
+    return n;
+  }
+
   var HERO_PHRASES = {
     fold:  ['그냥 접는다.', '이번엔 패스.', '폴드.'],
     call:  ['받지 뭐.', '콜.', '한 번 보자.'],
@@ -433,7 +528,7 @@ var Table = (function() {
   }
 
   var api = { render, updateVillainActions, renderShowdown, showHeroAction, seatSlots, seatCardsHTML, seatEqHTML, _hudHTML,
-    tableMaxStack, stackBar, seatDelta, seatDeltaHTML, isWinnerSeat, winnerBadgeHTML, fitWinnerBadges,
+    tableMaxStack, stackBar, seatDelta, seatDeltaHTML, isWinnerSeat, winnerBadgeHTML, fitWinnerBadges, toastSpot, placeToast, replaceToasts, round1, fmt1: _fmt1,
     stackTier, fmtStack, seatStackHTML, seatMarkHTML, seatTagHTML, isActing, handInfoText, actKey, actIcon, bubbleMainHTML };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

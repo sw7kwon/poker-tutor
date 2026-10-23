@@ -479,6 +479,9 @@ var App = (function() {
   function _rebuyCtx() { return { mode: _villainConfig, practice: !!_practice, gtoMode: _gtoMode, sessionKind: _sessionKind() }; }
   function _r2(x) { return Math.round((Number(x) || 0) * 100) / 100; }
   function _fmtBB(x) { var n = Math.round((Number(x) || 0) * 10) / 10; return (n % 1 === 0) ? String(n) : n.toFixed(1); }
+  // (n2b) 리바이 금액 글자: 세션 손익 줄과 같은 함수(Table.fmt1)를 손익 쪽 부호(-add)로. 스택 62.75(글자 62.8, 세션 ▼-37.2bb)에서
+  //   예전 토스트는 +37.3bb라 0.1bb 어긋났다. 이제 +37.2bb(62.8 + 37.2 = 100)
+  function _rebuyBB(add) { return (typeof Table !== 'undefined' && Table && typeof Table.fmt1 === 'function') ? Table.fmt1(-(Number(add) || 0)) : _fmtBB(add); }
   // 수동 리바이 판정(지금 상태만 읽음) → { ok, reason, add }: 핸드가 끝났고, 연습 아님, 정책 cash, 히어로 스택 100 미만
   function canRebuy() {
     if (!_state) return { ok: false, reason: 'no-hand', add: 0 };
@@ -508,7 +511,7 @@ var App = (function() {
       if (_lastResult && typeof Table.renderShowdown === 'function') Table.renderShowdown(_lastResult);
       if (typeof Table.fitWinnerBadges === 'function') Table.fitWinnerBadges();
     }
-    _showToast('💰 +' + _fmtBB(add) + 'bb 리바이, 세션 손익은 그대로');
+    _showToast('💰 +' + _rebuyBB(add) + 'bb 리바이, 세션 손익은 그대로');
     _syncRebuyBtn();
     return add;
   }
@@ -518,9 +521,11 @@ var App = (function() {
     if (b && b.style) b.style.display = on ? '' : 'none';
   }
   function _syncRebuyBtn() { var ok = canRebuy().ok; _showBtn('btn-rebuy', ok); return ok; }
-  // ⏪ 리플레이: 코어가 준비됐고 이 핸드 로그가 있을 때만(연습 제외)
+  // ⏪ 리플레이: 코어가 준비됐고 이 핸드 로그가 있을 때만(연습 제외). 유형 숨김 테이블 로그(hiddenUntil)는 세션이 끝나야 열리므로
+  //   핸드 끝 결과바에는 버튼을 두지 않는다(누르면 안내 토스트만 뜨던 것, n2b)
+  function _replayAllowed(log) { return !!(log && typeof log === 'object' && !log.hiddenUntil && !_practice && _omniReady()); }
   function _syncReplayBtn(logKey) {
-    var ok = !!(logKey && !_practice && _omniReady() && _hl('get', logKey));
+    var ok = !!(logKey && _replayAllowed(_hl('get', logKey)));
     _showBtn('btn-replay', ok);
     return ok;
   }
@@ -1371,6 +1376,7 @@ var App = (function() {
       if (endBtn) endBtn.style.display = _practice ? 'none' : '';
       _syncRebuyBtn(); _syncReplayBtn(logKey);   // (n2-P0) 💰 리바이(정책 cash, 100 미만), ⏪ 리플레이(코어 준비, 로그 있음)
       if (typeof MobileUI !== 'undefined' && MobileUI.onHandEnd) MobileUI.onHandEnd(); // 총평 탭 자동 펼침
+      if (typeof Table !== 'undefined' && Table && typeof Table.replaceToasts === 'function') Table.replaceToasts();   // (n2b-verify) 결과바와 총평을 덮지 않게
       if (_practice) {
         // 연습 핸드는 localStorage·세션 기록 어디에도 남기지 않고 추이만 갱신
         _practice.attempts.push(_practiceAttempt(_practice.attempts.length + 1, decisionsSnap));
@@ -1559,6 +1565,7 @@ var App = (function() {
     t.textContent = msg;
     t.style.cssText = 'position:fixed;top:14%;left:50%;transform:translateX(-50%);background:rgba(20,20,30,0.95);color:#e3b341;border:1px solid #e3b341;border-radius:6px;padding:8px 18px;z-index:500;font-size:0.9rem;pointer-events:none';
     document.body.appendChild(t);
+    if (typeof Table !== 'undefined' && Table && typeof Table.placeToast === 'function') Table.placeToast(t);   // (n2b) 팟과 보드 밖으로
     setTimeout(function(){ t.remove(); }, ms > 0 ? ms : 2200);
   }
 
@@ -1752,7 +1759,7 @@ var App = (function() {
         '<div>' + st.hands + '핸드 | 승 ' + st.showdownWins + ', 폴드 ' + st.folds + ', 패 ' + st.losses +
         ' | 결정 🟢' + st.green + ' 🟡' + st.yellow + ' 🔴' + st.red +
         ' | ' + _sessionLossText(st) +
-        ' | 칩 손익 ' + _signed(st.net) + 'bb' + (st.rebuys ? ' | 리바이 ' + st.rebuys + '회(+' + _fmtBB(st.rebuyAdd) + 'bb)' : '') + '</div>' +
+        ' | 칩 손익 ' + _signed(st.net) + 'bb' + (st.rebuys ? ' | 리바이 ' + st.rebuys + '회(+' + _rebuyBB(st.rebuyAdd) + 'bb)' : '') + '</div>' +
         '<div style="font-size:0.75rem;margin-top:0.3rem">EV 편차는 추천 결정 대비 잃은 기대값의 합이에요(0에 가까울수록 좋아요). ' +
         (st.big || st.small ? '차트나 가이드로 판정한 실수는 bb 대신 큰 실수, 작은 실수로 셌어요. ' : '') +
         '칩 손익에는 운이 섞여 있어요.</div>';
@@ -1898,7 +1905,7 @@ var App = (function() {
     _rebuyStacks: _rebuyStacks,
     // (n2-P0) 리바이 정책과 수동 리바이, 완전 분석, 걸음 루프(설계 6.1절 8번)
     _rebuyPolicy: _rebuyPolicy, canRebuy: canRebuy, rebuyNow: rebuyNow,
-    setOmniMode: setOmniMode, syncOmniToggle: syncOmniToggle, _omniAllowed: _omniAllowed, _omniReady: _omniReady, omni: omni,
+    setOmniMode: setOmniMode, syncOmniToggle: syncOmniToggle, _omniAllowed: _omniAllowed, _omniReady: _omniReady, omni: omni, _replayAllowed: _replayAllowed, _rebuyBB: _rebuyBB,
     _frames: function() { return _frames; }, _villainSteps: _villainSteps, _prefetchEq: _prefetchEq,
     _rebuys: function() { return { n: _rebuys.n, add: _rebuys.add }; },
     // 테스트용(n2-P0): 수동 리바이 판정과 회계를 실제 핸드 없이 고정 상태로 시험한다. 넘긴 필드만 바꾼다

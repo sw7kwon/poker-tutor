@@ -439,6 +439,8 @@ var CoachUI = (function() {
       'color:#e6edf3;border:1px solid #8b949e;border-radius:8px;padding:8px 18px;z-index:510;font-size:0.95rem;' +
       'pointer-events:none;white-space:pre-line;text-align:center;max-width:80vw';
     document.body.appendChild(t);
+    // (n2b) 게임 화면이면 팟과 보드를 가리지 않는 자리로(폰은 상대 공개 첫 1~2초에 팟 금액을 가렸다)
+    if (typeof Table !== 'undefined' && Table && typeof Table.placeToast === 'function') Table.placeToast(t);
     if (_toastTimer) clearTimeout(_toastTimer);
     _toastTimer = setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, ms || 2000);
   }

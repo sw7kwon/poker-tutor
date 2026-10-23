@@ -142,10 +142,27 @@ var OmniUI = (function() {
     var fr = null;
     if (_real('Replay') && _fn('Replay', 'frames')) {
       var r = _call('Replay', 'frames', log);
-      if (Array.isArray(r) && r.length) fr = r;
+      if (Array.isArray(r) && r.length) fr = _enrich(log, r);
     }
     if (!fr) fr = _framesFallback(log);
     _fcache = { key: key, frames: fr };
+    return fr;
+  }
+  // Replay.frames(설계 5.3절 1번 모양)에 화면이 쓰는 필드를 더한다(폴백과 같게): 액션 프레임 act와 hero(판정 요약, 타임라인 색과 신호등), view.bigBlind, 끝 프레임 view.handOver
+  function _enrich(log, fr) {
+    var evs = (log.ev || []).filter(Boolean), bb = Number(log.blinds && log.blinds.bb) || 1;
+    fr.forEach(function(f, k) {
+      if (!f) return;
+      var ev = k > 0 ? evs[k - 1] : null;
+      if (f.kind === 'a' && ev && ev.k === 'a') {
+        if (f.act == null) f.act = _actKey(ev);
+        if (f.hero == null) f.hero = ev.hero || false;
+      }
+      if (f.view) {
+        if (f.view.bigBlind == null) f.view.bigBlind = bb;
+        if (f.kind === 'e') f.view.handOver = true;
+      }
+    });
     return fr;
   }
   // 임시 변환(설계 7.4절 2번): 로그 이벤트의 post(stacks, bets, pot)를 그대로 색인해 Table.render 상태 모양을 만든다. 칩 계산 다시 안 함
@@ -848,7 +865,8 @@ var OmniUI = (function() {
   }
 
   // ── 테스트 ──
-  function _setEnv(env) { _env = env || {}; }
+  // 주입 모듈이 바뀌면 프레임과 승률 캐시도 비운다(같은 로그 키라도 다른 Replay의 결과)
+  function _setEnv(env) { _env = env || {}; _fcache = { key: null, frames: null }; _eqcache = { key: null, eq: null }; }
   function _reset() {
     abort();
     if (_panelEl && _panelEl.parentNode && _panelEl.parentNode.removeChild) _panelEl.parentNode.removeChild(_panelEl);

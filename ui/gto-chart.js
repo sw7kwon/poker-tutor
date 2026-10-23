@@ -592,11 +592,15 @@ var GtoChart = (function() {
     handle.appendChild(ctx);
     handle.appendChild(arrow);
     var body = mk('div', 'gto-sheet-body');
+    // (n2b) 시트가 도크 위 액션 로그 줄과 ⏩ 속도 버튼을 덮으므로 손잡이 아래에 같은 줄(HandLogUI가 채우고 누름도 받는다, css/pace.css)
+    var log = mk('div', 'hl-mirror gto-sheet-log', { role: 'group', 'aria-label': '이번 핸드 액션 기록과 속도' });
     root.appendChild(handle);
+    root.appendChild(log);
     root.appendChild(body);
     var parent = (d.getElementById && d.getElementById('screen-game')) || d.body;
     if (parent && parent.appendChild) parent.appendChild(root);
-    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow };
+    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow, log: log };
+    if (typeof HandLogUI !== 'undefined' && HandLogUI && typeof HandLogUI.render === 'function') { try { HandLogUI.render(); } catch (e) { /* 줄 사본은 다음 그리기에 */ } }
     _bindHandle(handle, root);
     _watchBars(d);
     if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('resize', _replace);

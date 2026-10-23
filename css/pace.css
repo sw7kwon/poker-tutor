@@ -70,6 +70,23 @@ html.m-mobile .m-dock-top .hl-speed {
 }
 html.m-mobile .m-dock-top .hl-list { display: none; }
 
+/* ── (n2b) 폰 차트 시트(#gto-sheet) 손잡이 아래 같은 줄 .hl-mirror: 시트가 도크의 로그 줄과 ⏩ 속도 버튼을 덮으므로(ui/pacer.js가 채운다) ── */
+.hl-mirror { display: none; }
+html.m-mobile .gto-sheet .hl-mirror:not(:empty) {
+  display: flex; align-items: center; flex: 0 0 36px; height: 36px; margin: 0 8px 8px; box-sizing: border-box;
+  background: var(--tile-bg); border-radius: var(--r-8, 8px); color: var(--text); font-size: .8rem;
+}
+html.m-mobile .gto-sheet .hl-mirror .hl-line { min-height: 44px; margin: -4px 0; padding-left: 6px; }
+html.m-mobile .gto-sheet .hl-mirror .hl-speed {
+  margin: -4px 0; padding: 0 10px; border-left: 0;
+  background: linear-gradient(var(--hud-border), var(--hud-border)) left center / 1px 24px no-repeat;
+}
+.hl-mirror .act-aggr { color: var(--orange); }
+.hl-mirror .act-call { color: var(--blue-2); }
+.hl-mirror .act-check { color: var(--green-text); }
+.hl-mirror .act-fold { color: var(--text-dim); }
+.hl-mirror .act-allin { color: var(--red-bright); }
+
 /* ── 폰: 펼침 하단 시트(손잡이 44px, 액션바 위, bottom은 HandLogUI가 액션바 높이로 맞춘다) ── */
 .hl-sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 36; height: 50dvh; max-height: 50vh;

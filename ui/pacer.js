@@ -386,6 +386,7 @@ var HandLogUI = (function() {
     // 띵킹 피드(데스크톱 왼쪽 위)가 보이면 그 아래로
     var d = _doc(), feed = d && d.getElementById('thinking-feed');
     el.classList.toggle('has-feed', !mob && !!(feed && feed.style && feed.style.display !== 'none' && feed.innerHTML && feed.innerHTML.replace(/\s+/g, '')));
+    _renderMirrors(d, mob);
     if (mob && _open) {
       var sh = _ensureSheet();
       if (sh) {
@@ -396,6 +397,20 @@ var HandLogUI = (function() {
       }
     } else if (_sheet) _sheet.style.display = 'none';
     return true;
+  }
+
+  // (n2b) 같은 줄 사본(.hl-mirror): 폰 차트 시트(#gto-sheet)가 도크의 로그 줄과 속도 버튼을 덮으므로 시트 손잡이 아래에 같은 줄을 둔다
+  //   (ui/gto-chart.js가 자리를 만든다). 누르면 원본과 같다(줄 = 기록 시트 펼치기, ⏩ = 속도 바꾸기). 데스크톱은 비운다
+  function _renderMirrors(d, mob) {
+    if (!d || typeof d.querySelectorAll !== 'function') return 0;
+    var ms = d.querySelectorAll('.hl-mirror'), html = mob ? lineHTML(false) : '';
+    for (var i = 0; i < ms.length; i++) {
+      var m = ms[i];
+      if (!m) continue;
+      if (m.innerHTML !== html) m.innerHTML = html;
+      if (!m.__hlBound && typeof m.addEventListener === 'function') { m.__hlBound = true; m.addEventListener('click', _onClick); }
+    }
+    return ms.length;
   }
 
   // 시트 아래끝 = 보이는 액션바(또는 결과바) 위끝. 액션바를 덮지 않는다(mobile-check n05)
@@ -415,7 +430,7 @@ var HandLogUI = (function() {
   function onNewHand() { _open = false; render(); }
 
   var api = { track: track, hold: hold, reveal: reveal, events: events, pending: pending, count: count, lineText: lineText, rowHTML: rowHTML, listHTML: listHTML,
-    lineHTML: lineHTML, ensure: ensure, toggle: toggle, speedTap: speedTap, render: render, onNewHand: onNewHand,
+    lineHTML: lineHTML, ensure: ensure, toggle: toggle, speedTap: speedTap, render: render, onNewHand: onNewHand, renderMirrors: _renderMirrors,
     _reset: function() { _ev = []; _pos = {}; _shown = 0; _base = null; _open = false; } };
   return api;
 })();
