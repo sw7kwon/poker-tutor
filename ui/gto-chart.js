@@ -18,6 +18,16 @@
 // n2-G3(설계 docs/NEXT2_DESIGN.md 1절, 차트에서 내 손 찾기): 내 칸이 보일 때 격자에 has-hero와 --hr, --hc(css가 금색 줄과 칸 안내선을 그린다),
 //   regionOf(model, r, c)(내 손이 속한 같은 주 액션 연속 영역, 4방향 flood fill, 폴드와 자료 없음은 null)의 경계 칸에 rg, rg-t/r/b/l(영역 밖과
 //   맞닿은 변만, css가 흰 윤곽), 범례 1줄. 가림(L1 이상 결정 전)에는 금테와 함께 셋 다 없고 결정 뒤 reveal에서 같이 나온다. 격자 HTML 캐시는 그대로.
+// n3-B(레이즈 차트, 콜 차트 따로 보기): 격자 위 보기 칩(전체, 3벳만, 콜만 등 상황 단어, viewChipsHTML). 칩은 격자와 범례의 gv-raise, gv-call 클래스만
+//   바꾸고(격자 HTML 그대로) 해당하지 않는 칸은 css가 흐린다. 보기는 A11y chartView에 저장하고 차트 시트, 데스크톱 패널, 학습실, 완전 분석이 같이 쓴다.
+//   콜이 없는 상황(오픈, SB 대응, BB가 아닌 자리의 림퍼 뒤)은 '콜만'이 aria-disabled(누르면 이유 말풍선), 저장값이 콜이어도 그 상황만 전체로 보인다.
+//   히어로 좌석에 묶이지 않는 입구: normSituation, situationModel, chartHTML(순수), seatView(sit | null)(같은 시트에 다른 자리 입장 차트, 상대 차례용.
+//   히어로가 아직 결정하지 않은 손에도 그리고, 스트리트는 sit.street(기본 프리플랍), 읽기 줄 아래에 그 자리 말투 상황 줄).
+// n3-C(상대 차례에 그 사람 입장 차트, ui/opp-chart.js OppChart가 부른다): seatView(sit)의 sit.opp = { head, post, res, hl, hand, note, legend, short, key }면
+//   하늘색 머리줄(👀, gto-opp-head)과 결과 줄, 그 액션 칸 윤곽(actionEdges, 영역 윤곽 .rg와 같은 css), 완전 분석 실제 손 칸(.opp-cell 하늘색 테두리)을 그린다.
+//   sit.persp = 관점 칩 줄 HTML(👤 내 차트, 방금: CO), 호스트 맨 위 .gto-persp에 넣는다(격자 HTML 캐시와 따로, setPersp는 그 상자만 고친다). sit.open = 자동으로 접힌 시트를 편다.
+//   on(fn) 알림(fn(kind, data): 'hero' 히어로 결정 update 직전, 'hide', 'refresh', 'chip' 관점 칩 누름), visible() 지금 사용자가 차트를 보고 있나,
+//   wanted() 차트를 볼 설정인가, hasHero() 이번 손 히어로 차트가 있나. 상대 차트 HTML은 전체 문자열 캐시(같은 상황 다시 오면 문자열 조립 없음).
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener만). 문구는 해요체, 가운뎃점과 긴줄표 없음.
 var GtoChart = (function() {
   var RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
@@ -164,6 +174,21 @@ var GtoChart = (function() {
     _models[k] = m;
     return m;
   }
+  // ── 임의 자리와 상황(n3-B, 히어로 좌석에 묶이지 않는 입구. 상대 차례 차트(C)와 완전 분석이 같이 쓴다) ──
+  // sit = { pos, facing(false | true | 'vs3bet' | 'vs4bet' | 'cold3bet'), opener?, limpers? } → 정규화한 상황 또는 null(자리 모름).
+  //   opener는 facing true일 때만, limpers는 facing false일 때만 남긴다(cachedModel 키 규칙과 같다)
+  function normSituation(sit) {
+    if (!sit || typeof sit !== 'object' || POS6.indexOf(sit.pos) < 0) return null;
+    var f = sit.facing;
+    if (f !== true && f !== 'vs3bet' && f !== 'vs4bet' && f !== 'cold3bet') f = false;
+    var op = (f === true && POS6.indexOf(sit.opener) >= 0) ? sit.opener : null;
+    var lim = f === false ? Math.max(0, Math.round(Number(sit.limpers) || 0)) : 0;
+    return { pos: sit.pos, facing: f, opener: op, limpers: lim };
+  }
+  function situationModel(sit) {
+    var s = normSituation(sit);
+    return s ? cachedModel(s.pos, s.facing, s.opener, s.limpers) : null;
+  }
 
   // 모델 셈(캐시): 액션별 콤보 수와 비율. w가 있는 칸은 비율만큼 나눠 센다
   function tally(model) {
@@ -287,6 +312,14 @@ var GtoChart = (function() {
     if (model.facing === true) return pos + ', ' + (model.opener ? model.opener + ' 오픈에 대응' : '상대 오픈에 대응');
     return pos + ', 먼저 오픈할 차례';
   }
+  // (n3b-review) 다른 자리 입장 차트의 상황 한 줄: contextText의 '내 오픈', '내 3벳'은 히어로 말투라 그 자리 말투로 바꾼다
+  function seatContextText(model) {
+    var pos = model.pos;
+    if (model.limpers) return pos + ', 림퍼 ' + model.limpers + '명 뒤';
+    if (model.facing === 'vs4bet') return pos + ', 3벳했다가 4벳 맞음';
+    if (model.facing === 'vs3bet') return pos + ', 오픈했다가 3벳 맞음';
+    return contextText(model);
+  }
   function _isoLegend(model) {
     var n = model.limpers;
     if (model.pos === 'BB') {
@@ -359,7 +392,8 @@ var GtoChart = (function() {
       for (var c = 0; c < 13; c++) {
         var cell = model.cells[r][c], mx = mixOf(cell);
         var cls = 'gto-cell gto-' + cell.action + (mx ? ' gto-mix' : '') + (cell.alt ? ' gto-alt' : '');
-        var extra = mx ? ' style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" data-cb="' + mixText(mx) + '" data-cb1="' + mixTop(mx) + '"' : '';
+        // (n3-B) data-pr, data-pc: 레이즈만, 콜만 보기에서 칸 안에 그 액션 비율을 적는다(css ::after)
+        var extra = mx ? ' style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" data-cb="' + mixText(mx) + '" data-cb1="' + mixTop(mx) + '" data-pr="' + Math.round(mx.raise * 100) + '" data-pc="' + Math.round(mx.call * 100) + '"' : '';
         parts.push('<div class="' + cls + '" data-r="' + r + '" data-c="' + c + '"' + extra + '>' + cell.label + '</div>');
       }
     }
@@ -370,20 +404,171 @@ var GtoChart = (function() {
   function swatch(action) { return '<span class="gto-sw gto-' + action + '" aria-hidden="true"></span>'; }
   function legendHTML(model) {
     var t = tally(model);
+    // (n3-B) 항목마다 data-lga(액션): 레이즈만, 콜만 보기에서 css가 그 액션 항목(과 혼합 칸 안내)만 남긴다
+    function lg(a, html) { return '<span class="gto-lg-item" data-lga="' + a + '">' + html + '</span>'; }
     if (model.limpers) {
       var iso = _isoLegend(model);
-      var isoItems = [swatch('raise') + '레이즈(아이솔) ' + t.pct('raise') + '% (' + Math.round(t.raise) + '콤보)'];
       // BB: 체크 항목 안에 ◢ 견본(레이즈도 괜찮은 체크 칸)을 같이 둔다(항목은 2개 유지)
-      isoItems.push(model.pos === 'BB' ? swatch('call') + '체크 ' + t.pct('call') + '% <span class="gto-sw gto-call gto-alt" aria-hidden="true"></span>레이즈도 괜찮음' : swatch('fold') + '폴드 ' + t.pct('fold') + '%');
-      return '<span class="gto-lg-item">' + isoItems.join('</span><span class="gto-lg-item">') + '</span><span class="gto-lg-note">' + _esc(iso) + '</span>';
+      return lg('raise', swatch('raise') + '레이즈(아이솔) ' + t.pct('raise') + '% (' + Math.round(t.raise) + '콤보)') +
+        (model.pos === 'BB' ? lg('call', swatch('call') + '체크 ' + t.pct('call') + '% <span class="gto-sw gto-call gto-alt" aria-hidden="true"></span>레이즈도 괜찮음') : lg('fold', swatch('fold') + '폴드 ' + t.pct('fold') + '%')) +
+        '<span class="gto-lg-note">' + _esc(iso) + '</span>';
     }
-    var items = [swatch('raise') + raiseWord(model) + ' ' + t.pct('raise') + '% (' + Math.round(t.raise) + '콤보)'];
-    if (t.call > 0) items.push(swatch('call') + callWord(model) + ' ' + t.pct('call') + '% (' + Math.round(t.call) + '콤보)');
-    items.push(swatch('fold') + '폴드 ' + t.pct('fold') + '%');
-    if (t.mixed) items.push('<span class="gto-sw gto-mix" style="--wr:50%;--wc:100%" aria-hidden="true"></span>혼합 칸은 비율로 나눠 칠해요');
-    return '<span class="gto-lg-item">' + items.join('</span><span class="gto-lg-item">') + '</span>' +
-      '<span class="gto-lg-note">프리플랍 기준 ' + facingLabel(model) + '</span>';
+    var out = lg('raise', swatch('raise') + raiseWord(model) + ' ' + t.pct('raise') + '% (' + Math.round(t.raise) + '콤보)');
+    if (t.call > 0) out += lg('call', swatch('call') + callWord(model) + ' ' + t.pct('call') + '% (' + Math.round(t.call) + '콤보)');
+    out += lg('fold', swatch('fold') + '폴드 ' + t.pct('fold') + '%');
+    if (t.mixed) out += lg('mix', '<span class="gto-sw gto-mix" style="--wr:50%;--wc:100%" aria-hidden="true"></span>혼합 칸은 비율로 나눠 칠해요');
+    return out + '<span class="gto-lg-note">프리플랍 기준 ' + facingLabel(model) + '</span>';
   }
+  // ── 보기 칩(n3-B): 전체, 레이즈만, 콜만. 저장은 A11y chartView('all' | 'raise' | 'call') ──
+  // 칩 줄 .gv-bar는 격자(data-gvt) 바로 위, 통계 줄 .gv-stat은 격자 바로 아래에 있고, 칩을 누르면 같은 상자 안의 data-gvt 요소(격자, 범례) 클래스(gv-all, gv-raise, gv-call)와
+  // 칩 aria-pressed, 통계 줄 글만 바꾼다(격자 HTML은 다시 만들지 않는다). 통계 글은 보기마다 미리 data-st-*에 넣어 두어 모델 없이 DOM만으로 바꾼다.
+  // 해당하지 않는 칸은 css가 흐린다(혼합 칸은 그 액션 비율이 0보다 크면 해당 칸, data-cb의 R, C 글자로 가린다). 내 칸(금테)과 영역 윤곽은 늘 또렷하다.
+  var VIEWS = ['all', 'raise', 'call'];
+  var NO_CALL = {
+    rfi: '오픈 상황엔 콜(림프) 칸이 없어요. 이 앱 차트는 레이즈 아니면 폴드예요',
+    sb: 'SB는 3벳 아니면 폴드로 단순하게 가요(이 앱 차트 기준)',
+    iso: '림퍼 뒤에는 아이솔 레이즈 아니면 폴드예요(이 앱 차트 기준)',
+    other: '이 상황엔 콜 칸이 없어요(이 앱 차트 기준)'
+  };
+  function _isStd(model) { return /^std\|/.test(String((model && model.key) || '')); }
+  // 칩과 통계 줄의 액션 낱말(상황 단어): 오픈, 3벳, 4벳, 5벳(올인), 레이즈(림퍼 뒤) / 콜, 체크(림퍼 뒤 BB)
+  function viewWord(model, v) {
+    if (v === 'call') return callWord(model);
+    if (model.limpers) return '레이즈';
+    return model.facing === 'vs4bet' ? '5벳(올인)' : (model.facing === 'vs3bet' || model.facing === 'cold3bet') ? '4벳'
+      : model.facing ? '3벳' : '오픈';
+  }
+  // 보기별 칸 수(비율이 0보다 큰 칸, 혼합 칸 수)와 콤보 수(tally, 혼합 칸은 비율만큼). 모델 객체에 캐시
+  function viewCount(model) {
+    if (model._vcount) return model._vcount;
+    var t = tally(model), out = { raise: { n: 0, mixed: 0, combos: Math.round(t.raise), pct: t.pct('raise') }, call: { n: 0, mixed: 0, combos: Math.round(t.call), pct: t.pct('call') } };
+    for (var r = 0; r < 13; r++) for (var c = 0; c < 13; c++) {
+      var cell = model.cells[r][c], mx = mixOf(cell);
+      if (mx) {
+        if (mx.raise > 0) { out.raise.n++; out.raise.mixed++; }
+        if (mx.call > 0) { out.call.n++; out.call.mixed++; }
+      } else if (cell.action === 'raise' || cell.action === 'call') out[cell.action].n++;
+    }
+    model._vcount = out;
+    return out;
+  }
+  // 콜이 없는 상황의 이유(말풍선). 콜이 있으면 null
+  function noCallWhy(model) {
+    if (viewCount(model).call.n > 0) return null;
+    if (model.limpers) return NO_CALL.iso;
+    if (!model.facing) return NO_CALL.rfi;
+    if (model.facing === true && model.pos === 'SB') return NO_CALL.sb;
+    return NO_CALL.other;
+  }
+  // 칩 3개: [{ v, label, disabled, why }]. 자료 없는 모델은 빈 배열
+  function viewChips(model) {
+    if (!model || !model.cells) return [];
+    var t = tally(model);
+    if (t.none >= t.total) return [];
+    var why = noCallWhy(model);
+    return [
+      { v: 'all', label: '전체', disabled: false, why: null },
+      { v: 'raise', label: viewWord(model, 'raise') + '만', disabled: viewCount(model).raise.n === 0, why: viewCount(model).raise.n ? null : '이 상황엔 레이즈 칸이 없어요(이 앱 차트 기준)' },
+      { v: 'call', label: viewWord(model, 'call') + '만', disabled: !!why, why: why }
+    ];
+  }
+  function _savedView() {
+    var v = _settings().chartView;
+    return VIEWS.indexOf(v) >= 0 ? v : 'all';
+  }
+  // 지금 보일 보기: 저장값이 그 상황에 없는 액션(콜 없는 상황의 '콜만')이면 그 상황만 '전체'(저장값은 그대로)
+  function effView(model, saved) {
+    var v = VIEWS.indexOf(saved) >= 0 ? saved : 'all';
+    if (v === 'all') return v;
+    var ch = viewChips(model);
+    for (var i = 0; i < ch.length; i++) if (ch[i].v === v) return ch[i].disabled ? 'all' : v;
+    return 'all';
+  }
+  // 통계 줄(순수): 전체 보기는 빈 문자열(범례가 다 적는다). 예 '콜 칸 14종, 콤보 52개(전체의 4%), 이 앱 차트 기준'
+  function viewStat(model, v) {
+    if (v !== 'raise' && v !== 'call') return '';
+    var k = viewCount(model)[v];
+    if (!k || !k.n) return '';
+    var tag = _isStd(model) ? '표준 차트 기준(참고)' : '이 앱 차트 기준';
+    return viewWord(model, v) + ' 칸 ' + k.n + '종' + (k.mixed ? '(혼합 ' + k.mixed + '종 포함)' : '') + ', 콤보 ' + (k.mixed ? '약 ' : '') + k.combos + '개(전체의 ' + k.pct + '%), ' + tag;
+  }
+  // 칩 줄 HTML(순수). v = 지금 보일 보기(effView 결과)
+  function viewChipsHTML(model, v) {
+    var ch = viewChips(model);
+    if (!ch.length) return '';
+    var sw = { all: '', raise: swatch('raise'), call: swatch('call') };
+    var st = ' data-st-raise="' + _esc(viewStat(model, 'raise')) + '" data-st-call="' + _esc(viewStat(model, 'call')) + '"';
+    var btns = ch.map(function(c) {
+      return '<button type="button" class="gv-chip" data-gv="' + c.v + '" aria-pressed="' + (c.v === v ? 'true' : 'false') + '"' +
+        (c.disabled ? ' aria-disabled="true" data-why="' + _esc(c.why) + '"' : '') + '>' + sw[c.v] + _esc(c.label) + '</button>';
+    }).join('');
+    return '<div class="gv-bar"' + st + (ch[2].disabled ? ' data-nocall="1"' : '') + '><div class="gv-chips" role="group" aria-label="차트 보기, 액션별로 따로 보기">' + btns + '</div></div>';
+  }
+  // 통계 줄 HTML(순수): 격자 바로 아래(칩을 눌러도 격자가 위아래로 움직이지 않게). 칩 줄과 같은 상자 안에 둔다. 칩이 없는 모델은 ''
+  function viewStatHTML(model, v) {
+    if (!viewChips(model).length) return '';
+    return '<div class="gv-stat" aria-live="polite">' + _esc(viewStat(model, v)) + '</div>';
+  }
+  // 칩 줄 하나에 보기를 반영(DOM, 클래스와 글만). 같은 상자(칩 줄의 부모) 안 data-gvt 요소의 gv-* 클래스를 바꾼다
+  function _applyBar(bar, saved) {
+    if (!bar || !bar.getAttribute) return;
+    var v = VIEWS.indexOf(saved) >= 0 ? saved : 'all';
+    if (v === 'call' && bar.getAttribute('data-nocall') === '1') v = 'all';
+    var chips = bar.querySelectorAll ? bar.querySelectorAll('.gv-chip') : [];
+    for (var i = 0; i < chips.length; i++) {
+      if (chips[i].getAttribute('data-gv') === v && chips[i].getAttribute('aria-disabled') === 'true') v = 'all';
+    }
+    for (var j = 0; j < chips.length; j++) chips[j].setAttribute('aria-pressed', chips[j].getAttribute('data-gv') === v ? 'true' : 'false');
+    var box = bar.parentNode, tg = (box && box.querySelectorAll) ? box.querySelectorAll('[data-gvt]') : [];
+    var stat = (box && box.querySelector) ? box.querySelector('.gv-stat') : null;
+    if (stat) stat.textContent = v === 'all' ? '' : (bar.getAttribute('data-st-' + v) || '');
+    for (var k = 0; k < tg.length; k++) {
+      var cl = tg[k].classList;
+      if (!cl) continue;
+      if (!cl.contains('gv-' + v)) { cl.remove('gv-all'); cl.remove('gv-raise'); cl.remove('gv-call'); cl.add('gv-' + v); }
+    }
+  }
+  // 문서(또는 root) 안의 모든 칩 줄에 저장된 보기를 반영
+  function syncViews(root, saved) {
+    var d = _doc(), r = root || d;
+    if (!r || !r.querySelectorAll) return 0;
+    var sv = saved || _savedView(), bars = r.querySelectorAll('.gv-bar');
+    for (var i = 0; i < bars.length; i++) _applyBar(bars[i], sv);
+    return bars.length;
+  }
+  var _tipTimer = null;
+  function _closeTip(bar) {
+    if (_tipTimer) { try { clearTimeout(_tipTimer); } catch (e) {} _tipTimer = null; }
+    var d = _doc(), old = (bar && bar.querySelector) ? bar.querySelector('.gv-tip') : ((d && d.querySelector) ? d.querySelector('.gv-tip') : null);
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+  }
+  // 칩 누름 처리(차트 시트, 데스크톱 패널, 학습실, 완전 분석이 같이 쓴다). 칩이 아니면 false
+  //   비활성 칩: 말풍선으로 이유(3.5초 또는 다시 누르면 닫힘), 보기는 그대로. 그 밖: A11y.save({ chartView }) 뒤 문서의 칩 줄 전부에 반영
+  function onViewChip(btn) {
+    if (!btn || !btn.getAttribute || !btn.getAttribute('data-gv')) return false;
+    var bar = btn.closest ? btn.closest('.gv-bar') : btn.parentNode && btn.parentNode.parentNode;
+    if (btn.getAttribute('aria-disabled') === 'true') {
+      var had = bar && bar.querySelector && bar.querySelector('.gv-tip');
+      _closeTip(bar);
+      if (had) return true;
+      var d = _doc();
+      if (!d || !d.createElement || !bar) return true;
+      var tip = d.createElement('div');
+      tip.className = 'gv-tip';
+      tip.setAttribute('role', 'status');
+      tip.textContent = btn.getAttribute('data-why') || NO_CALL.other;
+      bar.appendChild(tip);
+      if (typeof setTimeout === 'function') _tipTimer = setTimeout(function() { _closeTip(bar); }, 3500);
+      return true;
+    }
+    _closeTip(bar);
+    var v = btn.getAttribute('data-gv');
+    if (VIEWS.indexOf(v) < 0) return true;
+    try { if (typeof A11y !== 'undefined' && A11y && typeof A11y.save === 'function') A11y.save({ chartView: v }); } catch (e) {}
+    if (!syncViews(null, v) && bar) _applyBar(bar, v);
+    return true;
+  }
+
   // 자리별 범위 크기(같은 상황). 쓸 수 없는 자리(앞자리, 자료 없음)는 na
   function stripData(model, heroPos) {
     var out = [];
@@ -435,18 +620,24 @@ var GtoChart = (function() {
     return null;
   }
 
-  // 전체 HTML(순수). o = { hidden, street, guide, viewPos, heroPos, flash }. 2인자 호출(테스트, 예전 호출)은 프리플랍 공개 상태
+  // 전체 HTML(순수). o = { hidden, street, guide, viewPos, heroPos, flash, view, seatLabel }. 2인자 호출(테스트, 예전 호출)은 프리플랍 공개 상태
+  //   heroPos = 이 차트의 '기준 자리'(위치 비교 띠의 cur). 히어로가 아니어도 된다(상대 자리 차트는 그 자리, 카드는 null).
+  //   seatLabel(n3-B): 읽기 줄 1번째를 이 글로 바꾸고 미리보기처럼 금색으로(예 '👀 민수(BTN) 입장 차트'). view: 보기 강제(테스트)
   function _renderHTML(model, heroCards, o) {
     o = o || {};
+    if (o.opp && !o.viewPos) return _oppHTML(model, o);
     var heroPos = o.heroPos || model.pos;
     var empty = emptyHTML(model);
     var ro = readout(model, heroCards, null, { hidden: o.hidden, viewPos: o.viewPos, heroPos: heroPos });
+    if (o.seatLabel) { ro.ctx = String(o.seatLabel); ro.preview = true; }
     var post = o.street && o.street !== 'preflop';
     var head = '<div class="gto-chart-head">' +
       (post ? '<div class="gto-head-post">📌 지금은 ' + _esc(streetKor(o.street)) + ', 프리플랍 차트는 참고예요</div>' : '') +
       '<div class="gto-head-ctx' + (ro.preview ? ' is-preview' : '') + '">' + _esc(ro.ctx) + '</div>' +
+      // (n3b-review) 다른 자리 입장 차트는 이름 줄 아래에 그 자리 상황을 적는다(이름만으로는 무슨 상황 차트인지 모른다)
+      (o.seatLabel ? '<div class="gto-head-hand gto-head-sit"><span>상황: ' + _esc(seatContextText(model)) + '</span></div>' : '') +
       (ro.handHTML ? '<div class="gto-head-hand">' + (ro.action && !ro.hidden ? swatch(ro.action) : '') + '<span>' + ro.handHTML + '</span></div>' : '') +
-      (post || o.viewPos ? '' : _bluffHTML(model)) +
+      (post || o.viewPos || o.seatLabel ? '' : _bluffHTML(model)) +
       (post ? '<div class="gto-guide">' + (o.guide ? _esc(o.guide) : '') + '</div>' : '') +
       '</div>';
     if (empty) {
@@ -480,14 +671,79 @@ var GtoChart = (function() {
       });
     }
     // 내 칸이 보이면 격자에 has-hero와 내 칸 좌표(css가 금색 줄과 칸 안내선을 그린다), 범례에 안내 1줄
-    var gridAttr = hc ? ' has-hero" style="--hr:' + hc.r + ';--hc:' + hc.c + '"' : '"';
+    // (n3-B) 보기: 칩 줄 + 격자와 범례의 gv-raise, gv-call 클래스(전체 보기는 클래스 없음, 칩을 누르면 _applyBar가 클래스만 바꾼다). o.view가 있으면 그 보기(테스트)
+    var vw = effView(model, o.view || _savedView());
+    var gvc = vw === 'all' ? '' : ' gv-' + vw;
+    var gridAttr = (hc ? ' has-hero' + gvc + '" style="--hr:' + hc.r + ';--hc:' + hc.c + '"' : gvc + '"') + ' data-gvt="1"';
     var heroNote = hc ? '<span class="gto-lg-note gto-lg-hero">금색 선 = 내 손의 줄과 칸' +
       (rg ? ', ' + (rg.action === 'call' ? '진한 윤곽' : '흰 윤곽') + ' = 내 손이 속한 ' + (rg.action === 'call' ? callWord(model) : '레이즈') + ' 영역(' + rg.size + '칸)' : '') + '</span>' : '';
-    return head +
-      '<div class="gto-chart-grid' + gridAttr + ' role="img" aria-label="' + _esc(contextText(model) + ' 레인지 차트 13x13') + '">' + grid + '</div>' +
-      '<div class="gto-chart-legend">' + legendHTML(model) + heroNote + '</div>' +
+    return head + viewChipsHTML(model, vw) +
+      '<div class="gto-chart-grid' + gridAttr + ' role="img" aria-label="' + _esc((o.seatLabel ? seatContextText(model) : contextText(model)) + ' 레인지 차트 13x13') + '">' + grid + '</div>' + viewStatHTML(model, vw) +
+      '<div class="gto-chart-legend' + gvc + '" data-gvt="1">' + legendHTML(model) + heroNote + '</div>' +
       stripHTML(model, heroPos, o.viewPos || null) +
       footHTML();
+  }
+  // 임의 자리 차트 HTML(n3-B, 순수): sitOrModel = 상황({ pos, facing, opener, limpers }) 또는 모델, cards = 그 자리 카드(모르면 null).
+  //   o는 _renderHTML과 같고 heroPos 기본은 그 자리. 자료가 없는 상황이면 ''
+  function chartHTML(sitOrModel, cards, o) {
+    var m = (sitOrModel && sitOrModel.cells) ? sitOrModel : situationModel(sitOrModel);
+    if (!m) return '';
+    var oo = {}, k;
+    if (o) for (k in o) if (Object.prototype.hasOwnProperty.call(o, k)) oo[k] = o[k];
+    if (!oo.heroPos) oo.heroPos = m.pos;
+    return _renderHTML(m, (cards && cards.length >= 2) ? cards : null, oo);
+  }
+  // ── (n3-C) 상대 차례 차트 ──
+  // actionEdges(model, act) → { edges: { 'r,c': 'trbl 조합' }, size }(순수, 모델에 캐시): 주 액션이 act인 칸 전체(연속이 아니어도)의 바깥 경계.
+  //   상대가 방금 한 행동(콜이면 콜 칸)의 범위를 윤곽으로 보여 준다. 영역 윤곽(.rg)과 같은 css를 쓴다
+  function actionEdges(model, act) {
+    if (!model || !model.cells || (act !== 'raise' && act !== 'call')) return null;
+    var store = model._acEdges || (model._acEdges = {});
+    if (store[act]) return store[act];
+    var edges = {}, n = 0;
+    function same(r, c) { return r >= 0 && r < 13 && c >= 0 && c < 13 && primaryAction(model.cells[r][c]) === act; }
+    for (var r = 0; r < 13; r++) for (var c = 0; c < 13; c++) {
+      if (!same(r, c)) continue;
+      n++;
+      var e = (same(r - 1, c) ? '' : 't') + (same(r, c + 1) ? '' : 'r') + (same(r + 1, c) ? '' : 'b') + (same(r, c - 1) ? '' : 'l');
+      if (e) edges[r + ',' + c] = e;
+    }
+    store[act] = { edges: edges, size: n };
+    return store[act];
+  }
+  // 상대 차트 HTML(순수): o.opp = { head, post?, res?, hl?, hand?({ pos, cards, label, word, r, c }), note, legend?: [글] }
+  function _oppHTML(model, o) {
+    var op = o.opp || {};
+    var hand = op.hand && op.hand.cards && op.hand.cards.length >= 2 ? op.hand : null;
+    var head = '<div class="gto-chart-head gto-opp-head">' +
+      '<div class="gto-head-opp"><span class="gto-opp-ic" aria-hidden="true">👀</span>' + _esc(op.head || '') + '</div>' +
+      (op.post ? '<div class="gto-head-post gto-opp-post">📌 ' + _esc(op.post) + '</div>' : '') +
+      (op.res ? '<div class="gto-head-res">' + (op.hl ? swatch(op.hl) : '') + '<span>' + _esc(op.res) + '</span></div>' : '') +
+      (hand ? '<div class="gto-head-hand gto-opp-hand"><span>' + _esc(hand.pos) + ' 실제 손 ' + cardHTML(hand.cards[0]) + cardHTML(hand.cards[1]) +
+        ' = <b>' + _esc(hand.label) + '</b>, ' + _esc(hand.word) + '</span></div>' : '') +
+      (op.note ? '<div class="gto-head-note">' + _esc(op.note) + '</div>' : '') +
+      '</div>';
+    var empty = emptyHTML(model);
+    if (empty) return head + empty + stripHTML(model, model.pos, null) + footHTML();
+    var ae = op.hl ? actionEdges(model, op.hl) : null;
+    var hc = (hand && hand.r != null && hand.c != null) ? hand : null;
+    var grid = gridHTML(model);
+    if ((ae && ae.size) || hc) {
+      grid = grid.replace(/<div class="gto-cell ([^"]*)" data-r="(\d+)" data-c="(\d+)"/g, function(all, cls, r, c) {
+        var add = '', e = ae ? ae.edges[r + ',' + c] : null;
+        if (e) { add = ' rg oc-hl'; for (var i = 0; i < e.length; i++) add += ' rg-' + e.charAt(i); }
+        if (hc && +r === hc.r && +c === hc.c) add += ' opp-cell';
+        return add ? '<div class="gto-cell ' + cls + add + '" data-r="' + r + '" data-c="' + c + '"' : all;
+      });
+    }
+    var vw = effView(model, o.view || _savedView());
+    var gvc = vw === 'all' ? '' : ' gv-' + vw;
+    var notes = (op.legend || []).map(function(t) { return '<span class="gto-lg-note gto-lg-opp">' + _esc(t) + '</span>'; }).join('');
+    return head + viewChipsHTML(model, vw) +
+      '<div class="gto-chart-grid' + gvc + '" data-gvt="1" role="img" aria-label="' + _esc(seatContextText(model) + ' 레인지 차트 13x13, ' + (op.head || '')) + '">' + grid + '</div>' +
+      viewStatHTML(model, vw) +
+      '<div class="gto-chart-legend' + gvc + '" data-gvt="1">' + legendHTML(model) + notes + '</div>' +
+      stripHTML(model, model.pos, null) + footHTML();
   }
   // 표준 티어 차트(키 'std|')의 3벳 블러프 후보 한 줄(설계 원문 4절 5번, 참고): GtoStd.bluffHints. 입문 차트와 오픈 차트는 빈 문자열
   function _bluffHTML(model) {
@@ -535,7 +791,8 @@ var GtoChart = (function() {
   var _cache = null;      // 프리플랍 결정 시점의 { pos, facing, opener, limpers, model }, 포스트플랍엔 그대로 유지
   var _last = null;       // 마지막 update 인자(refresh용)
   var _lastKey = null, _host = null, _writes = 0, _scrollKey = null;
-  var _viewPos = null;    // 위치 비교 띠로 고른 미리보기 자리
+  var _viewPos = null;    // 위치 비교 띠로 고른 미리보기 자리(기준 = _base(), 히어로 또는 seatView 자리)
+  var _seat = null;       // (n3-B) seatView로 고른 다른 자리 상황 { pos, facing, opener, limpers, label, cards }. 없으면 히어로(_cache) 기준
   var _revealed = false;  // 결정 뒤 공개
   var _handKey = null;
   var _shown = false;     // 지금 차트가 보임(힌트 판정)
@@ -545,6 +802,33 @@ var GtoChart = (function() {
   var _bubbleAt = null;
   var _mqBound = false, _obsBound = false;
   var _soon = null;       // 다음 프레임에 할 레이아웃 읽기(시트 자리, 본문 스크롤 맨 위). { place, scrollHost }
+  var _persp = '';        // (n3-C) 관점 칩 줄 HTML(OppChart가 준다). 호스트 맨 위 .gto-persp
+  var _listeners = [];    // (n3-C) on(fn) 알림 받는 쪽
+  var _emitting = false;
+  var _htmlCache = {}, _htmlCacheN = 0;   // (n3-C) 상대 차트 전체 HTML(렌더 키 + 보기)
+
+  function on(fn) { if (typeof fn === 'function' && _listeners.indexOf(fn) < 0) _listeners.push(fn); return _listeners.length; }
+  function _emit(kind, data) {
+    if (_emitting) return;
+    _emitting = true;
+    try { for (var i = 0; i < _listeners.length; i++) { try { _listeners[i](kind, data); } catch (e) { if (typeof console !== 'undefined' && console.error) console.error('[GtoChart.on]', e); } } }
+    finally { _emitting = false; }
+  }
+  // 관점 칩 줄 바꾸기: 보이는 호스트의 .gto-persp만 고친다(querySelector가 없는 가짜 호스트는 마지막 본문과 함께 다시 쓴다). 알림 중에는 저장만(곧 그린다)
+  var _lastBody = '';
+  function setPersp(html) {
+    html = html || '';
+    if (html === _persp) return false;
+    _persp = html;
+    if (_emitting || !_host) return true;
+    try {
+      var box = _host.querySelector ? _host.querySelector('.gto-persp') : null;
+      if (box) { if (box.innerHTML !== html) box.innerHTML = html; }
+      else if (!_host.querySelector && _lastBody) { _host.innerHTML = _perspBox() + _lastBody; _writes++; }
+    } catch (e) {}
+    return true;
+  }
+  function _perspBox() { return '<div class="gto-persp">' + _persp + '</div>'; }
 
   function _settings() {
     try { return (typeof A11y !== 'undefined' && A11y && typeof A11y.load === 'function') ? A11y.load() : {}; } catch (e) { return {}; }
@@ -587,8 +871,9 @@ var GtoChart = (function() {
     var handle = mk('button', 'gto-sheet-handle', { type: 'button', 'aria-expanded': 'true', 'aria-label': '차트 접기' });
     var ctx = mk('span', 'gto-sheet-ctx');
     var arrow = mk('span', 'gto-sheet-arrow', { 'aria-hidden': 'true' }, '▾');
+    var title = mk('span', 'gto-sheet-title', null, '📋 차트');
     handle.appendChild(mk('span', 'gto-sheet-grip', { 'aria-hidden': 'true' }));
-    handle.appendChild(mk('span', 'gto-sheet-title', null, '📋 차트'));
+    handle.appendChild(title);
     handle.appendChild(ctx);
     handle.appendChild(arrow);
     var body = mk('div', 'gto-sheet-body');
@@ -599,7 +884,7 @@ var GtoChart = (function() {
     root.appendChild(body);
     var parent = (d.getElementById && d.getElementById('screen-game')) || d.body;
     if (parent && parent.appendChild) parent.appendChild(root);
-    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow, log: log };
+    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow, log: log, title: title };
     if (typeof HandLogUI !== 'undefined' && HandLogUI && typeof HandLogUI.render === 'function') { try { HandLogUI.render(); } catch (e) { /* 줄 사본은 다음 그리기에 */ } }
     _bindHandle(handle, root);
     _watchBars(d);
@@ -675,6 +960,8 @@ var GtoChart = (function() {
     if (_sheet.arrow) _sheet.arrow.textContent = _peek ? '▴' : '▾';
     // 접힌 시트는 안 보인 것이고 펼치면 보인 것(힌트 판정). 시트가 떠 있을 때만
     if (_sheetOn() && _isPhone()) _shown = !_peek;
+    // (n3-C) 탭 대기 중이면 알약 자리(접힌 손잡이 위)와 글(차트가 보이면 '행동 보기', '다음 차트')을 다시 맞춘다
+    try { if (typeof Pacer !== 'undefined' && Pacer && typeof Pacer.busy === 'function' && Pacer.busy() && typeof Pacer.repaint === 'function') Pacer.repaint(); } catch (e) {}
   }
   // 손잡이 줄 글: 미리보기 자리, 포스트플랍은 스트리트, 결정 뒤(공개)에는 내 손 칸도
   function _handleText(model, state, vp, hidden, street) {
@@ -729,6 +1016,10 @@ var GtoChart = (function() {
   function _onClick(e) {
     var t = e && e.target;
     if (!t || !t.closest) return;
+    var gv = t.closest('.gv-chip');
+    if (gv) { _closeBubble(); onViewChip(gv); return; }
+    var oc = t.closest('[data-oc]');   // (n3-C) 관점 칩(👤 내 차트, 방금: CO): OppChart가 처리
+    if (oc && oc.getAttribute) { _closeBubble(); _emit('chip', oc.getAttribute('data-oc')); return; }
     var cell = t.closest('.gto-cell');
     if (cell && cell.dataset) { _toggleBubble(cell); return; }
     if (t.closest('.gto-bubble-close')) { _closeBubble(); return; }
@@ -739,13 +1030,53 @@ var GtoChart = (function() {
   }
   // 위치 비교 띠: 그 자리 차트로 전환(내 자리를 누르면 원래대로)
   function previewPos(pos) {
-    if (!_cache) return;
-    _viewPos = (pos && pos !== _cache.pos && POS6.indexOf(pos) >= 0) ? pos : null;
+    var b = _base();
+    if (!b) return;
+    _viewPos = (pos && pos !== b.pos && POS6.indexOf(pos) >= 0) ? pos : null;
     _bubbleAt = null;
     if (_last) _render(_last.state, _last.heroPos, _last.opts);
   }
+  // 차트의 기준 상황: seatView로 고른 자리가 있으면 그 자리, 없으면 히어로(프리플랍 결정 시점 _cache)
+  function _base() { return _seat || _cache; }
+  // (n3-B) 다른 자리 입장 차트: sit = { pos, facing, opener?, limpers?, label?(읽기 줄 글), cards?(그 자리 카드, 보통 모름) } | null(히어로로 돌아가기).
+  //   같은 시트와 패널에 그 자리 상황의 격자를 그리고, 위치 비교 띠와 미리보기는 그 자리를 기준으로 돈다. 히어로 결정(update)이나 새 핸드면 저절로 풀린다.
+  //   보기 칩(전체, 레이즈만, 콜만)은 자리와 상관없이 저장된 보기를 그대로 쓴다. 바뀌었으면 true
+  //   (n3-C) sit.opp(상대 차례 차트 내용, 키는 opp.key), sit.persp(관점 칩 줄 HTML), sit.open(자동으로 접힌 시트를 편다). seatView(null, { persp })도 된다
+  function seatView(sit, o2) {
+    var s = sit ? normSituation(sit) : null;
+    if (s) {
+      s.label = sit.label ? String(sit.label) : '👀 ' + s.pos + ' 입장 차트';
+      s.cards = (sit.cards && sit.cards.length >= 2) ? sit.cards : null;
+      s.street = SEAT_STREETS.indexOf(sit.street) >= 0 ? sit.street : 'preflop';
+      s.opp = (sit.opp && typeof sit.opp === 'object') ? sit.opp : null;
+    }
+    var pp = (sit && typeof sit.persp === 'string') ? sit.persp : (o2 && typeof o2.persp === 'string') ? o2.persp : null;
+    var before = _seat ? modelKey(_seat.pos, _seat.facing, _seat.opener, _seat.limpers) + '#' + _seat.label + '#' + _seat.street + '#' + (_seat.opp ? _seat.opp.key : '') : '';
+    var after = s ? modelKey(s.pos, s.facing, s.opener, s.limpers) + '#' + s.label + '#' + s.street + '#' + (s.opp ? s.opp.key : '') : '';
+    if (before === after && !!_seat === !!s) { if (pp != null) setPersp(pp); return false; }
+    if (pp != null) _persp = pp;   // 곧 다시 그리므로 저장만
+    if (s && sit.open && _autoPeek) { _peek = false; _autoPeek = false; }
+    _seat = s; _viewPos = null; _bubbleAt = null;
+    // (n3b-review) 히어로가 아직 결정하지 않은 손(새 핸드 첫 상대 차례, 세션 첫 손)에도 그린다: 히어로 상황(_cache)과 마지막 update 인자가 없어도 되고,
+    //   그 자리 차트의 스트리트는 sit.street(기본 프리플랍)라 지난 손의 리버 상태가 '지금은 리버' 머리줄로 새지 않는다
+    if (s) _renderSeat();
+    else if (_last && _cache && _last.state && _last.state.heroCards) {
+      var o = _last.opts || {};
+      if (!!(o.gtoMode || _settings().showChart) && !o.boss) _render(_last.state, _last.heroPos, o);
+    }
+    return true;
+  }
+  // 고른 자리 차트를 그린다(차트를 볼 설정일 때만). 그렸으면 true
+  function _renderSeat() {
+    if (!_seat) return false;
+    var o = (_last && _last.opts) || {};
+    if (!(o.gtoMode || _settings().showChart) || o.boss) return false;
+    _render((_last && _last.state) || { street: _seat.street }, _last ? _last.heroPos : _seat.pos, o);
+    return true;
+  }
+  var SEAT_STREETS = ['preflop', 'flop', 'turn', 'river'];
   function openLab() {
-    var c = _cache || {};
+    var c = _base() || {};
     if (typeof JourneyUI !== 'undefined' && JourneyUI && typeof JourneyUI.view === 'function') {
       try { JourneyUI.view('rangeLab', { pos: _viewPos || c.pos, facing: c.facing, opener: c.opener, limpers: c.limpers || 0 }); return true; } catch (e) {}
     }
@@ -807,9 +1138,10 @@ var GtoChart = (function() {
     } catch (e) {}
   }
   function _shownModel() {
-    if (!_cache) return null;
-    if (_viewPos && _viewPos !== _cache.pos) return cachedModel(_viewPos, _cache.facing, _cache.opener, _cache.limpers);
-    return _cache.model || cachedModel(_cache.pos, _cache.facing, _cache.opener, _cache.limpers);
+    var b = _base();
+    if (!b) return null;
+    if (_viewPos && _viewPos !== b.pos) return cachedModel(_viewPos, b.facing, b.opener, b.limpers);
+    return (b === _cache && _cache.model) || cachedModel(b.pos, b.facing, b.opener, b.limpers);
   }
 
   function _hideAll() {
@@ -829,22 +1161,34 @@ var GtoChart = (function() {
     var phone = !opts.el && _isPhone();
     var host = opts.el || (phone ? (_ensureSheet() || {}).body : d.getElementById('gto-chart'));
     if (!host) return;
-    var model = _shownModel();
-    if (!model) return;
-    var vp = (_viewPos && _viewPos !== _cache.pos) ? _viewPos : null;
+    var model = _shownModel(), base = _base();
+    if (!model || !base) return;
+    var vp = (_viewPos && _viewPos !== base.pos) ? _viewPos : null;
+    var seat = base === _cache ? null : base;   // (n3-B) 다른 자리 입장 차트: 그 자리 카드(보통 없음), 읽기 줄은 seat.label
     var view = opts.view || {};
-    var street = state.street || 'preflop';
+    var street = seat ? (seat.street || 'preflop') : (state.street || 'preflop');   // (n3b-review) 그 자리 차트는 그 자리 스트리트(히어로의 지난 상태 말고)
     // 가림(L1 이상): 프리플랍 결정 중에만 내 손 표시를 가린다. 포스트플랍은 프리플랍 결정이 끝났으니 내 손 칸을 보이고, 플랍 가이드(지금 결정)만 가린다
     var guideHidden = !!view.hide && !_revealed;
-    var hidden = guideHidden && street === 'preflop';
-    var guide = street !== 'preflop' ? _guideLine(state, guideHidden) : '';
-    var key = [model.key || '', vp || '', street, hidden ? 1 : 0, _handKey, guide, phone ? 'p' : 'd', _revealed ? 1 : 0].join('#');
+    var hidden = !seat && guideHidden && street === 'preflop';
+    var guide = (!seat && street !== 'preflop') ? _guideLine(state, guideHidden) : '';
+    var op = (seat && !vp && seat.opp) ? seat.opp : null;   // (n3-C) 상대 차례 차트
+    var key = [model.key || '', vp || '', street, hidden ? 1 : 0, _handKey, guide, phone ? 'p' : 'd', _revealed ? 1 : 0, seat ? 's:' + seat.pos + ':' + seat.label + (op ? ':' + op.key : '') : ''].join('#');
     if (key !== _lastKey || host !== _host) {
-      host.innerHTML = _renderHTML(model, state.heroCards, { hidden: hidden, street: street, guide: guide, viewPos: vp, heroPos: _cache.pos });
+      var body = null, ck = op ? key + '#v' + _savedView() : null;
+      if (ck && Object.prototype.hasOwnProperty.call(_htmlCache, ck)) body = _htmlCache[ck];
+      if (body == null) {
+        body = _renderHTML(model, seat ? seat.cards : state.heroCards, { hidden: hidden, street: street, guide: guide, viewPos: vp, heroPos: base.pos, seatLabel: (seat && !vp) ? seat.label : null, opp: op });
+        if (ck) {
+          if (++_htmlCacheN > 48) { _htmlCache = {}; _htmlCacheN = 1; }
+          _htmlCache[ck] = body;
+        }
+      }
+      host.innerHTML = _perspBox() + body;
+      _lastBody = body;
       _lastKey = key; _host = host; _writes++; _bubbleAt = null;
       _bind(host);
       // 새 손이나 새 스트리트면 본문 스크롤을 맨 위로(읽기 줄이 먼저 보이게). 같은 손 안의 공개, 미리보기는 자리를 지킨다
-      var sk = _handKey + '#' + street + '#' + (vp || '');
+      var sk = _handKey + '#' + street + '#' + (vp || '') + (seat ? '#s' + seat.pos : '');   // 다른 자리로 바뀌면 읽기 줄이 먼저 보이게
       if (sk !== _scrollKey) {
         _scrollKey = sk;
         if (opts.el) { try { if (host.scrollTop) host.scrollTop = 0; } catch (e) {} }   // 테스트와 끼워 넣은 표는 바로
@@ -860,7 +1204,11 @@ var GtoChart = (function() {
       var sh = _sheet;
       if (sh && sh.root) {
         sh.root.style.display = '';
-        if (sh.ctx) sh.ctx.textContent = _handleText(model, state, vp, hidden, street);
+        var ctxT = op ? String(op.short || op.head || '') : (seat && !vp) ? seat.label.replace(/^👀\s*/, '') : _handleText(model, seat ? null : state, vp, hidden, street);
+        if (sh.ctx && sh.ctx.textContent !== ctxT) sh.ctx.textContent = ctxT;
+        var ttl = op ? '👀 ' + seat.pos + ' 차트' : '📋 차트';
+        if (sh.title && sh.title.textContent !== ttl) sh.title.textContent = ttl;
+        if (sh.root.classList) sh.root.classList.toggle('is-opp', !!op);
         _applyPeek();
         _later(true, null);
       }
@@ -868,7 +1216,7 @@ var GtoChart = (function() {
     } else {
       if (_sheet && _sheet.root && _sheet.root.style) _sheet.root.style.display = 'none';
       if (el && el.style) { el.style.display = 'flex'; }
-      if (el && el.classList) { el.classList.add('big'); el.classList.add('gto-big'); }
+      if (el && el.classList) { el.classList.add('big'); el.classList.add('gto-big'); el.classList.toggle('is-opp', !!op); }
       if (d.documentElement && d.documentElement.classList) d.documentElement.classList.add('chart-big');
       _shown = true;
     }
@@ -878,6 +1226,7 @@ var GtoChart = (function() {
   function update(state, heroPos, opts) {
     if (typeof opts !== 'object' || opts === null) opts = { gtoMode: !!opts };
     _last = { state: state, heroPos: heroPos, opts: opts };
+    if (_seat) { _seat = null; _viewPos = null; _bubbleAt = null; }   // (n3-B) 히어로 결정 = 히어로 차트로 돌아간다
     var s = _settings();
     var ok = !!state && !!state.heroCards;
     var want = ok && !!(opts.gtoMode || s.showChart) && !opts.boss;
@@ -896,6 +1245,7 @@ var GtoChart = (function() {
         }
       }
     }
+    _emit('hero', state);   // (n3-C) 내 차례 = 내 차트로 돌아온다(OppChart가 관점 칩 줄을 맞춘다, 그리기 전이라 쓰기 1번)
     if (!want) { _hideAll(); return; }
     _revealed = false;   // 결정마다 다시 가림(결정 뒤 shownForDecision이 공개)
     // 결정 뒤 자동으로 접은 시트는 다음 프리플랍 결정에 다시 펼친다. 포스트플랍 결정은 차트가 참고일 뿐이라 접힌 채 두고(코칭 판정이 보이게) 손잡이로 펼친다
@@ -906,7 +1256,11 @@ var GtoChart = (function() {
 
   function hide() {
     _hideAll();
-    _cache = null; _lastKey = null; _viewPos = null; _revealed = false;
+    _cache = null; _lastKey = null; _viewPos = null; _revealed = false; _seat = null; _persp = '';
+    // (n3c 리뷰) hide는 GTO 미러가 아닌 새 핸드에서 불린다. 지난 미러 세션의 gtoMode가 _last에 남으면 wanted()와 _renderSeat가
+    //   차트 칩이 꺼진 일반 판의 첫 상대 차례에 상대 차트를 띄운다(내 첫 결정 update 전까지). 미러 표시만 지운다(나머지 인자는 refresh용으로 둔다)
+    if (_last && _last.opts && _last.opts.gtoMode) _last = { state: _last.state, heroPos: _last.heroPos, opts: Object.assign({}, _last.opts, { gtoMode: false }) };
+    _emit('hide');
   }
 
   // 칩 토글 뒤: 설정을 다시 읽어 그리거나 숨긴다. 처음 켤 때 토스트 1회. 폰에서는 시트를 펼친다
@@ -915,6 +1269,7 @@ var GtoChart = (function() {
     var toast = false;
     if (s.showChart) { _peek = false; _autoPeek = false; toast = true; }
     try {
+      if (_seat && !_cache) { _lastKey = null; if (!_renderSeat()) _hideAll(); return; }   // (n3b-review) 히어로 결정 전 다른 자리 차트
       if (!_last) { if (!s.showChart) _hideAll(); return; }
       _lastKey = null;
       var o = _last.opts;
@@ -925,7 +1280,25 @@ var GtoChart = (function() {
     } finally {
       // 토스트는 그린 뒤에(폰 시트가 떠 있어야 액션바 위 자리를 잡는다)
       if (toast) _toastOnce();
+      _emit('refresh', !!s.showChart);   // (n3-C) 칩을 켜면 지금 대기 중인 상대 차트로, 끄면 따라가기를 멈춘다
     }
+  }
+  // (n3-C) 차트를 볼 설정인가(📋 차트 칩 또는 GTO 미러, 승급 시험 아님). 마지막 update 인자 기준
+  function wanted() {
+    var o = (_last && _last.opts) || {};
+    return !!(o.gtoMode || _settings().showChart) && !o.boss;
+  }
+  // 지금 사용자 눈에 차트가 보이나: 폰은 시트가 떠 있고 펼침, 데스크톱은 패널 표시
+  function visible() {
+    if (_isPhone()) return _sheetOn() && !_peek;
+    var d = _doc(), el = (d && d.getElementById) ? d.getElementById('gto-chart') : null;
+    return !!(_shown && el && el.style && el.style.display !== 'none');
+  }
+  // 이번 손(hk = 'handNum|seed', 생략하면 손 무관)의 히어로 차트가 있나(GTO 미러는 새 손에 hide가 없어 지난 손 상황이 남는다)
+  function hasHero(hk) {
+    var st = _last && _last.state;
+    if (!(_cache && st && st.heroCards)) return false;
+    return !hk || ((st.handNum || '') + '|' + (st.seed || '')) === hk;
   }
   function _toastOnce() {
     var ls = null;
@@ -1030,11 +1403,19 @@ var GtoChart = (function() {
     cachedModel: cachedModel, tally: tally, readout: readout, contextText: contextText, stripData: stripData, previewPos: previewPos, openLab: openLab,
     preheat: preheat, _preheatJobs: preheatJobs, cellWeight: cellWeight, mixOf: mixOf, POS6: POS6.slice(),
     regionOf: regionOf, primaryAction: primaryAction,   // n2-G3 공개 API(학습실 등 다른 화면도 쓸 수 있다)
+    // n3-B 보기 칩(학습실, 완전 분석도 쓴다)
+    VIEWS: VIEWS.slice(), NO_CALL: NO_CALL, viewChips: viewChips, viewCount: viewCount, viewStat: viewStat, viewWord: viewWord, effView: effView,
+    viewChipsHTML: viewChipsHTML, viewStatHTML: viewStatHTML, onViewChip: onViewChip, syncViews: syncViews, noCallWhy: noCallWhy,
+    // n3-B 임의 자리와 상황(히어로 좌석에 묶이지 않는 입구): 순수 normSituation, situationModel, chartHTML, 화면 seatView(sit | null)
+    normSituation: normSituation, situationModel: situationModel, chartHTML: chartHTML, seatView: seatView,
+    // n3-C 상대 차례 차트(OppChart): 알림, 관점 칩 줄, 보임 판정, 액션 칸 윤곽, 카드 글자
+    on: on, setPersp: setPersp, wanted: wanted, visible: visible, hasHero: hasHero, actionEdges: actionEdges,
+    cardText: cardText, cardHTML: cardHTML, callWord: callWord, seatContextText: seatContextText,
     _renderHTML: _renderHTML, _gridHTML: gridHTML, _legendHTML: legendHTML, _bubbleHTML: bubbleHTML,
     _setPeek: function(on) { _setPeek(on, false); },   // 손잡이 탭과 같다(테스트용)
     _sheet: function() { return _sheet; },
-    _state: function() { return { shown: _shown, peek: _peek, autoPeek: _autoPeek, revealed: _revealed, viewPos: _viewPos, writes: _writes, lastKey: _lastKey, cache: _cache ? { pos: _cache.pos, facing: _cache.facing, opener: _cache.opener, limpers: _cache.limpers } : null }; },
-    _reset: function() { _cache = null; _last = null; _lastKey = null; _host = null; _viewPos = null; _revealed = false; _handKey = null; _shown = false; _peek = false; _autoPeek = false; _bubbleAt = null; _writes = 0; _scrollKey = null; if (_sheet && _sheet.root && _sheet.root.style) _sheet.root.style.display = 'none'; }
+    _state: function() { return { shown: _shown, peek: _peek, autoPeek: _autoPeek, revealed: _revealed, viewPos: _viewPos, seat: _seat ? { pos: _seat.pos, facing: _seat.facing, opener: _seat.opener, limpers: _seat.limpers, label: _seat.label } : null, writes: _writes, lastKey: _lastKey, persp: _persp, opp: !!(_seat && _seat.opp), cache: _cache ? { pos: _cache.pos, facing: _cache.facing, opener: _cache.opener, limpers: _cache.limpers } : null }; },
+    _reset: function() { _cache = null; _last = null; _lastKey = null; _host = null; _viewPos = null; _seat = null; _revealed = false; _handKey = null; _shown = false; _peek = false; _autoPeek = false; _bubbleAt = null; _writes = 0; _scrollKey = null; _persp = ''; _lastBody = ''; _htmlCache = {}; _htmlCacheN = 0; if (_sheet && _sheet.root && _sheet.root.style) _sheet.root.style.display = 'none'; }
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

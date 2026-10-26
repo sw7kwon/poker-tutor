@@ -4,7 +4,7 @@
    2. html.four-color: 카드 무늬 4색(♠ 검정, ♥ 빨강, ♦ 파랑, ♣ 초록). 기본 켜짐(a11y.js fourColor, 저장값이 false일 때만 끔).
       카드는 Cards.html이 붙이는 data-suit 속성(.card와 .card-face), 색은 css/cards.css의 --suit-*-light 토큰(R8, 클라우드 H).
       어두운 배경 글자 기호(.suit, 기록의 hist-card 포함)는 설정과 상관없이 늘 4색(cards.css)이라 여기 규칙이 없다.
-   3. html.cb: 레인지 차트 칸에 R/C/F 글자 병기, 레이즈/콜/폴드 밝기 대비 3:1 이상.
+   3. html.cb: 레인지 차트 칸에 R/C/F 글자 병기와 무늬(레이즈 단색, 콜 점무늬, 폴드 빗금).
    4. html.reduce-motion(줄이기 또는 시스템 따름 + 시스템 줄이기)과 prefers-reduced-motion(html.motion-full이면 제외). */
 
 /* ── 2. 4색 덱(기본 켜짐) ──────────────────────────────
@@ -15,11 +15,24 @@ html.four-color .card[data-suit="d"], html.four-color .card-face[data-suit="d"] 
 html.four-color .card[data-suit="c"], html.four-color .card-face[data-suit="c"] { color: var(--suit-c-light); }
 
 /* ── 3. 색약용 차트 ────────────────────────────────────
-   밝기(상대 휘도): 콜 #e8f5e9 0.88 > 레이즈 #2e9e48 0.25 > 폴드 #5a1414 0.03.
-   대비: 콜/레이즈 3.1:1, 레이즈/폴드 4.0:1, 콜/폴드 12:1. 글자도 각 칸에서 4.5:1 이상 */
+   밝기(상대 휘도): 콜 #8ec5ff 0.53 > 레이즈 #2e9e48 0.25 > 폴드 #5a1414 0.03.
+   대비: 콜/레이즈 1.9:1, 레이즈/폴드 4.0:1, 콜/폴드 7.5:1. 콜과 레이즈는 밝기 차이가 작아 무늬로도 가른다(n3-B):
+   레이즈 단색, 콜 점무늬, 폴드 빗금(큰 차트, 학습실 표, 견본 모두). 글자도 각 칸에서 4.5:1 이상 */
 html.cb .gto-raise { background: var(--gc-raise); color: var(--gc-raise-fg); }
 html.cb .gto-call { background: var(--call-bg); color: var(--call-fg); }
 html.cb .gto-fold { background: var(--fold-dark); color: var(--fold-fg); }
+html.cb .gto-cell.gto-call:not(.gto-mix), html.cb .gto-sw.gto-call {
+  background-color: var(--call-bg); background-image: radial-gradient(circle, var(--call-dot) 0 1.1px, transparent 1.6px); background-size: 6px 6px;
+}
+html.cb .gto-sw.gto-call { background-size: 5px 5px; }
+html.cb .gto-cell.gto-fold:not(.gto-mix), html.cb .gto-sw.gto-fold {
+  background-color: var(--fold-dark); background-image: repeating-linear-gradient(135deg, var(--black-a22) 0 2px, transparent 2px 6px); background-size: auto;
+}
+/* 림퍼 뒤 BB의 '레이즈도 괜찮은 체크 칸'(◢ 모서리)은 점무늬 위에 모서리를 겹친다 */
+html.cb .gto-cell.gto-call.gto-alt, html.cb .gto-sw.gto-call.gto-alt, html.cb .gto-cell.gto-call.is-alt {
+  background-image: linear-gradient(135deg, transparent 68%, var(--gc-raise) 68%), radial-gradient(circle, var(--call-dot) 0 1.1px, transparent 1.6px);
+  background-size: auto, 6px 6px;
+}
 html.cb .gto-cell { flex-direction: column; }
 html.cb .gto-cell::after { font-size: .8em; line-height: 1; opacity: .9; }
 html.cb .gto-raise::after { content: 'R'; }

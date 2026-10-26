@@ -2,15 +2,16 @@
    큰 GTO 차트: 데스크톱 #gto-chart.big(왼쪽 아래 큰 패널), 폰 #gto-sheet(화면 폭 전체 하단 시트, ui/gto-chart.js가 만든다).
    둘 다 .gto-big 안쪽 구조가 같다: 읽기 줄 .gto-chart-head, 격자 .gto-chart-grid, 범례 .gto-chart-legend, 위치 비교 띠 .gto-pos-strip,
    학습실 버튼 .gto-chart-foot, 말풍선 .gto-bubble.
-   색(색맹 안전 4종): 레이즈 진한 초록(밝기 중간), 콜 아주 밝은 연두, 폴드 어두운 빨강 + 빗금 무늬, 자료 없음 회색.
-   밝기 차이와 무늬로 색 없이도 구분되고, html.cb(설정 색약 차트)면 a11y.css가 R/C/F 글자를 더한다. 혼합 칸은 --wr, --wc로 비율 분할.
-   칸끼리 밝기 대비(a11y.css 색약 차트와 같은 값): 콜 0.88 > 레이즈 0.25 > 폴드 0.03, 콜/레이즈 3.1:1, 레이즈/폴드 4.0:1, 콜/폴드 12:1.
-   글자 대비(WCAG, tests/j-chart-live.test.js가 검사): 레이즈 #04140a on #2e9e48 5.5:1, 콜 #14321a on #e8f5e9 12:1,
+   색(색맹 안전 4종): 레이즈 진한 초록(밝기 중간), 콜 하늘 파랑(n3-B, 예전 거의 흰 연두는 빈칸처럼 보이고 레이즈와 같은 초록 계열이었다),
+   폴드 어두운 빨강 + 빗금 무늬, 자료 없음 회색. 초록과 파랑은 적록 색약에서도 갈리는 축이고, html.cb(설정 색약 차트)면 a11y.css가
+   R/C/F 글자와 무늬(레이즈 단색, 콜 점무늬, 폴드 빗금)를 더한다. 혼합 칸은 --wr, --wc로 비율 분할.
+   칸끼리 밝기 대비: 콜 0.53 > 레이즈 0.25 > 폴드 0.03, 콜/레이즈 1.9:1(색과 무늬로 구분), 레이즈/폴드 4.0:1, 콜/폴드 7.5:1.
+   글자 대비(WCAG, tests/j-chart-live.test.js가 검사): 레이즈 #04140a on #2e9e48 5.5:1, 콜 #0a2540 on #8ec5ff 8.6:1,
    폴드 #f6dede on #5a1414 10.6:1, 없음 #c9d1d9 on #3a3f47 6.9:1.
    P0 규칙(지우지 말 것): 극장 관전 중에는 차트 칩을 숨긴다(내 승률 칩과 같은 규칙, table.css). */
 :root {
   --gc-raise: #2e9e48; --gc-raise-fg: #04140a;
-  --gc-call: #e8f5e9;  --gc-call-fg: #14321a;
+  --gc-call: #8ec5ff;  --gc-call-fg: #0a2540;
   --gc-fold: #5a1414;  --gc-fold-fg: #f6dede;
   --gc-none: #3a3f47;  --gc-none-fg: #c9d1d9;
   --gc-hero: #ffd54a;
@@ -71,7 +72,7 @@ html.cb .gto-big .gto-mix { background: linear-gradient(90deg, var(--gc-raise) 0
    1. 안내선: 격자(.has-hero, ui/gto-chart.js가 --hr, --hc에 내 칸 행과 열을 쓴다)의 ::before(가로 줄)와 ::after(세로 줄), 금색 반투명 2px.
       칸 글자 위를 지나므로 설계(55%)에 가까운 --hl-a50(70%는 그 줄과 칸의 글자가 취소선처럼 보였다). 내 칸은 z-index 3이라 선이 금테를 덮지 않는다.
    2. 영역 윤곽: 내 손이 속한 같은 액션 연속 영역의 경계 칸(.rg)에 영역 밖과 맞닿은 변(.rg-t/r/b/l)만 2px 윤곽. 한 규칙이 변수 4개로 4변을 그린다.
-      밝은 콜 칸(연두) 위의 흰 윤곽은 대비가 낮아 콜 영역은 어두운 윤곽(--rg-c). 색약 모드는 a11y.css가 색만 바꾼다.
+      밝은 콜 칸(하늘 파랑) 위의 흰 윤곽은 대비가 낮아 콜 영역은 어두운 윤곽(--rg-c). 색약 모드는 a11y.css가 색만 바꾼다.
    3. 내 칸(.hero-cell)은 금테 3px + 검정 띠 2px + 바깥 금테 1px(두 겹으로 보여 169칸에서 묻히지 않게) + 빛. 같은 분류 칸(.kin-cell)은 옅은 금테.
       윤곽 규칙은 kin과 hero 규칙보다 앞에 두어 내 칸은 금테가 우선하고, kin 칸이 경계면 윤곽과 옅은 금테를 같이 그린다. */
 .gto-big .gto-chart-grid.has-hero { position: relative; }
@@ -176,6 +177,10 @@ html.cb .gto-big .gto-mix { background: linear-gradient(90deg, var(--gc-raise) 0
   padding: 8px 6px; gap: 6px;
 }
 #gto-chart.big .gto-cell { font-size: clamp(10px, .75rem, 12px); }
+/* (n3-B) 패널 위 끝은 왼쪽 위 액션 로그 패널(.hand-log, top 8px, 최대 128px, css/pace.css) 아래에서 멈춘다. 예전에는 패널이 로그 밑으로 들어가
+   읽기 줄이 가려졌고, 보기 칩이 생긴 뒤로는 칩까지 가려 누를 수 없었다. 넘치는 아래쪽(위치 띠, 학습실 버튼)은 패널 안 스크롤 */
+#gto-chart.big { max-height: calc(100% - 152px); }
+#gto-chart.big > * { flex-shrink: 0; }   /* 격자가 세로로 눌려 칸이 납작해지지 않게(넘치면 패널 스크롤, 폰 시트 본문과 같은 규칙) */
 @media (min-width: 901px) {
   /* 1366x768: 좌석 겹침 0을 위해 테이블을 74%로 줄이고 오른쪽으로 민다(코칭 패널 260px은 그대로) */
   html.chart-big #screen-game:not(.th-on) .poker-table { transform: scale(.74); margin-left: 334px; margin-right: 244px; }
@@ -222,3 +227,86 @@ html.cb .gto-big .gto-mix { background: linear-gradient(90deg, var(--gc-raise) 0
 @media (max-width: 600px), (orientation: portrait) and (max-width: 760px) {
   html.cb .gto-big .gto-mix::after { content: attr(data-cb1); font-size: 9px; letter-spacing: -.02em; }
 }
+
+/* ── 보기 칩(n3-B, ui/gto-chart.js viewChipsHTML): 전체, 레이즈만(오픈만, 3벳만, 4벳만, 5벳(올인)만), 콜만(체크만) ──
+   칩 줄 .gv-bar는 격자 바로 위, 통계 줄 .gv-stat은 격자 바로 아래(칩을 눌러도 격자가 위아래로 움직이지 않게). 칩을 누르면 같은 상자의 격자와 범례(data-gvt)에 gv-raise, gv-call 클래스만 바뀐다(격자 HTML 그대로).
+   차트 시트, 데스크톱 패널, 학습실 표(.rl-grid), 완전 분석 차트 탭이 같은 규칙을 쓴다.
+   1. 해당하지 않는 칸은 투명도 .2. 혼합 칸은 그 액션 비율이 0보다 크면(data-cb에 R, C 글자) 해당 칸이고 칸 안에 비율(data-pr, data-pc)을 적는다.
+   2. 내 칸(.hero-cell, 학습실 고른 칸 .is-sel)은 어느 보기에서나 흐리지 않는다. 내 손 영역 윤곽 칸(.rg)은 투명도 대신 검정 80% 덮개로
+      흐려(투명도 .2와 같은 밝기) 안쪽 그림자 윤곽이 또렷하게 남는다.
+   3. 비활성 칩(그 상황에 콜이 없음)은 점선 테두리와 흐린 글자(투명도는 글자 대비를 떨어뜨려 쓰지 않는다), 누르면 .gv-tip 말풍선 */
+.gv-bar { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.gv-chips { display: flex; gap: 6px; }
+.gv-chip {
+  flex: 1 1 auto; min-width: 0; min-height: 44px;   /* auto: 긴 이름(5벳(올인)만)이 글자 130%, 320폭에서도 잘리지 않게 자리를 더 받는다 */ padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; gap: 0;
+  border-radius: var(--r-pill); border: 1px solid var(--hud-border); background: var(--tile-bg); color: var(--text);
+  font: inherit; font-size: .86rem; font-weight: 700; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.gv-chip .gto-sw { margin-right: 5px; }
+.gv-chip[aria-pressed="true"] { border: 2px solid var(--gold); background: var(--gold-a18); color: var(--text); }
+.gv-chip[aria-disabled="true"] { border-style: dashed; color: var(--text-dim); cursor: default; }
+.gv-chip[aria-disabled="true"] .gto-sw { opacity: .45; }
+.gv-chip:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.gv-stat { font-size: .8rem; color: var(--text-soft); text-align: center; line-height: 1.35; word-break: keep-all; }
+.gv-stat:empty { display: none; }
+.gv-tip {
+  position: absolute; z-index: 7; top: 50px; left: 0; right: 0; box-sizing: border-box;
+  background: var(--tile-bg); border: 1px solid var(--gold); border-radius: var(--r-md); padding: 8px 10px;
+  box-shadow: var(--shadow-3); color: var(--text); font-size: .84rem; line-height: 1.45; word-break: keep-all; pointer-events: none;
+}
+.gv-raise > .gto-cell:not(.gto-raise):not(.gto-mix):not(.hero-cell):not(.is-sel):not(.rg),
+.gv-raise > .gto-mix:not([data-cb*="R"]):not(.hero-cell):not(.is-sel):not(.rg),
+.gv-call > .gto-cell:not(.gto-call):not(.gto-mix):not(.hero-cell):not(.is-sel):not(.rg),
+.gv-call > .gto-mix:not([data-cb*="C"]):not(.hero-cell):not(.is-sel):not(.rg) { opacity: .2; }
+.gv-raise > .rg:not(.gto-raise):not([data-cb*="R"]):not(.hero-cell),
+.gv-call > .rg:not(.gto-call):not([data-cb*="C"]):not(.hero-cell) {
+  background-image: linear-gradient(var(--black-a80), var(--black-a80)); color: var(--white-a35);
+}
+html .gv-raise > .gto-mix[data-cb*="R"], html .gv-call > .gto-mix[data-cb*="C"] { flex-direction: column; }
+html .gv-raise > .gto-mix[data-cb*="R"]::after { content: attr(data-pr) '%'; font-size: 9px; line-height: 1; margin-top: 1px; }
+html .gv-call > .gto-mix[data-cb*="C"]::after { content: attr(data-pc) '%'; font-size: 9px; line-height: 1; margin-top: 1px; }
+/* 범례: 그 보기의 액션 항목(과 혼합 칸 안내)만 남긴다 */
+.gto-chart-legend.gv-raise .gto-lg-item[data-lga]:not([data-lga="raise"]):not([data-lga="mix"]),
+.gto-chart-legend.gv-call .gto-lg-item[data-lga]:not([data-lga="call"]):not([data-lga="mix"]),
+.rl-legend.gv-raise .rl-lg[data-lga]:not([data-lga="raise"]),
+.rl-legend.gv-call .rl-lg[data-lga]:not([data-lga="call"]) { display: none; }
+
+/* ── 상대 차례 차트(n3-C, ui/opp-chart.js): 내 차트는 금색, 상대 차트는 하늘색 머리줄과 테두리(👀), 결과 줄, 그 액션 칸 윤곽(.rg + .oc-hl, 영역 윤곽과 같은 규칙),
+   완전 분석 실제 손 칸(.opp-cell, 하늘색 바깥 테두리 + 검정 안쪽 띠, 금테와 다른 색), 라벨 1줄. 관점 칩 줄(.gto-persp, 👤 내 차트, 방금: CO)은 차트 맨 위.
+   하늘색 글자 #7dd3fc on 시트 바탕 #0d1117 약 12:1, 머리줄 상자(하늘색 14%) 위에서도 4.5:1 이상 */
+:root { --gc-opp: #7dd3fc; --gc-opp-a14: rgba(125,211,252,.14); --gc-opp-a85: rgba(125,211,252,.85); }
+.gto-persp:empty { display: none; }
+.oc-persp { display: flex; gap: 6px; }
+.oc-chip {
+  flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-pill); border: 1px solid var(--hud-border); background: var(--tile-bg); color: var(--text);
+  font: inherit; font-size: .86rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.oc-chip.oc-me[aria-pressed="true"] { border: 2px solid var(--gold); background: var(--gold-a18); color: var(--gold); }
+.oc-chip.oc-last[aria-pressed="true"] { border: 2px solid var(--gc-opp); background: var(--gc-opp-a14); color: var(--gc-opp); }
+.oc-chip[aria-disabled="true"] { border-style: dashed; color: var(--text-dim); cursor: default; }
+.oc-chip:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.gto-big .gto-opp-head { gap: 2px; padding: 5px 8px 6px; border-left: 4px solid var(--gc-opp); background: var(--gc-opp-a14); border-radius: var(--r-xs); }
+.gto-big .gto-head-opp { font-size: .92rem; font-weight: 700; color: var(--gc-opp); line-height: 1.35; word-break: keep-all; }
+.gto-big .gto-opp-ic { margin-right: 5px; }
+.gto-big .gto-opp-post { color: var(--gc-opp); font-size: .8rem; }
+.gto-big .gto-head-res { display: block; font-size: .9rem; font-weight: 700; color: var(--text); line-height: 1.4; word-break: keep-all; }
+.gto-big .gto-head-note { font-size: .74rem; color: var(--text-soft); line-height: 1.35; word-break: keep-all; }
+.gto-big .gto-opp-hand { font-size: .9rem; }
+.gto-big .opp-cell { z-index: 3; box-shadow: inset 0 0 0 2px var(--black), 0 0 0 3px var(--gc-opp), 0 0 12px 3px var(--gc-opp-a85); }
+.gto-big .opp-cell.rg { box-shadow: var(--rg-sh), inset 0 0 0 2px var(--black), 0 0 0 3px var(--gc-opp), 0 0 12px 3px var(--gc-opp-a85); }
+.gv-raise > .opp-cell, .gv-call > .opp-cell { opacity: 1 !important; }
+.gto-big .gto-lg-opp { color: var(--text-soft); }
+.gto-sheet.is-opp { border-top-color: var(--gc-opp); }
+.gto-sheet.is-opp .gto-sheet-handle { color: var(--gc-opp); }
+#gto-chart.big.is-opp { border-color: var(--gc-opp); }
+
+/* 폰 차트 시트 안 사본 줄의 다음, ⏭(ui/pacer.js mirrorHTML): 시트를 닫지 않고 넘긴다. 탭 영역 44px(36px 줄 위아래 4px씩 겹침) */
+.hl-mirror .hl-pace { display: inline-flex; flex: 0 0 auto; align-items: stretch; margin: -4px 0; }
+.hl-mirror .hl-pace button {
+  min-height: 44px; min-width: 44px; margin: 0; padding: 0 10px; border: 0; color: var(--gold); font: inherit; font-weight: 700;
+  white-space: nowrap; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  background: linear-gradient(var(--hud-border), var(--hud-border)) left center / 1px 24px no-repeat;
+}
+.hl-mirror .hl-pace .pace-left { color: var(--text-dim); font-weight: 600; font-size: .78rem; }
+.hl-mirror .hl-pace button:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; }

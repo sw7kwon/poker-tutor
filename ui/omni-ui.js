@@ -371,7 +371,8 @@ var OmniUI = (function() {
         } catch (e) { _warn('chart', e); model = null; }
         if (!model) inner = '<div class="omni-dim">이 자리의 차트가 없어요</div>';
         else {
-          var a = html.indexOf('<div class="gto-chart-grid'), b = html.indexOf('<div class="gto-chart-legend">');
+          // (n3-B) 보기 칩 줄(.gv-bar)이 있으면 격자 위에 같이 넣는다(칩 누름은 _onPanelClick이 GtoChart.onViewChip으로)
+          var a0 = html.indexOf('<div class="gv-bar"'), a = a0 >= 0 ? a0 : html.indexOf('<div class="gto-chart-grid'), b = html.indexOf('<div class="gto-chart-legend');
           var grid = (a >= 0) ? html.slice(a, b > a ? b : undefined) : '';
           var read = ro ? (_esc(ro.ctx) + ': ' + String(ro.handHTML || '').replace(/^내 손 /, '')) : '';
           var actual = _actKor(_actKey(ev)) + ((Number(ev.amt) || 0) > 0 && _actKey(ev) !== 'fold' && _actKey(ev) !== 'check' ? ' ' + _fmt(ev.amt) + 'bb' : '');
@@ -554,6 +555,7 @@ var OmniUI = (function() {
     if ((el = t.closest('.omni-persp'))) { setPerspective(el.getAttribute('data-name')); return; }
     if ((el = t.closest('.omni-fr'))) { selectFrame(Number(el.getAttribute('data-fi'))); return; }
     if ((el = t.closest('.omni-go'))) { step(el.getAttribute('data-go')); return; }
+    if ((el = t.closest('.gv-chip'))) { var GCv = _m('GtoChart'); if (GCv && typeof GCv.onViewChip === 'function') { try { GCv.onViewChip(el); } catch (e) { _warn('view', e); } } return; }
     if ((el = t.closest('.omni-dec-chip'))) {
       var k = el.getAttribute('data-dec'), box = el.closest('.omni-sec');
       if (!box || !box.querySelectorAll) return;

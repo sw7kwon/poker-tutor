@@ -110,7 +110,7 @@ html.cb .rl-z small { display: none; }       /* 색약용은 ::after R/C/F가 �
 .rl-note-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
 .rl-note-t { font-size: 1.05rem; color: var(--text); }
 .rl-note-act { display: inline-block; margin: 2px 0 6px; padding: 4px 10px; border-radius: var(--r-8); font-weight: 700; font-size: .95rem; background: var(--tile-bg); border: 1px solid var(--hud-border); }
-.rl-act-raise { color: var(--green-text-2); } .rl-act-call { color: #d7ecd9; } .rl-act-fold { color: var(--red-soft); }
+.rl-act-raise { color: var(--green-text-2); } .rl-act-call { color: var(--blue-text); } .rl-act-fold { color: var(--red-soft); }
 .rl-note-p { margin: 0 0 6px; font-size: .9rem; line-height: 1.5; color: var(--text); }
 .rl-note-kin { margin-top: 2px; }
 

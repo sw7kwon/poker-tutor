@@ -248,8 +248,14 @@ var App = (function() {
   // ── 핸드 로그(n2-P0 훅, 설계 5.2절): HandLog 호출은 전부 여기를 거친다(typeof 가드, 실패는 게임에 영향 없음) ──
   function _hl(name) {
     _hlUI('track', name, arguments[1], arguments[2], arguments[3]);   // (G2 PACE) 액션 로그 줄은 같은 훅 인자를 따로 쌓는다(HandLog가 기록하지 않는 판 포함)
+    _oc('track', name, arguments[1], arguments[2], arguments[3]);     // (n3-C) 상대 차례 차트도 같은 인자로 좌석별 프리플랍 결정을 기록한다
     if (typeof HandLog === 'undefined' || !HandLog || typeof HandLog[name] !== 'function') return null;
     try { return HandLog[name].apply(HandLog, Array.prototype.slice.call(arguments, 1)); } catch (e) { return null; }
+  }
+  // (n3-C) 상대 차례 차트(ui/opp-chart.js OppChart) 호출, typeof 가드
+  function _oc(fn) {
+    if (typeof OppChart === 'undefined' || !OppChart || typeof OppChart[fn] !== 'function') return null;
+    try { return OppChart[fn].apply(OppChart, Array.prototype.slice.call(arguments, 1)); } catch (e) { return null; }
   }
   // 액션 로그 줄(ui/pacer.js HandLogUI) 호출, typeof 가드
   function _hlUI(fn) {
@@ -621,13 +627,19 @@ var App = (function() {
     if (!_practice && typeof VillainTracker !== 'undefined') VillainTracker.observe(_sessionId, _state, acts);
     var paced = !_paceSync(steps.frames);
     if (_state.waitingForHero && paced) { var fin = _state; _defer(function() { if (_state === fin) _prefetchEq(fin); }); }
-    if (paced && typeof Pacer !== 'undefined' && Pacer.toastOnce && Pacer.toastOnce()) _showToast('상대가 한 명씩 움직여요. 테이블을 누르면 빨리 넘겨요(속도는 ⏩)', 3200);
+    // 첫 순차 공개 안내(한 번), (n3) 예전 기본(보통)에서 탭 진행으로 옮긴 사람은 그 안내(한 번). 글은 Pacer.notice가 속도에 맞춰 고른다
+    if (paced && typeof Pacer !== 'undefined' && Pacer) {
+      var paceMsg = null;
+      try { paceMsg = typeof Pacer.notice === 'function' ? Pacer.notice() : (Pacer.toastOnce && Pacer.toastOnce() ? '상대가 한 명씩 움직여요. 테이블을 누르면 빨리 넘겨요(속도는 ⏩)' : null); } catch (e) { paceMsg = null; }
+      if (paceMsg) _showToast(paceMsg, paceMsg.length > 40 ? 4200 : 3200);
+    }
     var next = _state.waitingForHero ? 'hero' : (_state.handOver ? 'end' : 'street');
     _revealFrames(steps.frames, function(f, i) {
       // 공개 시점의 속마음(WP8, 그 걸음 직전 상태, a에 potBefore 등 스냅샷). 'live'면 말풍선이 프레임과 같이 뜬다
       if (typeof ThinkingUI !== 'undefined') ThinkingUI.onVillainAction(f.pre, f.action.name, f.action.action, f.action.amount, f.action);
       if (paced) _paceFrame(f);
       _hlUI('reveal', i + 1);
+      _oc('shown', f);   // (n3-C) 방금 행동한 상대(관점 칩 '방금: CO')
     }, function() {
       _hlUI('reveal');
       // TABLE-09: 말풍선 없이 바로 스트리트 전환이 뒤따르면 전환 전 렌더를 생략하고 전환 뒤 1회만 그린다(말풍선이 있으면 기존 2회)
@@ -933,7 +945,11 @@ var App = (function() {
 
   function heroAction(action) {
     // (n2-P0, 설계 4.2절 7번) 상대 액션 공개 중의 탭은 빨리 감기만 하고 액션으로 쓰지 않는다(_state는 이미 최종이라 이중 적용 방지)
-    if (typeof Pacer !== 'undefined' && Pacer && typeof Pacer.busy === 'function' && Pacer.busy()) { if (typeof Pacer.finish === 'function') Pacer.finish(); return; }
+    //   (n3) 탭 진행 모드면 다음 1걸음(Pacer.step, 시간 모드는 finish와 같다)
+    if (typeof Pacer !== 'undefined' && Pacer && typeof Pacer.busy === 'function' && Pacer.busy()) {
+      if (typeof Pacer.step === 'function') Pacer.step(); else if (typeof Pacer.finish === 'function') Pacer.finish();
+      return;
+    }
     if (!_state || !_state.waitingForHero) return; // 이중 클릭 가드
     // 결정 전 계산 체인이 아직 다음 프레임 대기 중이면 지금 동기로 끝낸다(_lastEV, _lastVerdict가 지난 결정의 값으로 채점되는 일 방지)
     if (_pendingCalc) { var flush = _pendingCalc; _pendingCalc = null; flush(); }

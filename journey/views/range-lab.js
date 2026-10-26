@@ -418,13 +418,13 @@ var RangeLabView = (function() {
     var st = stats(model), s = normalize(sel);
     function item(a, word) {
       if (!st[a].n) return '';
-      return '<span class="rl-lg"><i class="rl-sw gto-cell gto-' + a + '" aria-hidden="true"></i>' + _esc(word) + ' <b>' + st[a].pct + '%</b><small>' + st[a].combos + '콤보</small></span>';
+      return '<span class="rl-lg" data-lga="' + a + '"><i class="rl-sw gto-cell gto-' + a + '" aria-hidden="true"></i>' + _esc(word) + ' <b>' + st[a].pct + '%</b><small>' + st[a].combos + '콤보</small></span>';
     }
     var top = _bbIso(model) ? '레이즈 상위 약 ' + st.play.pct + '%(체크는 공짜라 참여로 세지 않아요)' : '참여(레이즈와 콜) 상위 약 ' + st.play.pct + '%';
     // 림퍼 뒤 BB: 체크 칸 중 ◢ 표시(모델 cell.alt, CO 오픈 표 손)는 레이즈도 괜찮다
-    var alt = _bbIso(model) && _altCount(model) ? '<span class="rl-lg"><i class="rl-sw gto-cell gto-call is-alt" aria-hidden="true"></i>체크, 레이즈도 괜찮음 <b>' + _altCount(model) + '칸</b></span>' : '';
-    return '<div class="rl-legend" role="note">' + item('raise', _word('raise', s)) + item('call', _word('call', s)) + alt + item('fold', '폴드') +
-      '<span class="rl-lg rl-lg-top">' + top + '</span></div>';
+    var alt = _bbIso(model) && _altCount(model) ? '<span class="rl-lg" data-lga="call"><i class="rl-sw gto-cell gto-call is-alt" aria-hidden="true"></i>체크, 레이즈도 괜찮음 <b>' + _altCount(model) + '칸</b></span>' : '';
+    return '<div class="rl-legend' + _gvClass(model) + '" data-gvt="1" role="note">' + item('raise', _word('raise', s)) + item('call', _word('call', s)) + alt + item('fold', '폴드') +
+      '<span class="rl-lg rl-lg-top" data-lga="top">' + top + '</span></div>';
   }
   // 표 바로 아래 한 줄 읽기: 고른 칸의 분류와 액션(설명 카드는 아래에 있어 누른 자리에서 바로 보이게)
   // 모델 칸 객체(alt 표시용)와 alt 칸 수
@@ -451,9 +451,28 @@ var RangeLabView = (function() {
     if (_rowOn && rcOf(l).r === _row) cls += ' is-row';   // 줄 표시는 칸을 고르거나 ▲▼를 누른 뒤부터
     return cls;
   }
+  // (n3-B) 보기 칩(GtoChart.viewChipsHTML, 전체, 3벳만, 콜만 등): 지금 보일 보기(저장값 A11y chartView, 콜 없는 상황은 전체)와 그 클래스.
+  //   칩을 누르면 GtoChart.onViewChip이 격자와 범례(data-gvt)의 클래스만 바꾼다(표를 다시 그리지 않는다)
+  function _view(model) {
+    var GC = _m('GtoChart'), A = _m('A11y'), saved = 'all';
+    try { saved = (A && _fn(A, 'load')) ? (A.load().chartView || 'all') : 'all'; } catch (e) { saved = 'all'; }
+    if (!GC || !_fn(GC, 'effView') || !model) return 'all';
+    try { return GC.effView(model, saved); } catch (e) { return 'all'; }
+  }
+  function _gvClass(model) { var v = _view(model); return v === 'all' ? '' : ' gv-' + v; }
+  function _viewBarHTML(model) {
+    var GC = _m('GtoChart');
+    if (!GC || !_fn(GC, 'viewChipsHTML') || !model) return '';
+    try { return GC.viewChipsHTML(model, _view(model)); } catch (e) { return ''; }
+  }
+  function _viewStatHTML(model) {   // 통계 줄(표 바로 아래, 칩을 눌러도 표가 움직이지 않게)
+    var GC = _m('GtoChart');
+    if (!GC || !_fn(GC, 'viewStatHTML') || !model) return '';
+    try { return GC.viewStatHTML(model, _view(model)); } catch (e) { return ''; }
+  }
   function _gridHTML(model, sel, selected) {
     var N = _m('RangeNotes'), kin = (selected && N && _fn(N, 'category')) ? N.category(selected) : null;
-    var h = '<div class="rl-grid" aria-hidden="true">';
+    var h = '<div class="rl-grid' + _gvClass(model) + '" data-gvt="1" aria-hidden="true">';
     for (var r = 0; r < 13; r++) for (var c = 0; c < 13; c++) {
       var cell = model.cells[r][c];
       h += '<i class="' + _cellClass(cell.label, cell.action, sel, selected, kin, !!cell.alt) + '" data-rl="c" data-l="' + cell.label + '" data-r="' + r + '">' + cell.label + '</i>';
@@ -543,7 +562,7 @@ var RangeLabView = (function() {
     var model = modelOf(sel);
     var h = _pathHTML() + _pickersHTML(sel);
     if (!model) return h + _emptyHTML(sel);
-    h += '<div class="rl-chart">' + _headHTML(sel) + _gridHTML(model, sel, _cell) + _readoutHTML(model, sel, _cell) + _legendHTML(model, sel) +
+    h += '<div class="rl-chart">' + _headHTML(sel) + _viewBarHTML(model) + _gridHTML(model, sel, _cell) + _viewStatHTML(model) + _readoutHTML(model, sel, _cell) + _legendHTML(model, sel) +
       '<div class="rl-tagline">' + _tagChip() + '</div></div>' + _zoomHTML(model, sel, _cell) + _noteHTML(sel, _cell) + _stripHTML(sel);
     var ps = paintSpot(sel);
     h += '<div class="rl-acts">' + (ps ? '<button type="button" class="j-btn j-primary" data-rl="tab" data-v="paint">✏ 이 표 외우기</button>' : '') +
@@ -1237,7 +1256,10 @@ var RangeLabView = (function() {
     });
   }
   function _onClick(e) {
-    var t = _up(e && e.target, _root());
+    var tg = e && e.target, GC = _m('GtoChart');
+    var gv = (tg && typeof tg.closest === 'function') ? tg.closest('.gv-chip') : null;
+    if (gv && GC && _fn(GC, 'onViewChip')) { if (typeof e.preventDefault === 'function') e.preventDefault(); GC.onViewChip(gv); return; }
+    var t = _up(tg, _root());
     if (!t) return;
     var kind = t.getAttribute('data-rl');
     if (kind === 'c' || kind === 'z' || kind === 'up' || kind === 'down' || kind === 'look' || kind === 'tab' || kind === 'kind' || kind === 'pos' || kind === 'opener' ||

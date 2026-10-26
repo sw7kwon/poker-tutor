@@ -1,8 +1,8 @@
 {
-  "version": "7440b92-202610231935",
-  "sha": "7440b92",
+  "version": "54a46f5-202610261342",
+  "sha": "54a46f5",
   "branch": "feat/journey",
-  "builtAt": "2026-10-23T10:35:55.302Z",
+  "builtAt": "2026-10-26T04:42:53.043Z",
   "files": [
     "ai/villain-adaptive.js",
     "ai/villain-profiles.js",
@@ -155,6 +155,7 @@
     "ui/hud.js",
     "ui/mobile-ui.js",
     "ui/omni-ui.js",
+    "ui/opp-chart.js",
     "ui/pacer.js",
     "ui/raise-info.js",
     "ui/range-notes.js",

@@ -458,6 +458,14 @@ var Table = (function() {
         });
         var vh = (typeof window !== 'undefined' && window && Number(window.innerHeight)) || 0;
         var barTop = bar ? bar.getBoundingClientRect().top : (vh || Infinity);
+        // (n3) 탭 진행 알약(#pace-pill, 액션바 바로 위)이 보이면 그 위를 아래 막는 선으로(알약 글자를 덮지 않게).
+        //   +28은 toastSpot이 액션바가 커질 몫으로 빼는 값을 되돌린다(알약은 내 차례가 오면 사라진다).
+        //   알약 자리는 Pacer가 같은 rAF 차례에 맞추므로 지금 사각형 대신 규칙(보이는 바 위 8px, 바가 없으면 화면 아래 8px)으로 셈한다
+        var pill = rect(document.getElementById('pace-pill'));
+        if (pill) {
+          var pillTop = (bar ? barTop : (vh || pill.bottom + 8)) - 8 - (pill.bottom - pill.top);
+          if (pillTop + 28 < barTop) barTop = pillTop + 28;
+        }
         // 팟과 보드가 다른 판(폰 차트 시트, 완전 분석 시트)에 덮여 안 보이면 피할 까닭이 없다(가운데 점이 그 요소 안인지로 판단)
         var shown = function(e) {
           var r = rect(e);
