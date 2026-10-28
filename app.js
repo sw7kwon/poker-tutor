@@ -100,7 +100,7 @@ var App = (function() {
     try { return !!OmniUI.abort(); } catch (e) { return false; }
   }
   function showScreen(id) {
-    if (id !== 'screen-game') { _theaterAbort(); _paceCancel(); _omniAbort(); _hlUI('toggle', false); }
+    if (id !== 'screen-game') { _theaterAbort(); _paceCancel(); _omniAbort(); _hlUI('toggle', false); _phase('none'); }
     document.querySelectorAll('.screen').forEach(function(s) { s.classList.remove('active'); });
     document.getElementById(id).classList.add('active');
     if (typeof Nav !== 'undefined' && Nav.onShow) Nav.onShow(id);
@@ -304,6 +304,7 @@ var App = (function() {
   function _newHand() {
     _theaterAbort();   // 새 테이블 핸드는 극장 관전을 이어 가지 않는다(게임 화면 안에서 바로 넘어오는 경로 방어)
     _paceCancel(); _omniAbort();   // (n2-P0) 앞 핸드의 남은 순차 공개와 리플레이 화면 정리
+    _phase('none');   // (n4-P0) 하단 슬롯: 새 핸드 시작 전에는 아무 바도 아님
     if (!_gtoMode && typeof GtoChart !== 'undefined') GtoChart.hide();
     var playersSpec = _buildPlayersSpec(_villainConfig);
     _state = GameState.buildInitialState(playersSpec, _heroPos, _seed, _carryoverStacks);
@@ -362,6 +363,8 @@ var App = (function() {
     _hlUI('onNewHand');   // (G2 PACE) 로그 시트는 새 핸드에서 접는다
     if (_rebuyToast > 0) { _rebuyToast = 0; _showToast('💰 스택이 20bb 아래로 떨어져 100bb로 다시 샀어요(세션 손익은 그대로)', 2600); }
     ActionBar.render(_state);
+    // (n4 G1, 설계 1.2절 3번 1항) 카드를 나누는 동안에도 내 차례가 아니면 하단 슬롯은 다음 바(disabled '카드를 나눠요')가 지킨다(액션바와 번갈아 깜빡이지 않게)
+    if (!_state.waitingForHero) _phase('wait');
     Animator.dealCards(_state, function() {
       _processVillainActions();
     });
@@ -606,6 +609,62 @@ var App = (function() {
     Equity.calc(view, function(eq) { _eqCache = { key: key, eq: eq }; });
     return true;
   }
+  // ── (n4-P0, 설계 docs/NEXT4_DESIGN.md 1.2절 3번, 2.4절) 하단 슬롯 상태와 탭 진행 게이트 ──
+  // _phase(p): document에 'hand:phase'(detail { phase: 'wait' | 'hero' | 'end' | 'none' })를 쏜다. 같은 값이 이어지면 한 번만.
+  //   wait = 상대 공개 시작과 게이트 진입(보드 딜 중에도 유지), hero = 내 결정(_computeEVAndShow), end = 결과(_showResult), none = 새 핸드와 게임 화면 이탈.
+  //   NextBar(ui/next-bar.js)가 이 값으로 하단 슬롯(액션바, 다음 바, 결과바 중 하나)을 정한다. DOM이나 CustomEvent가 없으면(node) 값만 바꾼다
+  var _phaseNow = 'none';
+  function _phase(p) {
+    if (p === _phaseNow) return false;
+    _phaseNow = p;
+    try {
+      if (typeof document !== 'undefined' && document && typeof document.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+        document.dispatchEvent(new CustomEvent('hand:phase', { detail: { phase: p } }));
+      }
+    } catch (e) { /* 이벤트 실패는 진행을 막지 않는다 */ }
+    return true;
+  }
+  // 다음 스트리트 이름(순수): preflop → flop → turn → river → showdown. 상태나 스트리트 문자열을 받는다
+  function _streetAfter(st) {
+    var s = (st && typeof st === 'object') ? st.street : st;
+    return { preflop: 'flop', flop: 'turn', turn: 'river', river: 'showdown' }[s] || 'showdown';
+  }
+  // 폴드하지 않은 좌석 수(순수)
+  function _liveCount(st) {
+    var names = (st && (st.names || Object.keys(st.players || {}))) || [];
+    return names.filter(function(n) { return !(st.folded && st.folded[n]); }).length;
+  }
+  // 탭 진행 게이트: Pacer.hold(kind, info, fn)가 탭 모드면 누를 때까지 fn을 미루고, 그 밖(시간 속도, 즉시, 연습, node, 스텁)은 바로 부른다.
+  //   게이트 동안 _state는 이미 최종이고 화면만 멈춘다. 화면 이탈과 새 핸드의 Pacer.cancel()이 미룬 fn을 버린다
+  //   (n4 G1) 연습 재생은 늘 동기라 게이트가 없다(info.practice로도 Pacer에 알린다)
+  function _gate(kind, info, fn) {
+    _phase('wait');
+    if (_practice) { fn(); return; }
+    if (typeof Pacer !== 'undefined' && Pacer && typeof Pacer.hold === 'function') { Pacer.hold(kind, info, fn); return; }
+    fn();
+  }
+  // 스트리트 전환(플랍, 턴, 리버 딜)과 리버 뒤 쇼다운 전환. 리버 다음(showdown)은 'showdown' 게이트(2명 이상 생존이 needsStreetAdvance의 조건)
+  //   resume 뒤 흐름은 예전과 같다: advanceStreet → _afterStreetAdvance → 그리기 → dealBoard → _processVillainActions(쇼다운이면 첫 줄이 _showResult)
+  function _advanceStreetGated() {
+    var nx = _streetAfter(_state);
+    var go = function() {
+      _state = GameState.advanceStreet(_state);
+      _afterStreetAdvance();
+      _renderTable();
+      Animator.dealBoard(_state, function() { _processVillainActions(); });
+    };
+    if (nx === 'showdown') _gate('showdown', { live: _liveCount(_state), runout: _allInRunout(_state) }, go);
+    else _gate('street', { street: nx, cards: nx === 'flop' ? 3 : 1 }, go);
+  }
+  // 핸드 끝 결과: 살아 있는 사람이 2명 이상이면 'showdown' 게이트, 1명이면 바로 _showResult(마지막 폴드를 보고 넘어가게, 지금처럼).
+  //   히어로가 폴드해 핸드가 바로 끝난 경우(keepPlaying 아님)는 남은 상대가 여럿이어도 쇼다운이 없으므로 바로
+  function _showResultGated() {
+    var live = _endLive(_state);
+    if (live >= 2) _gate('showdown', { live: live, runout: _allInRunout(_state) }, _showResult);
+    else _showResult();
+  }
+  // 핸드 끝에서 쇼다운을 볼 사람 수(히어로 폴드로 바로 끝난 핸드는 1). 탭 공개의 tail(쇼다운 게이트가 받으면 0)도 같은 값으로 정한다
+  function _endLive(st) { return (st && st.handOver && st.folded && st.folded.Hero) ? 1 : _liveCount(st); }
   // 스트리트 전환 뒤 공통(승률 배지 초기화 + 로그 줄)
   function _afterStreetAdvance() {
     _state.seatEq = null;
@@ -634,6 +693,7 @@ var App = (function() {
       if (paceMsg) _showToast(paceMsg, paceMsg.length > 40 ? 4200 : 3200);
     }
     var next = _state.waitingForHero ? 'hero' : (_state.handOver ? 'end' : 'street');
+    _phase('wait');   // (n4-P0) 상대 공개 시작
     _revealFrames(steps.frames, function(f, i) {
       // 공개 시점의 속마음(WP8, 그 걸음 직전 상태, a에 potBefore 등 스냅샷). 'live'면 말풍선이 프레임과 같이 뜬다
       if (typeof ThinkingUI !== 'undefined') ThinkingUI.onVillainAction(f.pre, f.action.name, f.action.action, f.action.amount, f.action);
@@ -651,16 +711,13 @@ var App = (function() {
       if (_state.waitingForHero) {
         _computeEVAndShow();
       } else if (_state.handOver) {
-        _showResult();
+        _showResultGated();   // (n4-P0) 2명 이상 생존이면 쇼다운 게이트
       } else if (GameState.needsStreetAdvance(_state)) {
-        _state = GameState.advanceStreet(_state);
-        _afterStreetAdvance();
-        _renderTable();
-        Animator.dealBoard(_state, function() { _processVillainActions(); });
+        _advanceStreetGated();   // (n4-P0) 탭 모드면 '플랍 보기' 등에서 멈춘다
       } else {
-        _showResult();
+        _showResultGated();
       }
-    }, { practice: !!_practice, heroOut: !!_state.heroOut, next: next });
+    }, { practice: !!_practice, heroOut: !!_state.heroOut, next: next, showdown: next === 'end' && _endLive(_state) >= 2 });
   }
 
   // ── 올인 런아웃 공개(TABLE-03a): 폴드 안 한 좌석 2명 이상, 칩이 남은 사람은 많아야 1명(더 벳이 오갈 수 없음), 핸드 종료 아님 ──
@@ -792,6 +849,7 @@ var App = (function() {
   }
 
   function _computeEVAndShow() {
+    _phase('hero');   // (n4-P0) 내 차례: 하단 슬롯은 액션바
     // 레인지vs레인지: 프리플랍은 결정마다 빌런 레인지를 재계산(Array 저장 — Set은 JSON clone에서 {}로 깨짐)
     // 포스트플랍은 레인지가 비어 있을 때만 "오픈 콜" 레인지
     if (typeof Gto !== 'undefined') {
@@ -1082,12 +1140,9 @@ var App = (function() {
     if (!_omni && typeof Journey !== 'undefined' && Journey.afterDecision) Journey.afterDecision({ state: pre, verdict: V, grade: g, action: n.intended, executed: n.action, amount: amount, dec: dec, practice: !!_practice, gtoMode: _gtoMode, gtoRound: _gtoRound, heroPos: _heroPos, mode: _villainConfig, hu: (pre.names || []).length === 2, hint: !!(_lastView && _lastView.hide === false && dec && dec.hidden === false) || chartShown });
     if (typeof MobileUI !== 'undefined' && MobileUI.onAfterDecision) MobileUI.onAfterDecision();
     if (_state.handOver) {
-      _showResult();
+      _showResultGated();   // (n4-P0) 2명 이상 생존이면 쇼다운 게이트(히어로 폴드로 끝난 핸드는 바로)
     } else if (GameState.needsStreetAdvance(_state)) {
-      _state = GameState.advanceStreet(_state);
-      _afterStreetAdvance();
-      _renderTable();
-      Animator.dealBoard(_state, function() { _processVillainActions(); });
+      _advanceStreetGated();
     } else {
       _processVillainActions();
     }
@@ -1339,6 +1394,7 @@ var App = (function() {
   }
 
   function _showResult() {
+    _phase('end');   // (n4-P0) 핸드 끝: 하단 슬롯은 결과바
     var finalPot = _state.pot;
     var heroCardsSnap = (_state.heroCards||[]).slice();
     var boardSnap = (_state.board||[]).slice();
@@ -1391,7 +1447,8 @@ var App = (function() {
       if (histBtn) histBtn.style.display = _practice ? 'none' : '';
       if (endBtn) endBtn.style.display = _practice ? 'none' : '';
       _syncRebuyBtn(); _syncReplayBtn(logKey);   // (n2-P0) 💰 리바이(정책 cash, 100 미만), ⏪ 리플레이(코어 준비, 로그 있음)
-      if (typeof MobileUI !== 'undefined' && MobileUI.onHandEnd) MobileUI.onHandEnd(); // 총평 탭 자동 펼침
+      if (typeof NextBar !== 'undefined' && NextBar && typeof NextBar.update === 'function') { try { NextBar.update(); } catch (e) { /* noop */ } }   // (n4 G1) 결과바가 떴으니 다음 바는 자리를 비운다
+      if (typeof MobileUI !== 'undefined' && MobileUI.onHandEnd) MobileUI.onHandEnd({ practice: !!_practice }); // 총평 탭 자동 펼침, (n4 G1) 연습이면 🔁 같은 핸드 다시를 결과바에
       if (typeof Table !== 'undefined' && Table && typeof Table.replaceToasts === 'function') Table.replaceToasts();   // (n2b-verify) 결과바와 총평을 덮지 않게
       if (_practice) {
         // 연습 핸드는 localStorage·세션 기록 어디에도 남기지 않고 추이만 갱신
@@ -1410,7 +1467,8 @@ var App = (function() {
           winner: result.winner, handDescriptions: result.handDescriptions||{},
           decisions: decisionsSnap,
           seed: st.seed, heroPos: heroPos, mode: mode, net: heroNet,
-          delta: _calcHandDelta(decisionsSnap), heroFolded: !!(st.folded && st.folded.Hero)
+          delta: _calcHandDelta(decisionsSnap), heroFolded: !!(st.folded && st.folded.Hero),
+          stackStart: _r2(startStacks.Hero || 0), stackAfter: _r2((st.stacks && st.stacks.Hero) || 0)   // (n4 G1) 세션 스택 선(리바이는 다음 핸드 시작 스택과의 차)
         });
         if (_gtoMode && _gtoRound === 3) _renderGtoLoopReport();
       }
@@ -1751,6 +1809,27 @@ var App = (function() {
 
   function _handDeltaOf(h) { return h.delta != null ? h.delta : _calcHandDelta(h.decisions); }
 
+  // (n4 G1, 설계 5.2절 4번 데이터) 세션 스택 선의 점(순수): [{ hand: 0, stack: 첫 핸드 시작 스택, rebuy: 0 }, { hand: k, stack: k번째 핸드 뒤 스택, rebuy: 그 핸드 전에 산 칩 }].
+  //   리바이 = 그 핸드 시작 스택 - 앞 핸드 뒤 스택(자동, 수동 리바이 모두, 0.01bb 미만은 0). 스택 기록이 없는 예전 기록(stackAfter 없음)은 net 누적으로 잇는다.
+  //   연습, GTO 미러 회차도 _sessionHands에 있는 대로(연습은 들어오지 않는다)
+  function _sessionStackPoints(hands) {
+    hands = hands || [];
+    if (!hands.length) return [];
+    var h0 = hands[0], start = (h0.stackStart != null) ? h0.stackStart : 100;
+    var out = [{ hand: 0, stack: _r2(start), rebuy: 0 }], prev = start;
+    hands.forEach(function(h, i) {
+      // (n4g1 리뷰) GTO 미러 회차(gtoRound)는 회차마다 스택을 100으로 되돌린다(리바이가 아님). 시작 스택 차를 리바이로 세면 지는 회차마다 💰가 찍히고
+      //   이긴 칩이 선에서 사라지므로, 이 핸드들은 앞 스택에 net을 더해 잇는다(세션 손익 선)
+      var reset = h.gtoRound != null;
+      var s0 = (!reset && h.stackStart != null) ? h.stackStart : prev;
+      var rb = _r2(s0 - prev);
+      var after = (!reset && h.stackAfter != null) ? h.stackAfter : s0 + (Number(h.net) || 0);
+      out.push({ hand: i + 1, stack: _r2(after), rebuy: rb > 0.01 ? rb : 0 });
+      prev = after;
+    });
+    return out;
+  }
+
   // 세션 요약 통계 줄의 손해 부분(순수 함수, M4-P9): EV 편차(bb, EV 계산값만)와 고정 벌점 개수.
   // 고정 벌점이 없으면 예전 'EV 편차 -1.2bb', 있고 EV 편차가 0이면 bb 숫자를 뺀다(lossTallyText와 같은 규칙).
   function _sessionLossText(st) {
@@ -1766,6 +1845,15 @@ var App = (function() {
     var statsEl = document.getElementById('summary-stats');
     var handsEl = document.getElementById('summary-hands');
     if (!handsEl) return;
+    // (n4-P0) 세션 스택 선 자리(설계 5.2절 4번). 점 데이터(_sessionHands 핸드별 net 누적)는 G1(P2)이 채운다. 스텁은 빈 문자열
+    var chartEl = document.getElementById('session-chart');
+    if (chartEl) {
+      try {
+        var sp = _sessionStackPoints(_sessionHands);
+        chartEl.innerHTML = (sp.length >= 2 && typeof SvgCharts !== 'undefined' && SvgCharts && typeof SvgCharts.stackLine === 'function')
+          ? (SvgCharts.stackLine(sp, { base: sp[0].stack, buyin: sp[0].stack }) || '') : '';
+      } catch (e) { chartEl.innerHTML = ''; }
+    }
     var st = _sessionStats(_sessionHands, _rebuys);
     var goal = (typeof CoachUI !== 'undefined' && CoachUI.currentGoal) ? CoachUI.currentGoal() : '';
     if (statsEl) {
@@ -1897,7 +1985,7 @@ var App = (function() {
     nextRound: nextRound,
     showHistory: showHistory,
     showSessionSummary: showSessionSummary,
-    _sessionStats: _sessionStats,
+    _sessionStats: _sessionStats, _sessionStackPoints: _sessionStackPoints,
     applyGTOPreset: applyGTOPreset,
     closeGTOReason: closeGTOReason,
     toggleGTOReason: toggleGTOReason,
@@ -1917,6 +2005,8 @@ var App = (function() {
     _curriculumSpotKey: _curriculumSpotKey,
     _villainOpts: _villainOpts,
     _allInRunout: _allInRunout,
+    // (n4-P0) 탭 진행 게이트와 하단 슬롯 상태, 공개 상태 읽기(SeatChart, NextBar). liveState는 지금 _state 참조 그대로(호출자는 바꾸지 않는다)
+    _gate: _gate, _streetAfter: _streetAfter, _liveCount: _liveCount, liveState: function() { return _state; }, phase: function() { return _phaseNow; },
     // R2(테이블 고침) 순수 함수: 리바이, 폴드 뒤 진행, 6인 랜덤 배정과 정체 공개, 핸드 순이익
     _rebuyStacks: _rebuyStacks,
     // (n2-P0) 리바이 정책과 수동 리바이, 완전 분석, 걸음 루프(설계 6.1절 8번)

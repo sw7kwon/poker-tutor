@@ -12,7 +12,7 @@
 //   (n3 탭 진행) 속도 'tap': 사용자가 누를 때마다 다음 걸음 1개(steps(frames): 프레임 1개 = 1걸음, 연속 폴드는 한 걸음).
 //     plan(frames, 'tap', ctx) → [{ i, delay: 0, tap(걸음 시작이면 true) }], steps, tail(내 차례면 0, 스트리트 전환과 핸드 끝은 느림의 street).
 //     heroOut이면 자동 진행(느림 속도표, x0.5 없음, 배열에 auto: true). step() 다음 1걸음(시간 모드는 finish와 같다).
-//     대기 중에는 다음 좌석에 맥박 테두리(.pace-next, #screen-game[data-pace-next])와 액션바 위 알약 #pace-pill(👆 눌러서 다음, ⏭ 끝까지).
+//     대기 중에는 다음 좌석에 맥박 테두리(.pace-next, #screen-game[data-pace-next]). (n4) 진행 버튼은 하단 #next-bar(아래 n4 줄).
 //     테이블, 액션바, 알약 = step, ⏭ = finish. 로그 줄, 승률 칩, 토글, 도크, 차트, 완전 분석, 기록 시트, 완전 분석 좌석 누름은 제 할 일.
 //     탭으로 공개가 끝나 내 차례가 되면 GUARD_MS 동안 액션바 탭을 삼킨다(연타가 폴드 버튼에 닿지 않게).
 //   migrate() 1회 이전(저장 키 poker_pace_tap_migrated, 기기 키라 백업 제외, poker_pace_toast_seen과 같은 규칙): 저장된 pace가 'normal'(예전 기본)이면
@@ -21,6 +21,19 @@
 //   (n3-C) setGate({ take(how, waitInfo) → bool, label(waitInfo, left) → { html, aria } | null }): 상대 차례 차트(OppChart)가 탭 걸음 앞에 끼는 문.
 //     take가 참이면 그 누름은 걸음 대신 차트 넘김(결과를 본 뒤 다음 좌석 차트로)으로 쓰고 공개는 그대로 기다린다. label은 알약과 시트 안 다음 버튼 글.
 //     repaint() 알약과 사본 줄 다시 쓰기, mirrorHTML() 폰 차트 시트 .hl-mirror 줄 끝의 '👆 다음 (남은 n)'과 '⏭'(탭 대기일 때만, 누르면 알약과 같다).
+//   (n4-P0, 설계 docs/NEXT4_DESIGN.md 2.3절, 6.1절 3번 8항) 계약: waiting()과 'pace:wait' detail에 kind('seat', 게이트 대기는 G1이 'street', 'showdown'),
+//     hold(kind, info, resume) 프레임 없는 대기(스텁: 바로 resume, false), skipHand() 핸드 끝까지(스텁 false), skipping() 스텁 false,
+//     armGuard(ms) 액션바 탭 삼킴 시각 세우기(완성, 기본 TAP.guardMs 450, ⏭은 TAP.skipGuardMs 600), labelFor(w) → { html, aria } 대기 글(지금 알약 글 모양).
+//     EXCLUDE에 좌석 상자(좌석 누름은 걸음이 아니다, 4.1절, G3 SeatChart가 받는다)와 #next-bar(NextBar가 직접 처리)를 더했다.
+//   (n4 G1 NAV, 설계 1.2절, 2.2~2.6절, 결정 59, 60, 66) 알약 #pace-pill과 시트 사본 줄의 다음, ⏭을 없애고 하단 주 진행 바 #next-bar(ui/next-bar.js NextBar)가 맡는다.
+//     _ui는 좌석 표시와 사본 줄 글을 고친 뒤 NextBar.update(waiting())를 부른다(typeof 가드, 없으면 'pace:wait'만). mirrorHTML()은 늘 빈 문자열(호출 호환).
+//     탭 걸음: 상대 행동(연속 폴드 묶음), 스트리트 전환과 쇼다운(app.js _gate → hold), 내 폴드 뒤 상대끼리도 자동 진행 없이 누른다(plan tap에 auto 없음).
+//     tail(탭): 내 차례, 스트리트 전환(게이트가 받는다), 쇼다운으로 끝(ctx.showdown)은 0, 폴드로 끝나는 핸드만 600(마지막 폴드를 보고 넘어가게).
+//     remaining = 앞으로 행동할 사람 수(남은 프레임의 서로 다른 좌석 수, 묶음 여부를 미리 드러내지 않는다).
+//     hold(kind, info, resume): 프레임 없는 대기(kind 'street' | 'showdown'). step()과 finish()가 resume을 1회 부르고 cancel()은 버린다.
+//     skipHand(): 이번 핸드를 내 차례나 끝까지 빠르게(뒤따르는 run과 hold는 동기, 내 차례가 오면 풀고 액션바 탭을 600ms 삼킨다). cancel()이 푼다(새 핸드).
+//     armGuard(ms): 액션바 탭 삼킴 + #action-bar.guard(css/pace.css가 버튼을 흐린다), 끝나면 클래스를 지운다. 걸음이 내 차례에 닿으면 Pacer가 직접 세운다.
+//     mode() 지금 작업 모양('tap' | 'timed' | null), tailing() 탭 마지막 걸음 뒤 대기 중, labelFor(w, { short }) → { html, sub, aria }(2.5절 표).
 // HandLogUI(같은 파일): 액션 로그 줄 #hand-log. app.js의 HandLog 훅 5곳을 그대로 받아(track) 화면용 이벤트를 따로 쌓는다
 //   (미션, 보스, 커리어처럼 HandLog가 기록하지 않는 판에서도 보인다). hold() 뒤 reveal(n)은 hold 시점 + n개까지만 보이고
 //   reveal()은 전부. 폰은 도크 상단부 첫 줄(36px, MobileUI TOP), 누르면 하단 시트. 데스크톱은 테이블 왼쪽 위 패널(최근 4줄, 누르면 펼침).
@@ -39,13 +52,14 @@ var Pacer = (function() {
   var HERO_OUT = 0.5;     // 히어로가 폴드한 뒤 빌런끼리 진행은 모든 값 x0.5
   var TOAST_KEY = 'poker_pace_toast_seen';
   // (n3) 탭 모드: 마지막 걸음 뒤 스트리트 전환과 핸드 끝은 느림의 street(마지막 행동을 보고 넘어가게), 히어로 폴드 뒤 자동 진행은 느림 속도표
-  var TAP = { street: SPEEDS.slow.street, auto: 'slow', guardMs: 450 };
+  var TAP = { street: SPEEDS.slow.street, auto: 'slow', guardMs: 450, skipGuardMs: 600 };   // (n4-P0) skipGuardMs: ⏭으로 내 차례에 닿았을 때 삼킴
   var MIGRATE_KEY = 'poker_pace_tap_migrated';
   var SETTINGS_KEY = 'poker_journey_settings';
   var MSG = {
-    migrated: '이제 상대 행동은 화면을 누를 때마다 하나씩 나와요. 기록 줄의 👆 탭 버튼으로 자동 속도로 바꿀 수 있어요',
-    firstTap: '상대 행동은 화면을 누를 때마다 하나씩 나와요. 기록 줄의 👆 탭 버튼으로 자동 속도로 바꿀 수 있어요',
-    first: '상대가 한 명씩 움직여요. 테이블을 누르면 빨리 넘겨요(속도는 ⏩)'
+    // (n4 G1) 진행은 하단 ▶ 버튼(#next-bar) 하나로 모였다(테이블 펠트 누름도 그대로 1걸음)
+    migrated: '이제 상대 행동은 아래 ▶ 버튼을 누를 때마다 하나씩 나와요. 기록 줄의 👆 탭 버튼으로 자동 속도로 바꿀 수 있어요',
+    firstTap: '상대 행동은 아래 ▶ 버튼을 누를 때마다 하나씩 나와요. 기록 줄의 👆 탭 버튼으로 자동 속도로 바꿀 수 있어요',
+    first: '상대가 한 명씩 움직여요. 아래 ⏩ 버튼을 누르면 빨리 넘겨요(속도는 기록 줄 버튼)'
   };
   var POS = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
 
@@ -56,6 +70,8 @@ var Pacer = (function() {
   var _migChecked = false;
   var _seq = 0, _waitKey = '';   // 공개 일련번호, 마지막으로 알린 대기 키('pace:wait' 중복 방지)
   var _gate = null;       // (n3-C) setGate로 건 문 { take, label }
+  var _skip = null;       // (n4) skipHand로 건 '핸드 끝까지' { key: 핸드 키 }. cancel()이 푼다
+  var _guardTimer = null; // (n4) #action-bar.guard를 지우는 타이머
 
   function _setT(fn, ms) { var f = _env.setTimeout || (typeof setTimeout === 'function' ? setTimeout : null); return f ? f(fn, ms) : (fn(), null); }
   function _clearT(id) { var f = _env.clearTimeout || (typeof clearTimeout === 'function' ? clearTimeout : null); if (f && id != null) f(id); }
@@ -120,16 +136,13 @@ var Pacer = (function() {
     ctx = ctx || {};
     if (spd !== 'tap' && !SPEEDS[spd]) spd = speed();
     if (spd === 'tap') {
-      var st = steps(frames), out0;
-      if (ctx.heroOut) {   // 히어로 폴드 뒤 빌런끼리: 느림 속도로 자동 진행(x0.5 없음), 누르면 다음 걸음
-        out0 = plan(frames, TAP.auto, { next: ctx.next });
-        out0.auto = true;
-      } else {
-        var starts = {};
-        st.forEach(function(x) { starts[x[0]] = true; });
-        out0 = frames.map(function(f, k) { return { i: k, delay: 0, tap: !!starts[k] }; });
-        out0.tail = (frames.length && ctx.next !== 'hero') ? TAP.street : 0;
-      }
+      // (n4, 결정 60) 내 폴드 뒤 상대끼리(heroOut)도 자동 진행 없이 누른다. tail은 게이트가 받는 자리(스트리트 전환, 쇼다운)와 내 차례면 0,
+      //   폴드로 끝나는 핸드(next 'end', ctx.showdown 거짓)만 느림의 street(마지막 폴드를 보고 넘어가게)
+      var st = steps(frames), starts = {};
+      st.forEach(function(x) { starts[x[0]] = true; });
+      var out0 = frames.map(function(f, k) { return { i: k, delay: 0, tap: !!starts[k] }; });
+      var gated = ctx.next === 'hero' || ctx.next === 'street' || (ctx.next === 'end' && !!ctx.showdown);
+      out0.tail = (frames.length && !gated) ? TAP.street : 0;
       out0.steps = st;
       return out0;
     }
@@ -174,8 +187,9 @@ var Pacer = (function() {
   }
   // 누름 제외(제 할 일): 로그 줄, 승률 칩, 토글, 도크, 차트 시트, 완전 분석 시트와 화면, 기록 시트와 그 사본 줄
   //   (데스크톱은 테이블 안 패널: 차트 #gto-chart, 에쿼티 패널, 띵킹 패널과 피드도 읽는 자리라 넘기지 않는다)
+  //   (n4-P0) 좌석 상자(#screen-game .poker-table .seat)는 그 사람 좌석 시트(G3 SeatChart, 완전 분석은 OmniUI)라 걸음이 아니다. #next-bar는 NextBar가 직접 넘긴다(두 번 세지 않게)
   var EXCLUDE = '#hand-log, #eq-chips, #equity-toggle, #m-dock, #gto-sheet, #gto-chart, #equity-overlay, #thinking-panel, #thinking-feed, ' +
-    '#omni-panel, #omni-root, #hand-log-sheet, .hl-mirror';
+    '#omni-panel, #omni-root, #hand-log-sheet, .hl-mirror, #screen-game .poker-table .seat, #next-bar';
   function _now() {
     try { if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') return performance.now(); } catch (e) { /* noop */ }
     return Date.now();
@@ -184,6 +198,29 @@ var Pacer = (function() {
   function _omniSeat(t) {
     if (!t.closest('#screen-game .poker-table .seat')) return false;
     try { return !!(typeof App !== 'undefined' && App && typeof App.omni === 'function' && App.omni()); } catch (e) { return false; }
+  }
+  // (n4-P0) 삼킴 시각을 세운다: 지금부터 ms(기본 TAP.guardMs) 동안 액션바 탭을 삼킨다. 다음 바(NextBar)로 넘긴 걸음이 내 차례에 닿을 때 Pacer가 부른다(G1)
+  //   (n4 G1, 결정 66) 삼키는 동안 #action-bar에 .guard(css/pace.css가 버튼을 흐린다), 시간이 지나면 지운다. 더 긴 삼킴이 걸려 있으면 줄이지 않는다
+  function armGuard(ms) {
+    var dur = (typeof ms === 'number' && ms > 0) ? ms : TAP.guardMs, until = _now() + dur;
+    if (until < _guardUntil) return _guardUntil;
+    _guardUntil = until;
+    _guardCls(true);
+    _clearT(_guardTimer);
+    _guardTimer = _setT(function() { _guardTimer = null; if (_now() >= _guardUntil - 1) _guardCls(false); }, dur);
+    return _guardUntil;
+  }
+  function _guardCls(on) {
+    try {
+      if (typeof document === 'undefined' || !document || typeof document.getElementById !== 'function') return;
+      var bar = document.getElementById('action-bar');
+      if (bar && bar.classList) bar.classList.toggle('guard', !!on);
+    } catch (e) { /* noop */ }
+  }
+  // 지금 내 차례인가(App 공개 상태, 없으면 false)
+  function _heroNow() {
+    try { var st = (typeof App !== 'undefined' && App && typeof App.liveState === 'function') ? App.liveState() : null; return !!(st && st.waitingForHero && !st.handOver); }
+    catch (e) { return false; }
   }
   // 탭으로 공개가 끝나 내 차례가 된 직후의 액션바 탭은 삼킨다(빠른 연타가 폴드, 콜 버튼에 닿는 사고 방지)
   function _swallow(e) {
@@ -201,23 +238,22 @@ var Pacer = (function() {
     var t = e && e.target;
     if (!t || typeof t.closest !== 'function') return false;
     var how = null;
-    if (t.closest('#pace-pill')) how = t.closest('.pace-skip') ? 'finish' : 'step';
-    else if (t.closest('.hl-pace')) how = t.closest('.hl-pace-skip') ? 'finish' : 'step';   // (n3-C) 차트 시트 안 사본 줄의 다음, ⏭
+    // (n4) 알약과 시트 사본 줄의 다음, ⏭은 없어졌다(하단 #next-bar가 맡고, EXCLUDE라 여기서 두 번 세지 않는다)
     // (n3 검증) 폰 도크(#m-dock)는 흐름 안 요소라, 길어지면 아래로 붙은 액션바(sticky, z 40) 밑으로 지나간다. 공개 중 액션바는 인라인
     //   pointer-events: none이라 흐린 폴드, 콜 버튼 자리를 눌러도 target이 그 밑 도크 글(용어 풀이 등)이 되어 넘기지 못하고 도크가 열렸다(실측 412x915).
     //   화면에 보이는 것은 액션바이므로, 액션바 사각형 안의 도크 누름은 액션바 누름으로 본다
-    else if (t.closest('#m-dock') && _inActionBar(e)) how = _job.mode === 'timed' ? 'finish' : 'step';
+    if (t.closest('#m-dock') && _inActionBar(e)) how = _job.mode === 'timed' ? 'finish' : 'step';
     else if (t.closest(EXCLUDE) || _omniSeat(t)) return false;
     else if (!t.closest('#screen-game .table-area, #action-bar') && !_inActionBar(e)) return false;
     else how = _job.mode === 'timed' ? 'finish' : 'step';
     // 액션바와 알약 누름은 여기서 끝낸다(n3 리뷰): 키보드 Enter처럼 포커스된 버튼의 click이 오면 그 onclick(App.heroAction)이
     //   한 번 더 걸음을 넘기거나, 이 누름으로 공개가 끝난 직후 내 액션으로 쓰인다. 테이블 누름은 아래 요소의 자기 일을 그대로 둔다
-    if (t.closest('#action-bar, #pace-pill, .hl-pace') || _inActionBar(e)) {
+    if (t.closest('#action-bar') || _inActionBar(e)) {
       if (typeof e.preventDefault === 'function') e.preventDefault();
       if (typeof e.stopPropagation === 'function') e.stopPropagation();
     }
     if (how === 'finish') finish(); else step();
-    if (!_job) _guardUntil = _now() + TAP.guardMs;
+    if (!_job) armGuard(TAP.guardMs);
     return true;
   }
   // 테이블이나 액션바 탭 = 빨리 감기(탭 모드는 다음 걸음). 한 번만 건다(캡처 단계, 아래 요소의 자기 일은 그대로 이어진다)
@@ -227,14 +263,19 @@ var Pacer = (function() {
     document.addEventListener('click', _onTap, true);
   }
 
-  // ── 탭 대기 화면: 다음 좌석 맥박 테두리와 액션바 위 알약 #pace-pill(실제 게임 화면에서만) ──
+  // ── 탭 대기 화면: 다음 좌석 맥박 테두리(실제 게임 화면에서만), 진행 버튼은 하단 #next-bar(NextBar) ──
   function _doc() { return (_hasDom() && typeof document !== 'undefined' && document && typeof document.getElementById === 'function' && typeof document.createElement === 'function') ? document : null; }
   function _posOf(f) {
     var a = f && f.action, nm = a && a.name, pre = f && f.pre;
     var p = (pre && pre.players && nm && pre.players[nm] && pre.players[nm].pos) || (a && a.pos) || null;
     return POS.indexOf(p) >= 0 ? p : null;
   }
-  function _left(j) { var n = 0; (j.steps || []).forEach(function(s) { if (s[1] > j.i) n++; }); return n; }
+  // (n4) 앞으로 행동할 사람 수: 남은 프레임(지금 대기 포함)의 서로 다른 좌석 수. 같은 스트리트에서 두 번 행동하는 좌석은 1명
+  function _left(j) {
+    var seen = {}, n = 0, fr = (j && j.frames) || [];
+    for (var k = j.i; k < fr.length; k++) { var nm = fr[k] && fr[k].action && fr[k].action.name; if (nm && !seen[nm]) { seen[nm] = 1; n++; } }
+    return n;
+  }
   function _markSeat(d, pos) {
     var sg = d.getElementById('screen-game');
     if (sg && sg.setAttribute) { if (pos) sg.setAttribute('data-pace-next', pos); else if (sg.removeAttribute) sg.removeAttribute('data-pace-next'); }
@@ -243,65 +284,18 @@ var Pacer = (function() {
     var el = pos ? d.getElementById('seat-' + pos) : null;
     if (el && el.classList) el.classList.add('pace-next');
   }
-  function _pillEl(d) {
-    var el = d.getElementById('pace-pill');
-    if (el) return el;
-    if (!d.body) return null;
-    el = d.createElement('div');
-    el.id = 'pace-pill';
-    el.className = 'pace-pill';
-    el.setAttribute('role', 'group');
-    el.setAttribute('aria-label', '상대 행동 넘기기');
-    el.innerHTML = '<button type="button" class="pace-go" aria-live="polite"></button><button type="button" class="pace-skip" aria-label="상대 행동 끝까지 한 번에 보기">⏭ 끝까지</button>';
-    el.style.display = 'none';
-    d.body.appendChild(el);
-    return el;
-  }
-  // 알약 자리: 보이는 액션바 바로 위(8px), 액션바 오른쪽 끝에 맞춘다(폰은 16px 여백, 데스크톱은 가운데 내 좌석을 피한다)
-  //   레이아웃 읽기는 다음 프레임 직전(rAF)으로 미뤄 결정 동기 블록에 강제 레이아웃을 더하지 않는다(그리기 전이라 깜빡임 없음)
-  var _placeQ = false;
-  function _placeLater(d, el) {
-    var raf = (typeof window !== 'undefined' && window && typeof window.requestAnimationFrame === 'function') ? window.requestAnimationFrame : null;
-    if (!raf) { _placePill(d, el); return; }
-    if (_placeQ) return;
-    _placeQ = true;
-    raf(function() { _placeQ = false; try { if (el.style.display !== 'none') _placePill(d, el); } catch (e) { /* noop */ } });
-  }
-  function _focusNow(d, go) {
-    var ae = d.activeElement, el = d.getElementById('pace-pill');
-    if (!el || el.style.display === 'none' || !el.contains || !el.contains(go)) return false;
-    if (ae === go || typeof go.focus !== 'function') return false;
-    if (ae && ae !== d.body && !(typeof ae.closest === 'function' && ae.closest('#action-bar'))) return false;
-    try { go.focus({ preventScroll: true }); } catch (e) { return false; }
-    return true;
-  }
-  function _focusLater(d, go) {   // 겹쳐 불러도 rAF마다 조건을 다시 보므로 한 번만 옮긴다(막힌 깃발이 남지 않게 묶지 않는다)
-    var raf = (typeof window !== 'undefined' && window && typeof window.requestAnimationFrame === 'function') ? window.requestAnimationFrame : null;
-    if (!raf) { _focusNow(d, go); return; }
-    raf(function() { try { _focusNow(d, go); } catch (e) { /* noop */ } });
-  }
-  function _placePill(d, el) {
-    if (typeof window === 'undefined' || !window || !window.innerHeight) return;
-    var bar = d.getElementById('action-bar'), r = null;
-    if (bar && bar.style && bar.style.display !== 'none' && bar.offsetHeight > 0 && bar.getBoundingClientRect) r = bar.getBoundingClientRect();
-    var W = window.innerWidth || (d.documentElement && d.documentElement.clientWidth) || 0;
-    // (n3-C) 폰 차트 시트가 접혀(손잡이 44px만) 액션바 바로 위에 있으면 알약을 손잡이 위로 올린다(시트 z 35가 알약 z 34를 덮던 자리).
-    //   접힘 전환 애니메이션 중에도 맞게 사각형 대신 손잡이 높이(44px)로 센다. 펼친 시트는 시트 안 사본 줄의 다음 버튼을 쓴다
-    var sh = d.getElementById('gto-sheet'), lift = 0;
-    if (sh && sh.style && sh.style.display !== 'none' && sh.classList && sh.classList.contains('peek')) lift = 44;
-    el.style.bottom = Math.max(8, Math.round(window.innerHeight - (r ? r.top : window.innerHeight) + 8 + lift)) + 'px';
-    el.style.right = Math.max(16, Math.round(W - (r ? r.right : W) + 16)) + 'px';
-  }
   // 대기 정보(C: 상대 차례에 그 사람 입장 차트가 쓴다). 탭 대기와 자동 진행(heroOut) 중 다음에 움직일 좌석, 끝났거나 시간 모드면 null
   //   seat = 그 좌석 이름, pos = 포지션, remaining = 남은 걸음 수(이번 걸음 포함), auto = 자동 진행 중, state = 그 좌석이 결정하기 직전 상태(엔진 상태, 바꾸지 말 것)
+  //   (n4) 게이트 대기(hold)는 { kind('street' | 'showdown'), info, seat: null, pos: null, remaining: 0, auto: false, state: null, index: -1 }
   function _waitInfo(j) {
+    if (j && j.kind) return { kind: j.kind, info: j.info || {}, seat: null, pos: null, remaining: 0, auto: false, state: null, index: -1 };
     if (!j || j.mode === 'timed' || j.i >= j.frames.length) return null;
     var f = j.frames[j.i], a = (f && f.action) || {};
-    return { seat: a.name || null, pos: _posOf(f), remaining: _left(j), auto: j.mode === 'auto', state: (f && f.pre) || null, index: j.i };
+    return { kind: 'seat', seat: a.name || null, pos: _posOf(f), remaining: _left(j), auto: j.mode === 'auto', state: (f && f.pre) || null, index: j.i };
   }
   // 'pace:wait' 이벤트(document, detail = waiting()): 대기 좌석이 바뀌거나 대기가 끝날 때(null) 한 번씩
   function _emit(j) {
-    var w = _waitInfo(j), key = w ? (j.id + ':' + w.index + ':' + (w.auto ? 'a' : 't')) : '';
+    var w = _waitInfo(j), key = w ? (j.id + ':' + (w.kind === 'seat' ? w.index : w.kind) + ':' + (w.auto ? 'a' : 't')) : '';
     if (key === _waitKey) return false;
     _waitKey = key;
     try {
@@ -314,50 +308,62 @@ var Pacer = (function() {
     _emit(j);
     var d;
     try { d = _doc(); } catch (e) { d = null; }
-    if (!d) return false;
-    try {
-      var waiting = !!(j && j.mode !== 'timed' && j.i < j.frames.length);
-      var pos = waiting ? _posOf(j.frames[j.i]) : null;
-      _markSeat(d, pos);
-      _mirrors();
-      var el = waiting ? _pillEl(d) : d.getElementById('pace-pill');
-      if (!el) return false;
-      if (!waiting) { el.style.display = 'none'; return true; }
-      var go = el.querySelector('.pace-go'), left = _left(j), lab = j.mode === 'tap' ? _gateLabel(j, left) : null;
-      var html = j.mode === 'auto' ? '👆 자동 진행 중, 누르면 다음'
-        : (lab && lab.html) || ('👆 눌러서 다음' + (pos ? ': <b>' + pos + '</b>' : '') + ' <span class="pace-left">(남은 ' + left + ')</span>');
-      if (go && go.innerHTML !== html) go.innerHTML = html;
-      if (go) go.setAttribute('aria-label', j.mode === 'auto' ? '상대끼리 자동 진행 중, 누르면 다음 행동' : (lab && lab.aria) || ('눌러서 다음 상대 행동 보기' + (pos ? ', ' + pos : '') + ', 남은 ' + left + '번'));
-      el.classList.toggle('pace-auto', j.mode === 'auto');
-      el.style.display = '';
-      // 키보드: 방금 누른 액션 버튼(흐려져 못 쓰는 바 안)에 포커스가 남아 있거나, 앞 대기의 알약이 숨으며 포커스가 body로 빠졌으면
-      //   알약의 다음 버튼으로 옮긴다(Enter, Space로 이어 넘기기). 다른 요소(기록 줄, 시트 등)를 보고 있으면 건드리지 않는다
-      //   (n3 검증) focus()는 차트와 테이블을 막 고친 뒤라 스타일과 레이아웃을 강제해(412x915, CPU 4배: 결정 동기 블록 평균 35ms, p90 86ms로 예산 40 초과)
-      //   알약 자리 잡기와 같은 다음 프레임 직전으로 미룬다. 그때 다시 조건을 본다(그사이 다른 곳을 눌렀으면 그대로)
-      if (go) _focusLater(d, go);
-      _placeLater(d, el);
-      return true;
-    } catch (e) { return false; }
+    if (d) {
+      try {
+        var waiting = !!(j && !j.kind && j.mode !== 'timed' && j.i < j.frames.length);
+        _markSeat(d, waiting ? _posOf(j.frames[j.i]) : null);
+        _mirrors();
+      } catch (e) { /* noop */ }
+    }
+    _nb();
+    return !!d;
+  }
+  // (n4) 하단 주 진행 바에 지금 대기를 알린다(typeof 가드). 라벨과 표시는 NextBar가 정한다
+  function _nb() {
+    try { if (typeof NextBar !== 'undefined' && NextBar && typeof NextBar.update === 'function') NextBar.update(_waitInfo(_job)); } catch (e) { /* noop */ }
   }
 
   // (n3-C) 문(OppChart)의 글. 없거나 실패면 null(원래 글)
-  function _gateLabel(j, left) {
+  function _gateLabelW(w, left) {
     if (!_gate || typeof _gate.label !== 'function') return null;
-    try { return _gate.label(_waitInfo(j), left) || null; } catch (e) { return null; }
+    try { return _gate.label(w, left) || null; } catch (e) { return null; }
   }
-  // 폰 차트 시트 안 사본 줄(.hl-mirror)을 다시 쓴다(HandLogUI가 줄 글 + mirrorHTML을 넣는다)
+  // (n4, 설계 2.5절) 대기 글: w = waiting() 모양, o.short(320 폭 짧은 글). → { html(주 글, <b>자리</b>), sub(작은 글, 없으면 ''), aria } | null(대기 없음).
+  //   상대 좌석은 문(OppChart) 글이 있으면 그것이 먼저(👆는 ▶로, 남은 수는 사람 수로 고친다). 글에 가운뎃점과 긴줄표 없음
+  var STREET_KO = { flop: '플랍', turn: '턴', river: '리버' };
+  function labelFor(w, o) {
+    if (!w) return null;
+    var sh = !!(o && o.short), info = w.info || {};
+    if (w.kind === 'street') {
+      var nm = STREET_KO[info.street] || '다음 카드', n = info.cards || (info.street === 'flop' ? 3 : 1);
+      return { html: '▶ ' + nm + (sh ? '' : ' 보기' + (info.street === 'flop' ? '(' + n + '장)' : '')), sub: '', aria: nm + ' ' + n + '장 보기' };
+    }
+    if (w.kind === 'showdown') {
+      if (info.runout) return { html: sh ? '▶ 결과' : '▶ 결과 보기', sub: '', aria: '남은 카드와 결과 보기' };
+      var live = info.live || 2;
+      return { html: sh ? '▶ 쇼다운' : '▶ 쇼다운 보기(' + live + '명)', sub: sh ? '' : '누가 이길지 먼저 생각해 보세요', aria: '쇼다운 보기, ' + live + '명' };
+    }
+    var left = w.remaining, pos = w.pos || '', lab = w.auto ? null : _gateLabelW(w, left);
+    var sub = sh ? '(' + left + '명)' : '남은 ' + left + '명';
+    if (lab && lab.html) {
+      var isWait = /행동 보기/.test(lab.html);
+      var html = sh ? (isWait ? '▶ <b>' + pos + '</b> 행동' : '▶ 다음: <b>' + pos + '</b>')
+        : String(lab.html).replace(/\s*<span class="pace-left">[^<]*<\/span>/, '').replace(/^👆\s*/, '▶ ');
+      var aria = String(lab.aria || '').replace(/남은 (\d+)번/, '남은 $1명');
+      return { html: html, sub: sub, aria: aria || html.replace(/<[^>]+>/g, '') };
+    }
+    return {
+      html: sh ? '▶ 다음: <b>' + pos + '</b>' : '▶ 다음: <b>' + pos + '</b> 행동',
+      sub: sub,
+      aria: '다음 상대 행동 보기' + (pos ? ', ' + pos : '') + ', 남은 ' + left + '명'
+    };
+  }
+  // 폰 차트 시트 안 사본 줄(.hl-mirror)을 다시 쓴다(HandLogUI가 줄 글을 넣는다)
   function _mirrors() {
     try { if (typeof HandLogUI !== 'undefined' && HandLogUI && typeof HandLogUI.syncMirrors === 'function') HandLogUI.syncMirrors(); } catch (e) { /* noop */ }
   }
-  // 사본 줄 끝의 다음, ⏭ 버튼(탭 대기일 때만). 누르면 _onTap이 알약과 같이 처리한다
-  function mirrorHTML() {
-    var j = _job;
-    if (!j || j.mode !== 'tap' || j.i >= j.frames.length) return '';
-    var left = _left(j), w = _waitInfo(j), lab = _gateLabel(j, left);
-    var aria = (lab && lab.aria) || ('눌러서 다음 상대 행동 보기' + (w && w.pos ? ', ' + w.pos : '') + ', 남은 ' + left + '번');
-    return '<span class="hl-pace" role="group" aria-label="상대 행동 넘기기"><button type="button" class="hl-pace-go" aria-label="' + aria + '">👆 다음 <span class="pace-left">(남은 ' + left + ')</span></button>' +
-      '<button type="button" class="hl-pace-skip" aria-label="상대 행동 끝까지 한 번에 보기">⏭</button></span>';
-  }
+  // (n4) 사본 줄 끝의 다음, ⏭은 없앴다(하단 #next-bar 하나로). 호출 호환을 위해 늘 빈 문자열
+  function mirrorHTML() { return ''; }
   function setGate(g) { _gate = (g && typeof g === 'object') ? g : null; return !!_gate; }
   function repaint() { return _ui(_job); }
 
@@ -371,7 +377,15 @@ var Pacer = (function() {
     _job = null;
     _ui(null);
     _revealing(false);
-    if (typeof j.hooks.done === 'function') j.hooks.done();
+    if (typeof j.resume === 'function') j.resume();   // (n4) 게이트 대기는 done 대신 resume
+    else if (typeof j.hooks.done === 'function') j.hooks.done();
+  }
+  // (n4, 결정 66) 걸음이나 끝까지로 작업이 끝나 내 차례가 되었으면 액션바 탭을 삼킨다(다음 바와 액션 버튼이 같은 자리)
+  function _guardIfHero(j, ms) {
+    if (_job === j) return false;
+    if (!((j && j.ctx && j.ctx.next === 'hero') || _heroNow())) return false;
+    armGuard(ms || TAP.guardMs);
+    return true;
   }
   function _show(j, upTo) {
     while (j.i < upTo && _job === j) {
@@ -408,9 +422,11 @@ var Pacer = (function() {
     hooks = hooks || {};
     ctx = ctx || {};
     if (_job) finish();   // 앞 공개가 남았으면(정상 흐름에서는 없음) 먼저 끝낸다
-    var spd = ctx.speed || speed();
-    if (sync({ frames: frames, practice: ctx.practice, speed: spd })) {
+    var spd = ctx.speed || speed(), skip = skipping();
+    if (skip || sync({ frames: frames, practice: ctx.practice, speed: spd })) {
       for (var i = 0; i < frames.length; i++) if (typeof hooks.frame === 'function') hooks.frame(frames[i], i);
+      // (n4) ⏭ 핸드 끝까지: 내 차례가 오면 풀고 액션바 탭을 삼킨다(손가락이 레이즈 자리에 그대로 있다)
+      if (skip && ctx.next === 'hero') { _skip = null; armGuard(TAP.skipGuardMs); }
       if (typeof hooks.done === 'function') hooks.done();
       return true;
     }
@@ -418,12 +434,18 @@ var Pacer = (function() {
     var mode = p.steps ? (p.auto ? 'auto' : 'tap') : 'timed';
     _job = { id: ++_seq, frames: frames, hooks: hooks, delays: p, tail: p.tail || 0, i: 0, timer: null, mode: mode, steps: p.steps || null, ctx: ctx };
     _guardUntil = 0;
+    _guardCls(false);
     _revealing(true);
     _bindTap();
     _next();
+    if (_job && _job.mode === 'timed') _nb();   // 시간 모드는 _ui를 부르지 않으므로 다음 바(⏩ 빨리 넘기기)에 따로 알린다
     return true;
   }
   function busy() { return !!_job; }
+  // (n4) 지금 작업 모양: 'tap'(탭 대기, 게이트 포함) | 'timed'(시간 속도 공개) | null(작업 없음)
+  function mode() { return _job ? _job.mode : null; }
+  // (n4) 탭 tail(마지막 걸음 뒤 대기) 중인가: 대기 정보는 없지만 작업이 남았다
+  function tailing() { var j = _job; return !!(j && !j.kind && j.mode !== 'timed' && j.i >= j.frames.length); }
   // 진행 중 공개를 새 속도로 다시 짠다(이미 보인 프레임은 그대로). 즉시면 finish
   function _retime(spd) {
     var j = _job;
@@ -437,7 +459,7 @@ var Pacer = (function() {
     _next();
     return true;
   }
-  // 대기 중인 다음 좌석 { seat, pos, remaining, auto, state, index } 또는 null(_waitInfo). 시간 모드와 마지막 걸음 뒤 대기(tail)는 null
+  // 대기 중인 다음 좌석 { kind('seat'), seat, pos, remaining, auto, state, index } 또는 null(_waitInfo). 시간 모드와 마지막 걸음 뒤 대기(tail)는 null
   function waiting() { return _waitInfo(_job); }
   // 다음 1걸음(탭, 자동 모드). 시간 모드와 마지막 걸음 뒤 대기는 finish와 같다
   function step() {
@@ -453,6 +475,7 @@ var Pacer = (function() {
     j.timer = null;
     _show(j, _stepEnd(j));
     if (_job === j) _next();
+    _guardIfHero(j);
     return true;
   }
   function finish() {
@@ -462,9 +485,12 @@ var Pacer = (function() {
     j.timer = null;
     _show(j, j.frames.length);
     if (_job === j) _end();
+    _guardIfHero(j);
     return true;
   }
+  //   (n4) 게이트의 resume과 '핸드 끝까지'도 버린다(화면 이탈, 새 핸드)
   function cancel() {
+    _skip = null;
     var j = _job;
     if (!j) return false;
     _clearT(j.timer);
@@ -473,6 +499,39 @@ var Pacer = (function() {
     _revealing(false);
     return true;
   }
+  // ── (n4 G1, 설계 2.3절 3번, 5번) 게이트와 핸드 끝까지 ──
+  // hold(kind('street' | 'showdown'), info, resume): 프레임 0개의 탭 대기. 탭 모드가 아니거나 DOM 없음(node, smoke), 연습(info.practice),
+  //   skipping이면 resume()을 바로 부르고 false. 대기 중 step()과 finish()가 resume을 1회 부르고 작업을 끝낸다(_end), cancel()은 버린다.
+  //   대기 정보는 waiting() = { kind, info, seat: null, ... }, 'pace:wait' 1회, 다음 바 라벨(플랍 보기, 쇼다운 보기)
+  function hold(kind, info, resume) {
+    if (typeof resume !== 'function') return false;
+    info = info || {};
+    if (speed() !== 'tap' || !_hasDom() || info.practice || skipping()) { resume(); return false; }
+    if (_job) finish();
+    _job = { id: ++_seq, kind: String(kind || 'street'), info: info, resume: resume, frames: [], hooks: {}, delays: [], tail: 0, i: 0, timer: null, mode: 'tap', steps: [], ctx: {} };
+    _revealing(true);
+    _bindTap();
+    _ui(_job);
+    return true;
+  }
+  function _handKey() {
+    try {
+      var st = (typeof App !== 'undefined' && App && typeof App.liveState === 'function') ? App.liveState() : null;
+      return st ? String(st.seed) + ':' + String(st.handNum) + ':' + String(st.round || 0) : 'x';
+    } catch (e) { return 'x'; }
+  }
+  // skipHand(): 이번 핸드를 내 차례나 끝까지 빠르게. 지금 작업은 finish, 뒤따르는 같은 핸드의 run과 hold는 동기로 끝낸다.
+  //   내 차례가 오면 풀고 액션바 탭을 TAP.skipGuardMs(600) 삼킨다. 새 핸드(cancel)에서 풀린다. → true
+  function skipHand() {
+    _skip = { key: _handKey() };
+    var toHero = !!(_job && _job.ctx && _job.ctx.next === 'hero');
+    if (_job) finish();
+    if (_skip && (toHero || _heroNow())) { _skip = null; armGuard(TAP.skipGuardMs); }
+    _nb();
+    return true;
+  }
+  // skipping(): 이번 핸드에 skipHand가 걸려 있는가(핸드 키가 바뀌면 거짓)
+  function skipping() { return !!(_skip && _skip.key === _handKey()); }
   function _ls() { try { return (typeof localStorage !== 'undefined' && localStorage) ? localStorage : null; } catch (e) { return null; } }
   // 첫 순차 공개 안내를 띄울 차례인가(한 번만 true, 저장 키 poker_pace_toast_seen)
   function toastOnce() {
@@ -522,8 +581,11 @@ var Pacer = (function() {
     speed: speed, label: label, icon: icon, cycle: cycle, sync: sync, plan: plan, steps: steps, run: run, busy: busy, waiting: waiting,
     step: step, finish: finish, cancel: cancel, toastOnce: toastOnce, migrate: migrate, notice: notice,
     setGate: setGate, repaint: repaint, mirrorHTML: mirrorHTML,
-    _setEnv: _setEnv, _hasDom: _hasDom, _onTap: _onTap, _ui: _ui,
-    _migrateReset: function() { _migChecked = false; }, _guardReset: function() { _guardUntil = 0; } };
+    hold: hold, skipHand: skipHand, skipping: skipping, armGuard: armGuard, labelFor: labelFor, EXCLUDE: EXCLUDE,   // (n4-P0)
+    mode: mode, tailing: tailing, STREET_KO: STREET_KO,   // (n4 G1)
+    _setEnv: _setEnv, _hasDom: _hasDom, _onTap: _onTap, _ui: _ui, _swallow: _swallow,
+    _migrateReset: function() { _migChecked = false; }, _guardReset: function() { _guardUntil = 0; _clearT(_guardTimer); _guardTimer = null; _guardCls(false); },
+    _guardLeft: function() { return Math.max(0, _guardUntil - _now()); } };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
@@ -615,12 +677,23 @@ var HandLogUI = (function() {
       txt + (ev.light && LIGHT[ev.light] ? ' ' + LIGHT[ev.light] : '') + '</div>';
   }
   function listHTML() { return events().map(rowHTML).join(''); }
+  // (n4 G1) 보이는 마지막 이벤트부터 거꾸로 이어진 상대 폴드(같은 스트리트, 내 행동이나 스트리트 줄에서 끊음)의 자리 이름. 2명 이상이면 배열, 아니면 null
+  function foldRun() {
+    var out = [];
+    for (var i = _shown - 1; i >= 0; i--) {
+      var e = _ev[i];
+      if (!e || e.k !== 'a' || e.n === 'Hero' || e.act !== 'fold') break;
+      out.unshift(_pos[e.n] || String(e.n || ''));
+    }
+    return out.length >= 2 ? out : null;
+  }
   // 접힌 줄: [횟수][마지막 공개 이벤트][⏩ 속도](탭 모드는 👆 탭). title이 참이면(데스크톱 패널, 아래 목록이 최근 줄을 보인다) 글은 제목만
   function lineHTML(title) {
     var ev = (!title && _shown > 0) ? _ev[_shown - 1] : null;
     var AT = _AT(), cls = '', ic = '';
     if (ev && ev.k === 'a' && AT) { var key = AT.actKey(ev); cls = AT.cls(key); ic = AT.icon(key); }
-    var txt = ev ? _color(_esc(lineText(ev))) + (ev.light && LIGHT[ev.light] ? ' ' + LIGHT[ev.light] : '') : '이번 핸드 기록';
+    var run = ev ? foldRun() : null;   // (n4 G1, 설계 2.2절 2번) 이어진 상대 폴드는 'UTG, HJ 폴드'로 묶어 적는다
+    var txt = ev ? (run ? _esc(run.join(', ') + ' 폴드') : _color(_esc(lineText(ev))) + (ev.light && LIGHT[ev.light] ? ' ' + LIGHT[ev.light] : '')) : '이번 핸드 기록';
     var spd = Pacer.speed();
     return '<button type="button" class="hl-line" aria-expanded="' + (_open ? 'true' : 'false') + '" aria-label="이번 핸드 액션 기록 ' + (_open ? '접기' : '펼치기') + '">' +
       '<span class="hl-count" aria-hidden="true">' + count() + '</span>' +
@@ -659,11 +732,18 @@ var HandLogUI = (function() {
     _sheet.className = 'hl-sheet';
     _sheet.setAttribute('role', 'dialog');
     _sheet.setAttribute('aria-label', '이번 핸드 액션 기록');
-    _sheet.innerHTML = '<button type="button" class="hl-sheet-handle" aria-label="기록 접기"><span class="hl-sheet-grip" aria-hidden="true"></span>' +
-      '<span class="hl-sheet-title">이번 핸드 기록</span><span aria-hidden="true">▾</span></button><div class="hl-sheet-body"></div>';
+    // (n4 G1, 설계 1.4절, 결정 61) 머리줄 48px: 손잡이(그립 + 제목, 누르면 닫기) + 오른쪽 '✕ 닫기'(72x48). 머리줄을 아래로 끌어도 닫는다(SheetGesture)
+    _sheet.innerHTML = '<div class="sheet-head hl-sheet-head"><button type="button" class="hl-sheet-handle" aria-label="기록 닫기"><span class="hl-sheet-grip" aria-hidden="true"></span>' +
+      '<span class="hl-sheet-title sheet-title">이번 핸드 기록</span></button>' +
+      '<button type="button" class="sheet-close hl-sheet-close" aria-label="기록 닫기"><span aria-hidden="true">✕</span><span class="sheet-close-t">닫기</span></button></div>' +
+      '<div class="hl-sheet-body"></div>';
     _sheet.style.display = 'none';
     d.body.appendChild(_sheet);
-    _sheet.addEventListener('click', function(e) { if (e.target && e.target.closest && e.target.closest('.hl-sheet-handle')) toggle(false); });
+    _sheet.addEventListener('click', function(e) { if (e.target && e.target.closest && e.target.closest('.hl-sheet-handle, .hl-sheet-close')) toggle(false); });
+    var head = _sheet.querySelector ? _sheet.querySelector('.hl-sheet-head') : null;
+    if (head && typeof SheetGesture !== 'undefined' && SheetGesture && typeof SheetGesture.bind === 'function') {
+      SheetGesture.bind(_sheet, head, { onClose: function() { toggle(false); }, onTap: function() { toggle(false); } });
+    }
     return _sheet;
   }
 
@@ -717,7 +797,7 @@ var HandLogUI = (function() {
   //   (ui/gto-chart.js가 자리를 만든다). 누르면 원본과 같다(줄 = 기록 시트 펼치기, ⏩ = 속도 바꾸기). 데스크톱은 비운다
   function _renderMirrors(d, mob) {
     if (!d || typeof d.querySelectorAll !== 'function') return 0;
-    var pace = mob ? Pacer.mirrorHTML() : '';   // (n3-C) 탭 대기면 줄 끝에 다음, ⏭(시트를 닫지 않고 넘긴다)
+    var pace = mob ? Pacer.mirrorHTML() : '';   // (n4) 늘 빈 문자열(진행은 하단 #next-bar), 호출은 호환으로 남긴다
     var ms = d.querySelectorAll('.hl-mirror'), html = mob ? lineHTML(false) + pace : '';
     for (var i = 0; i < ms.length; i++) {
       var m = ms[i];
@@ -734,7 +814,8 @@ var HandLogUI = (function() {
     var d = _doc();
     if (!d || typeof window === 'undefined' || !window.innerHeight) return;
     var bar = null;
-    ['action-bar', 'result-actions-bar'].forEach(function(id) {
+    var ids = (typeof NextBar !== 'undefined' && NextBar && Array.isArray(NextBar.BARS)) ? NextBar.BARS : ['action-bar', 'result-actions-bar'];   // (n4-P0) 바 후보 공통 상수
+    ids.forEach(function(id) {
       var b = d.getElementById(id);
       if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
     });
@@ -744,9 +825,11 @@ var HandLogUI = (function() {
   }
 
   function onNewHand() { _open = false; render(); }
+  // (n4 G1) 하단 바가 바뀌면(액션바, 다음 바, 결과바) 열린 기록 시트의 바닥을 다시 맞춘다(NextBar가 부른다)
+  function place() { if (_sheet && _sheet.style && _sheet.style.display !== 'none') { _placeSheet(_sheet); return true; } return false; }
 
   var api = { track: track, hold: hold, reveal: reveal, events: events, pending: pending, count: count, lineText: lineText, rowHTML: rowHTML, listHTML: listHTML,
-    lineHTML: lineHTML, ensure: ensure, toggle: toggle, speedTap: speedTap, render: render, onNewHand: onNewHand, renderMirrors: _renderMirrors,
+    lineHTML: lineHTML, foldRun: foldRun, ensure: ensure, toggle: toggle, speedTap: speedTap, render: render, onNewHand: onNewHand, renderMirrors: _renderMirrors, place: place,
     syncMirrors: function() { return _renderMirrors(_doc(), _mobile()); },
     _reset: function() { _ev = []; _pos = {}; _shown = 0; _base = null; _open = false; } };
   return api;

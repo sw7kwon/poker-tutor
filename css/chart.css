@@ -153,11 +153,11 @@ html.cb .gto-big .gto-mix { background: linear-gradient(90deg, var(--gc-raise) 0
   background: var(--tile-bg); border: 1px solid var(--gold); border-radius: var(--r-md); padding: 8px 10px 8px;
   box-shadow: var(--shadow-3); color: var(--text); font-size: .82rem; line-height: 1.45; word-break: keep-all;
 }
-.gto-bubble-close {
-  position: absolute; top: 0; right: 0; width: 44px; height: 44px; background: transparent; border: none;
-  color: var(--text-dim); font-size: 1.05rem; cursor: pointer; -webkit-tap-highlight-color: transparent;
+.gto-bubble-close {   /* (n4-G2, 설계 1.4절 3번) 48x48, aria-label 설명 닫기 */
+  position: absolute; top: 0; right: 0; width: 48px; height: 48px; background: transparent; border: none;
+  color: var(--text-dim); font-size: 1.1rem; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.gto-bubble-top { display: flex; align-items: center; gap: 2px; padding-right: 40px; font-size: .9rem; margin-bottom: 4px; }
+.gto-bubble-top { display: flex; align-items: center; gap: 2px; padding-right: 44px; font-size: .9rem; margin-bottom: 4px; }
 .gto-bubble-why { color: var(--text); margin-bottom: 3px; }
 .gto-bubble-act { color: var(--gold); font-weight: 700; margin-bottom: 3px; }
 .gto-bubble-tag { font-size: .72rem; color: var(--text-dim); }
@@ -204,15 +204,17 @@ html.cb .gto-big .gto-mix { background: linear-gradient(90deg, var(--gc-raise) 0
   box-shadow: var(--shadow-sheet-chart); transition: transform .22s ease; will-change: transform;
 }
 .gto-sheet.dragging { transition: none; }
-.gto-sheet.peek { transform: translateY(calc(100% - 44px)); }
+.gto-sheet.peek { transform: translateY(calc(100% - 48px)); }   /* (n4-P0) 머리줄 48px(ui/gto-chart.js SHEET_HEAD_PX) */
 .gto-sheet-handle {
-  flex: 0 0 44px; height: 44px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
+  flex: 0 0 48px; height: 48px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 84px 0 12px; box-sizing: border-box;   /* 오른쪽 84px = 닫기 버튼 자리 */
   background: transparent; border: none; color: var(--gold); font-size: .85rem; font-weight: 700; cursor: pointer;
   touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
 }
 .gto-sheet-grip { width: 36px; height: 4px; border-radius: var(--r-2); background: var(--text-dim); flex: 0 0 auto; }
 .gto-sheet-ctx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); font-weight: 600; text-align: left; }
-.gto-sheet-arrow { flex: 0 0 auto; font-size: 1rem; }
+.gto-sheet-arrow { flex: 0 0 auto; font-size: 1rem; display: none; }   /* (n4-P0) 접기와 펼치기 표시는 오른쪽 닫기 버튼(✕ 닫기, ▴ 열기)이 맡는다 */
+/* (n4-P0, 설계 1.4절 1번) 머리줄 오른쪽 끝 닫기(공통 모양은 css/next-bar.css .sheet-close, 자리만 여기서) */
+.gto-sheet > .gto-sheet-close { position: absolute; top: 0; right: 4px; z-index: 1; }
 .gto-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 8px 10px; display: flex; flex-direction: column; gap: 8px; position: relative; }
 .gto-sheet-body > * { flex-shrink: 0; }   /* 격자가 줄어들어 마지막 줄이 잘리지 않게, 넘치면 본문 스크롤 */
 .gto-sheet .gto-cell { font-size: clamp(11px, 2.8vw, 13px); }
@@ -276,9 +278,10 @@ html .gv-call > .gto-mix[data-cb*="C"]::after { content: attr(data-pc) '%'; font
    하늘색 글자 #7dd3fc on 시트 바탕 #0d1117 약 12:1, 머리줄 상자(하늘색 14%) 위에서도 4.5:1 이상 */
 :root { --gc-opp: #7dd3fc; --gc-opp-a14: rgba(125,211,252,.14); --gc-opp-a85: rgba(125,211,252,.85); }
 .gto-persp:empty { display: none; }
-.oc-persp { display: flex; gap: 6px; }
+.oc-persp { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }   /* (n4-P0, 설계 4.4절 4번) 관점 칩 6개(좌석 시트)면 칩 최소 56px, 넘치면 가로 스크롤 */
+.oc-persp::-webkit-scrollbar { display: none; }
 .oc-chip {
-  flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
+  flex: 1 1 0; min-width: 56px; min-height: 44px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--r-pill); border: 1px solid var(--hud-border); background: var(--tile-bg); color: var(--text);
   font: inherit; font-size: .86rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
@@ -310,3 +313,50 @@ html .gv-call > .gto-mix[data-cb*="C"]::after { content: attr(data-pc) '%'; font
 }
 .hl-mirror .hl-pace .pace-left { color: var(--text-dim); font-weight: 600; font-size: .78rem; }
 .hl-mirror .hl-pace button:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; }
+
+/* ── (n4-G2) 📈 분석 보기(설계 docs/NEXT4_DESIGN.md 3.5절): 칸 글자를 승률 숫자(data-eq)로, 바탕은 채도를 낮춘 액션 색 ──
+   1. 격자 HTML은 늘 data-eq를 갖고(표가 있을 때) 보기 칩이 .gv-analysis 클래스만 바꾼다. 라벨 글자는 투명(자리 유지), ::before가 숫자.
+   2. 글자 대비(WCAG): 흰 #fff on --gc-raise-soft #24603a 7.2:1, --gc-call-fg #0a2540 on --gc-call-soft #a9cbe8 9.2:1, 폴드는 기존 10.6:1.
+      밝기 순서(콜 0.57 > 레이즈 0.09 > 폴드 0.02)는 기본 색과 같다. 색약 모드(html.cb)는 기존 색과 무늬 그대로(a11y.css가 R/C/F를 구석에).
+   3. 함정 칸 .ga-trap(아깝게 밖, 승률이 범위 안 손 아래쪽 4분의 1보다 높은 폴드): 왼쪽 위 지름 4px --warn 점(검은 테두리 1px).
+   4. 격자 아래 .ga-panel(요약 줄, 라벨 칩, 곡선 자리, 공통 한 줄)과 읽기 줄 꼬리 .ga-tail은 분석 보기에서만 보인다. */
+:root { --gc-raise-soft: #24603a; --gc-call-soft: #a9cbe8; }
+.gv-chips { overflow-x: auto; scrollbar-width: none; }   /* 칩 4개가 320 폭에서 넘치면 가로 스크롤 */
+.gv-chips::-webkit-scrollbar { display: none; }
+.gv-chip.gv-chip-ana { flex: 0 0 auto; min-width: 72px; }
+.gto-big .gv-analysis > .gto-cell[data-eq] { color: transparent; text-shadow: none; }
+.gto-big .gv-analysis > .gto-cell[data-eq]::before {
+  content: attr(data-eq); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--ga-fg, var(--text)); font-weight: 700; letter-spacing: 0;
+}
+.gto-big .gv-analysis > .gto-raise { --ga-fg: var(--gc-raise-fg); }
+.gto-big .gv-analysis > .gto-call { --ga-fg: var(--gc-call-fg); }
+.gto-big .gv-analysis > .gto-fold { --ga-fg: var(--gc-fold-fg); }
+.gto-big .gv-analysis > .gto-fold[data-eq]::before { font-weight: 500; }
+.gto-big .gv-analysis > .gto-mix { --ga-fg: var(--white); }
+.gto-big .gv-analysis > .gto-mix[data-eq]::before { text-shadow: 0 0 2px var(--black), 0 1px 2px var(--black); }
+html:not(.cb) .gto-big .gv-analysis > .gto-raise:not(.gto-mix) { background-color: var(--gc-raise-soft); --ga-fg: var(--white); }
+html:not(.cb) .gto-big .gv-analysis > .gto-call:not(.gto-mix) { background-color: var(--gc-call-soft); }
+.gto-big .gv-analysis > .ga-trap {
+  background-image: radial-gradient(circle at 5px 5px, var(--warn) 0 2px, var(--black) 2px 3px, transparent 3.5px),
+    repeating-linear-gradient(135deg, var(--black-a22) 0 2px, transparent 2px 6px);
+}
+.ga-panel {
+  display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; box-sizing: border-box;
+  border-left: 3px solid var(--gold); background: var(--gold-a08); border-radius: var(--r-xs);
+  font-size: .8rem; line-height: 1.4; color: var(--text); word-break: keep-all;
+}
+.ga-panel:not(.gv-analysis) { display: none; }
+.ga-sum { font-weight: 700; font-size: .85rem; }
+.ga-sub, .ga-note { color: var(--text-soft); }
+.ga-common { color: var(--text-dim); font-size: .78rem; }
+.ga-lb { display: inline-block; font-size: .72rem; font-weight: 700; padding: 0 7px; border-radius: var(--r-pill); white-space: nowrap; vertical-align: 1px; }
+.ga-lb.is-exact { color: var(--green-text); border: 1px solid var(--green-a70); background: var(--green-a10); }
+.ga-lb.is-approx { color: var(--text-soft); border: 1px dashed var(--border-mute); background: var(--dim-a10); }
+.ga-curve:empty { display: none; }
+.ga-curve svg { display: block; width: 100%; height: auto; }
+.ga-curve-cap { font-size: .78rem; color: var(--text-dim); margin-top: 2px; }
+.ga-tail { display: none; }
+.ga-tail.gv-analysis { display: inline; color: var(--gold); }
+.ga-bubble .ga-bub-lv { color: var(--gold); }
+.ga-panel:empty { display: none; }

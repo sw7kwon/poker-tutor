@@ -9,6 +9,12 @@
 // 규약: 로드 때 DOM, 저장소 접근 없음(init은 DOMContentLoaded 뒤). 다른 모듈은 전부 typeof 가드. 테스트는 _setEnv({ dom, mobile, mods })로 주입.
 // 라이브 세션(App.omni())의 좌석 탭은 document 위임 리스너 1개(.poker-table .seat). 좌석 className은 Table.render가 매번 다시 쓰므로
 // .omni-focus 고리는 테이블 변경 관찰(MutationObserver)로 다시 붙인다. 가운뎃점과 긴줄표 없음.
+// n4 G3(설계 docs/NEXT4_DESIGN.md 1.4절, 4.5절, 5.2절 2번, 결정 61, 64, 65):
+//   머리줄 48px = 손잡이(그립, 제목, 누구, 누르거나 아래로 끌면 닫기, SheetGesture) + 오른쪽 '✕ 닫기'(72x48, .sheet-close). 라이브의 아래 '닫기'는 없앴다
+//   (리플레이 중 '▶ 라이브로'만 남는다). 기록 리플레이 발판의 '↩ 기록으로'와 '닫기'는 48px.
+//   손 탭의 스트리트별 승률은 살아 있는 사람 전원의 선 그래프(SvgCharts.lines, 보는 사람 보라, 나 금색) + 보는 사람 숫자 한 줄.
+//   차트 탭은 라이브 포스트플랍이면 좌석 시트와 같은 블록 2, 3(SeatChart.blocksHTML)과 그 사람 실제 손 ▼(완전 분석 경로에서만 실제 카드를 쓴다).
+//   시트 바닥은 보이는 하단 바(NextBar.BARS, 기록 리플레이는 #omni-root) 위.
 var OmniUI = (function() {
   var TABS = [{ key: 'hand', label: '🃏 손' }, { key: 'chart', label: '📋 차트' }, { key: 'think', label: '💭 생각' }, { key: 'time', label: '⏪ 타임라인' }];
   var TAB_KEYS = { hand: true, chart: true, think: true, time: true };
@@ -340,15 +346,33 @@ var OmniUI = (function() {
     var key = _framesKey(log), eq;
     if (_eqcache.key === key && _eqcache.eq) eq = _eqcache.eq;
     else { eq = _call('Replay', 'equityByStreet', log) || {}; _eqcache = { key: key, eq: eq }; }
-    var parts = [], STS = ['preflop', 'flop', 'turn', 'river'];
+    var STS = ['preflop', 'flop', 'turn', 'river'], mine = [];
     STS.forEach(function(st) {
       var m = eq[st];
       if (!m || m[name] == null) return;
-      var pct = Math.round(Number(m[name]) * 100);
-      parts.push('<div class="omni-eq"><span class="omni-eq-st">' + STREET_KOR[st] + '</span><span class="omni-eq-bar"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%"></i></span><b>' + pct + '%</b></div>');
+      mine.push(STREET_KOR[st] + ' <b>' + Math.round(Number(m[name]) * 100) + '%</b>');
     });
-    if (!parts.length) return '<div class="omni-dim">승률을 계산할 스트리트가 없어요</div>';
-    return '<div class="omni-row"><span class="omni-lb">엔진 계산</span> 스트리트별 승률(살아 있는 사람 기준)</div>' + parts.join('');
+    if (!mine.length) return '<div class="omni-dim">승률을 계산할 스트리트가 없어요</div>';
+    var graph = _linesHTML(log, name, eq);
+    return '<div class="omni-row"><span class="omni-lb">엔진 계산</span> 스트리트별 승률(살아 있는 사람 기준, 무승부는 나눠 셈)</div>' + graph +
+      '<div class="omni-row omni-eq-line">' + _who(log, name) + ': ' + mine.join(', ') + '</div>' +
+      (graph ? '<div class="omni-row omni-dim">선이 엇갈리는 스트리트가 승률이 뒤집힌 순간이에요</div>' : '');
+  }
+  // 살아 있는 사람 전원의 선(폴드한 사람은 폴드한 스트리트까지). 보는 사람 = focus(보라), 나 = hero(금색)
+  function _linesHTML(log, name, eq) {
+    var SV = _m('SvgCharts');
+    if (!SV || SV.STUB || typeof SV.lines !== 'function') return '';
+    var STS = ['preflop', 'flop', 'turn', 'river'];
+    var pl = _players(log).slice().sort(function(a, b) { return POSITIONS.indexOf(a.pos) - POSITIONS.indexOf(b.pos); });
+    var series = [];
+    pl.forEach(function(p) {
+      var pts = STS.map(function(st) { var m = eq[st]; return { x: st, y: (m && m[p.name] != null) ? Math.round(Number(m[p.name]) * 1000) / 10 : null }; });
+      if (!pts.some(function(q) { return q.y != null; })) return;
+      var col = p.name === name ? (p.hero ? 'hero' : 'focus') : p.hero ? 'hero' : 'opp';
+      series.push({ name: p.name, pos: p.pos, label: p.hero ? '나(' + (p.pos || '') + ')' : (p.pos || '') + (p.name === name ? '(보는 중)' : ''), color: col, points: pts });
+    });
+    if (!series.length) return '';
+    try { return SV.lines(series, { title: '스트리트별 승률' }) || ''; } catch (e) { _warn('lines', e); return ''; }
   }
   function _chartTab(log, name) {
     var p = _playerOf(log, name), decs = _decisions(log, name, true);
@@ -386,7 +410,29 @@ var OmniUI = (function() {
       }
       return '<div class="omni-dec" data-dec="' + k + '"' + (k === 0 ? '' : ' hidden') + '>' + (decs.length > 1 ? '' : '<div class="omni-dec-head">' + _esc(_actHead(ev)) + '</div>') + inner + '</div>';
     }).join('');
-    return '<div class="omni-sec">' + chips + blocks + '</div>';
+    return '<div class="omni-sec">' + chips + blocks + '</div>' + _postHTML(log, name);
+  }
+  // (n4 G3) 라이브 포스트플랍: 좌석 시트와 같은 블록 2(범위 강도 분포), 3(지금 벳 앞에서) + 그 사람 실제 손 ▼
+  function _postHTML(log, name) {
+    if (!_sess || _sess.mode !== 'live' || _sess.replaying) return '';
+    var SC = _m('SeatChart'), RS = _m('RangeStats');
+    if (!SC || SC.STUB || typeof SC.blocksHTML !== 'function' || typeof SC._stats !== 'function' || typeof SC._display !== 'function') return '';
+    var st = null;
+    try { st = SC._display(); } catch (e) { st = null; }
+    if (!st || !st.players || !st.street || st.street === 'preflop' || st.seed !== log.seed || st.handNum !== log.handNum) return '';
+    if (!st.players[name]) return '';
+    var stats = null;
+    try { stats = SC._stats(st, name, true); } catch (e) { _warn('stats', e); stats = null; }
+    if (!stats) return '';
+    var focus = stats.focus, hole = focus ? _cards(log.hole && log.hole[focus]) : [];
+    if (RS && !RS.STUB && typeof RS.classify === 'function' && hole.length === 2) {
+      var k = RS.classify(hole, st.board || []);
+      var nm = (RS.NAMES && RS.NAMES[k]) || '';
+      if (k) stats.marker = { key: k, text: '실제 손 ' + _glyphs(hole).replace(/<[^>]*>/g, '') + (nm ? ' = ' + nm : '') };
+    }
+    var html = '';
+    try { html = SC.blocksHTML(st, name, stats); } catch (e) { _warn('blocks', e); html = ''; }
+    return html ? '<div class="omni-sec omni-post"><div class="omni-row"><span class="omni-lb">지금 ' + _esc(STREET_KOR[st.street] || st.street) + '</span> 보드 위 범위와 팟 오즈</div>' + html + '</div>' : '';
   }
   function _thinkTab(log, name) {
     var p = _playerOf(log, name), decs = _decisions(log, name, false);
@@ -441,18 +487,25 @@ var OmniUI = (function() {
       '<button type="button" class="omni-go" data-go="last" aria-label="끝으로"' + (fi >= n - 1 ? ' disabled' : '') + '>⏭</button>' +
       '</div>';
   }
-  // 패널 아래 줄: 라이브 세션에서 리플레이 중이면 '▶ 라이브로', 기록 리플레이면 '↩ 기록으로'
+  // 패널 아래 줄: 라이브 세션에서 리플레이 중이면 '▶ 라이브로'(닫기는 머리줄 하나), 기록 리플레이면 '↩ 기록으로'와 '닫기'(48px)
   function _footHTML(s) {
     if (!s) return '';
     if (s.mode === 'history') return '<div class="omni-foot"><button type="button" class="omni-btn" data-act="back">↩ 기록으로</button><button type="button" class="omni-btn omni-btn-close" data-act="close">닫기</button></div>';
-    return '<div class="omni-foot">' + (s.replaying ? '<button type="button" class="omni-btn omni-btn-live" data-act="live">▶ 라이브로</button>' : '') +
-      '<button type="button" class="omni-btn omni-btn-close" data-act="close">닫기</button></div>';
+    return s.replaying ? '<div class="omni-foot"><button type="button" class="omni-btn omni-btn-live" data-act="live">▶ 라이브로</button></div>' : '';
   }
 
   // ── DOM: 패널(폰 하단 시트, 데스크톱 모달) ──
   var _panelEl = null;   // 만든 패널 요소(문서 스텁은 id 검색이 안 되므로 직접 기억)
   var _rootEl = null;    // 기록 리플레이의 타임라인 바 #omni-root
   function _panel() { return (_panelEl && _panelEl.parentNode) ? _panelEl : _el('omni-panel'); }
+  // 패널 뼈대(순수): 머리줄 48px = 손잡이(누르거나 끌면 닫기) + 오른쪽 '✕ 닫기'(72x48), 본문, 발판
+  function _shellHTML() {
+    return '<div class="omni-backdrop" data-act="close"></div>' +
+      '<div class="omni-box"><div class="omni-headrow sheet-head"><button type="button" class="omni-handle" data-act="close" aria-label="분석 패널 닫기">' +
+      '<span class="omni-grip" aria-hidden="true"></span><span class="omni-title">🔍 완전 분석</span><span class="omni-handle-who"></span></button>' +
+      '<button type="button" class="sheet-close omni-close" data-act="close" aria-label="완전 분석 닫기"><span aria-hidden="true">✕</span><span class="sheet-close-t">닫기</span></button></div>' +
+      '<div class="omni-content"></div><div class="omni-footwrap"></div></div>';
+  }
   function _ensurePanel() {
     var d = _doc();
     if (!d || typeof d.createElement !== 'function') return null;
@@ -462,14 +515,14 @@ var OmniUI = (function() {
     root.id = 'omni-panel';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-label', '완전 분석');
-    root.innerHTML = '<div class="omni-backdrop" data-act="close"></div>' +
-      '<div class="omni-box"><button type="button" class="omni-handle" data-act="close" aria-label="분석 패널 닫기">' +
-      '<span class="omni-grip" aria-hidden="true"></span><span class="omni-title">🔍 완전 분석</span><span class="omni-handle-who"></span><span class="omni-x" aria-hidden="true">✕</span></button>' +
-      '<div class="omni-content"></div><div class="omni-footwrap"></div></div>';
+    root.innerHTML = _shellHTML();
     var parent = _el('screen-game') || d.body;
     if (parent && parent.appendChild) parent.appendChild(root);
     if (typeof root.addEventListener === 'function') root.addEventListener('click', _onPanelClick);
     _panelEl = root;
+    // 손잡이 아래로 끌어 닫기(72px 또는 0.5px/ms). 닫기 버튼은 손잡이 형제라 포인터 캡처와 섞이지 않는다
+    var SG = _m('SheetGesture'), box = root.querySelector ? root.querySelector('.omni-box') : null, hd = root.querySelector ? root.querySelector('.omni-handle') : null;
+    if (SG && typeof SG.bind === 'function' && box && hd) { try { SG.bind(box, hd, { onClose: function() { closePanel(); }, onTap: function() { closePanel(); } }); } catch (e) { _warn('gesture', e); } }
     return root;
   }
   function _renderPanel() {
@@ -505,7 +558,8 @@ var OmniUI = (function() {
     var off = 0, ih = 0;
     if (_isMobile() && typeof window !== 'undefined' && window && window.innerHeight) {
       ih = window.innerHeight;
-      ['omni-root', 'action-bar', 'result-actions-bar'].forEach(function(id) {
+      var NB = _m('NextBar'), bars = (NB && Array.isArray(NB.BARS)) ? NB.BARS : ['action-bar', 'result-actions-bar'];
+      ['omni-root'].concat(bars).forEach(function(id) {
         var b = _el(id);
         if (!b || typeof b.getBoundingClientRect !== 'function' || !b.style || b.style.display === 'none') return;
         var r = b.getBoundingClientRect();
@@ -879,6 +933,7 @@ var OmniUI = (function() {
   var api = { TABS: TABS.slice(), panelHTML: panelHTML, framesOf: framesOf, _framesFallback: _framesFallback, _chartCtx: _chartCtx,
     openPanel: openPanel, closePanel: closePanel, setTab: setTab, setPerspective: setPerspective, selectFrame: selectFrame, step: step, live: live,
     openLast: openLast, open: open, abort: abort, active: active, init: init,
+    _shellHTML: _shellHTML, _footHTML: _footHTML, _postHTML: _postHTML,   // (n4 G3) 테스트
     _setEnv: _setEnv, _reset: _reset, _state: _state, _syncBadge: _syncBadge, _afterRender: _afterRender, _onDocClick: _onDocClick, _hookTable: _hookTable };
   if (typeof module !== 'undefined') module.exports = api;
   return api;

@@ -248,16 +248,29 @@
   #btn-fold { grid-area: fold; } #btn-call { grid-area: call; } #btn-raise { grid-area: raise; }
   .action-btn { min-height: 52px; font-size: 1.05rem; padding: 0 8px; }
 
-  /* ── 결과바: 2열 (인라인 display:flex 유지, wrap) — [다음 핸드] / [같은 핸드][1문제] / [히스토리][세션 종료] ── */
+  /* ── (n4 G1, 설계 1.3절) 결과바: 한 줄 64px [▶ 다음 핸드 (flex 1, 56px, 초록)][⋯ 더 보기 72x56]. 나머지 6개는 더 보기 시트(ui/mobile-ui.js가 옮긴다) ── */
   #result-actions-bar {
     position: sticky; bottom: 0; z-index: 40; margin-top: auto; max-width: none;
-    flex-wrap: wrap; gap: 8px; padding: 8px 10px calc(8px + var(--safe-b));
+    flex-wrap: nowrap; gap: 8px; padding: 4px 8px calc(4px + var(--safe-b));
   }
   #result-actions-bar .action-btn { flex: 1 1 45%; min-height: 48px; white-space: nowrap; font-size: .95rem; }
-  #result-actions-bar #btn-next-round { flex-basis: 100%; }
+  #result-actions-bar #btn-next-round { flex: 1 1 auto; min-height: 56px; height: 56px; font-size: 1.05rem; }
+  #result-actions-bar #btn-result-more {
+    flex: 0 0 72px; width: 72px; min-height: 56px; height: 56px; padding: 0 4px; font-size: .9rem; font-weight: 700;
+    background: var(--btn-neutral); color: var(--text); border: 1px solid var(--hud-border);
+  }
+  #result-actions-bar #btn-result-more[aria-expanded="true"] { border-color: var(--gold); color: var(--gold); }
+  /* 연습 재생: 🔁 같은 핸드 다시를 결과바에(ui/mobile-ui.js _placePractice) */
+  #result-actions-bar #btn-practice-same.rb-practice { flex: 1 1 0; min-width: 0; min-height: 56px; height: 56px; font-size: .95rem; }
+  #result-actions-bar #btn-next-round { min-width: 0; }
+  #result-actions-bar:has(.rb-practice) #btn-next-round { flex: 1 1 0; }
+  /* (n4 G1, 설계 1.4절 5번) 테이블 위 칩 줄 글자 11.8 → 12.5px(.78rem). 칩 높이 44px 그대로(보조 컨트롤) */
+  #eq-chips .eq-chip { font-size: .78rem; }
 }
 
 @media (max-width: 360px) {
+  /* (n4 G1) 연습 결과바 3버튼(다음 핸드, 같은 핸드 다시, 더 보기)이 좁은 폭에서 넘치지 않게 두 줄 글을 허용한다(높이 56px 그대로) */
+  #result-actions-bar #btn-next-round, #result-actions-bar #btn-practice-same.rb-practice { white-space: normal; line-height: 1.15; font-size: .88rem; padding: 0 6px; word-break: keep-all; }
   :root { --seat-w: 80px; --card-w: 28px; --card-h: 40px; --hero-card-w: 42px; --hero-card-h: 58px; }
   /* 위쪽 좌우 좌석을 더 올리고 팟 링을 줄여 가운데 띠(팟·보드)에 여유 확보 */
   .poker-table .seat[data-slot="2"], .poker-table .seat[data-slot="4"] { top: 14%; }

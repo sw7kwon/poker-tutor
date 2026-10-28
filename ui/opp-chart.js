@@ -15,6 +15,13 @@
 //   히어로는 acts를 생략하면 state.decisions로 같은 판정(tests/j-opp-chart.test.js가 엔진 판정과 맞춰 본다). 엔진은 고치지 않고 상태와 행동 기록으로만 센다.
 // 기록: app.js의 핸드 로그 훅(_hl) 인자를 그대로 받는다(track: begin, villain, hero). 공개된 프레임은 shown(frame).
 // 성능: 그리기는 다음 프레임(rAF, 결정 동기 블록 밖). 모델, 격자, 상대 차트 전체 HTML은 GtoChart 캐시(같은 상황 다시 오면 DOM 쓰기 0).
+// n4 G3(설계 docs/NEXT4_DESIGN.md 4절, 결정 64): 좌석 시트(ui/seat-chart.js SeatChart)의 재료.
+//   관점 칩 줄은 좌석 6개(UTG..BB, 내 자리 금색 '나', 방금 행동한 상대에 '방금' 표시, 폴드한 자리는 흐리게). 상대 칩(data-oc="@CO")은 SeatChart.open,
+//   내 칩(data-oc="me")은 예전 '👤 내 차트'와 같다(이번 손 내 차트가 아직 없으면 SeatChart.open('Hero')).
+//   pinSeat(name): 좌석 시트가 차트 시트를 쓰는 동안 따라가기, 문(take), 알약 글(label)을 멈춘다. 시트를 접으면(안 보이면) 다음 대기에서 저절로 풀린다.
+//   pfOf(name) → 그 사람이 프리플랍에 한 마지막 공개된 행동의 범위 { rec, sit, act, model, labels(칸 라벨), kinds, random, text } (블록 1과 2의 재료).
+//   seatSit(name, state, w) → GtoChart.seatView 인자(대기, 마지막 결정, 차례 전 참고, 포스트플랍 범위). 공개되지 않은 행동은 쓰지 않는다(recs에는 엔진이 이미 정한
+//   미래 행동이 들어 있어 shown이 참인 기록만 읽는다). curState() = 지금 화면에 보이는 상태(마지막 공개 프레임의 뒤 상태), onShown(fn) 공개 알림.
 // 규약: 로드 때 DOM, 저장소 접근 없음(document.addEventListener만). 다른 모듈은 typeof 가드. 문구 해요체, 가운뎃점과 긴줄표 없음.
 var OppChart = (function() {
   var POS6 = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
@@ -27,6 +34,9 @@ var OppChart = (function() {
   var _pin = false;     // '👤 내 차트'를 눌러 이번 내 결정까지 따라가기를 멈춤
   var _paintQ = false;
   var _paints = 0;      // 실제 그리기 횟수(테스트)
+  var _seatPin = null;  // (n4 G3) 좌석 시트가 차트 시트를 쓰는 중인 좌석 이름(따라가기, 문, 알약 글 멈춤)
+  var _shownFns = [];   // (n4 G3) 공개 알림 받는 쪽(SeatChart)
+  function _SC() { return (typeof SeatChart !== 'undefined' && SeatChart && !SeatChart.STUB) ? SeatChart : null; }
 
   function _GC() { return (typeof GtoChart !== 'undefined' && GtoChart) ? GtoChart : null; }
   function _P() { return (typeof Pacer !== 'undefined' && Pacer) ? Pacer : null; }
@@ -131,8 +141,9 @@ var OppChart = (function() {
   function track(name, a1, a2, a3) {
     if (name === 'begin') {
       var st = a1 && a1.state;
-      _h = { id: ++_hid, key: _keyOf(st), recs: [], acts: {}, last: null, omni: !!(a1 && a1.omni), hideTypes: !!(st && st.hideTypes), heroActed: false };
-      _view = null; _pin = false;
+      _h = { id: ++_hid, key: _keyOf(st), recs: [], acts: {}, last: null, omni: !!(a1 && a1.omni), hideTypes: !!(st && st.hideTypes), heroActed: false,
+        seats: _seatsOf(st), cur: st || null };
+      _view = null; _pin = false; _seatPin = null;
       return true;
     }
     if (!_h) return false;
@@ -141,14 +152,22 @@ var OppChart = (function() {
       var o = a1 || {};
       _pin = false;
       _h.heroActed = true;
+      if (o.post) _h.cur = o.post;   // (n4 G3) 내 행동은 바로 보인다
       return !!_rec('Hero', o.pre, o.post, o.executed || o.intended);
     }
     return false;
   }
+  // 좌석 목록(자리 순서 UTG..BB): [{ name, pos, hero }]
+  function _seatsOf(st) {
+    var out = [];
+    if (!st || !st.players) return out;
+    Object.keys(st.players).forEach(function(n) { var p = st.players[n]; if (p && POS6.indexOf(p.pos) >= 0) out.push({ name: n, pos: p.pos, hero: n === 'Hero' }); });
+    return out.sort(function(a, b) { return POS6.indexOf(a.pos) - POS6.indexOf(b.pos); });
+  }
   function _rec(nm, pre, post, raw) {
     if (!_h || !nm || !pre || !pre.players || !pre.players[nm]) return null;
     var act = normAction(pre, post, nm, raw);
-    var r = { seq: _h.recs.length, name: nm, pos: pre.players[nm].pos, street: pre.street, act: act, pre: pre, sit: null, shown: nm === 'Hero' };
+    var r = { seq: _h.recs.length, name: nm, pos: pre.players[nm].pos, street: pre.street, act: act, pre: pre, post: post || null, sit: null, shown: nm === 'Hero' };
     if (pre.street === 'preflop') {
       var acts = _h.acts[nm] || (_h.acts[nm] = []);
       r.sit = seatSituation(pre, nm, nm === 'Hero' ? null : acts.slice());
@@ -168,11 +187,35 @@ var OppChart = (function() {
     for (var i = _h.recs.length - 1; i >= 0; i--) { var r = _h.recs[i]; if (r.name === name && r.street === 'preflop' && r.sit) return r; }
     return null;
   }
+  // (n4 G3) 화면에 공개된 기록만: name의 마지막 프리플랍 결정, 마지막 기록(스트리트 무관), 이번 핸드에 폴드한 스트리트
+  function lastShownPreflop(name) {
+    if (!_h) return null;
+    for (var i = _h.recs.length - 1; i >= 0; i--) { var r = _h.recs[i]; if (r.name === name && r.shown && r.street === 'preflop' && r.sit) return r; }
+    return null;
+  }
+  function lastShown(name) {
+    if (!_h) return null;
+    for (var i = _h.recs.length - 1; i >= 0; i--) { var r = _h.recs[i]; if (r.name === name && r.shown) return r; }
+    return null;
+  }
+  function _shownActs(name) {
+    var out = [];
+    if (!_h) return out;
+    _h.recs.forEach(function(r) { if (r.name === name && r.shown && r.street === 'preflop') out.push(r.act); });
+    return out;
+  }
+  function foldStreet(name) {
+    if (!_h) return null;
+    for (var i = 0; i < _h.recs.length; i++) { var r = _h.recs[i]; if (r.name === name && r.shown && r.act === 'fold') return r.street; }
+    return null;
+  }
   // 공개된 프레임(app.js 공개 훅): 마지막으로 행동이 보인 상대를 기억한다(방금: CO)
   function shown(frame) {
     var r = recOf(frame && frame.pre);
     if (!r) return false;
     r.shown = true;
+    _h.cur = (frame && frame.post) || r.post || _h.cur;
+    for (var k = 0; k < _shownFns.length; k++) { try { _shownFns[k](r); } catch (e) { if (typeof console !== 'undefined' && console.error) console.error('[OppChart.onShown]', e); } }
     if (r.name !== 'Hero' && lastPreflop(r.name)) {
       var was = _h.last;
       _h.last = r;
@@ -198,6 +241,11 @@ var OppChart = (function() {
   // ── 'pace:wait'(Pacer 대기 좌석이 바뀔 때) ──
   function onWait(w) {
     if (!_h) return false;
+    // (n4 G3) 좌석 시트가 차트 시트를 쓰는 중: 시트가 보이면 따라가지 않는다(SeatChart가 자기 좌석일 때만 다시 그린다). 접혔으면(안 보이면) 핀을 풀고 평소대로
+    if (_seatPin) {
+      if (_visible()) return false;
+      _release();
+    }
     var prev = _view;
     // 앞 대기 좌석의 행동이 막 나왔다: 차트가 보이면 같은 차트에 결과를 잇고, 다음 누름에 다음 좌석으로(문 take)
     if (prev && prev.kind === 'wait' && prev.rec && prev.rec.shown && _following() && (_visible() || !w)) {
@@ -243,17 +291,20 @@ var OppChart = (function() {
     return !!(r && _view && (_view.kind === 'wait' || _view.kind === 'post') && _view.rec === r);
   }
   function take(how, w) {
+    if (_seatPin) return false;
     if (how !== 'step' || !w || w.auto || !_following() || !_visible()) return false;
     if (_isWaitView(w)) return false;
     var r = recOf(w.state);
     if (!r || r.name === 'Hero' || (r.street === 'preflop' && !r.sit) || (r.street !== 'preflop' && !lastPreflop(r.name))) return false;
     return _showWait(w);
   }
+  // 다음 바 글(설계 2.5절 2번): '▶ CO 행동 보기', '▶ 다음: BTN 차트' + 작은 글 '남은 n명'(left = 앞으로 행동할 사람 수)
   function label(w, left) {
+    if (_seatPin) return null;
     if (!w || w.auto || !_following() || !_visible()) return null;
-    var pos = w.pos || '', lt = ' <span class="pace-left">(남은 ' + left + ')</span>';
-    if (_isWaitView(w)) return { html: '👆 <b>' + _esc(pos) + '</b> 행동 보기' + lt, aria: pos + ' 행동 보기, 남은 ' + left + '번' };
-    return { html: '👆 다음: <b>' + _esc(pos) + '</b> 차트' + lt, aria: '다음 차례 ' + pos + ' 차트 보기, 남은 ' + left + '번' };
+    var pos = w.pos || '', lt = ' <span class="pace-left">남은 ' + left + '명</span>';
+    if (_isWaitView(w)) return { html: '▶ <b>' + _esc(pos) + '</b> 행동 보기' + lt, aria: pos + ' 행동 보기, 남은 ' + left + '명' };
+    return { html: '▶ 다음: <b>' + _esc(pos) + '</b> 차트' + lt, aria: '다음 차례 ' + pos + ' 차트 보기, 남은 ' + left + '명' };
   }
 
   // ── 그리기 ──
@@ -265,19 +316,33 @@ var OppChart = (function() {
     _paintQ = true;
     raf(function() { _paintQ = false; try { _paint(); } catch (e) { if (typeof console !== 'undefined' && console.error) console.error('[OppChart]', e); } });
   }
-  // 관점 칩 줄 HTML(순수에 가깝다, 지금 상태로): 내 차트만 있고 방금 상대가 없으면 빈 줄
-  function perspHTML() {
-    if (!_h) return '';
-    var GC = _GC(), last = _h.last, mine = !_view;
+  // 관점 칩 줄 HTML(순수에 가깝다, 지금 상태로). (n4 G3) 좌석 6개: 내 자리는 금색 '나', 방금 행동이 공개된 상대는 '방금', 공개된 폴드는 흐리게.
+  //   눌린 칩 = 지금 보이는 차트의 좌석(좌석 시트 핀, 상대 차트, 없으면 나). 이름 대신 자리만 쓴다(유형 숨김 테이블에서도 성향이 드러나지 않게)
+  //   activeName(선택): 눌린 칩을 정한다(SeatChart 자체 시트는 핀 없이 그 좌석을 보여 준다)
+  function perspHTML(activeName) {
+    if (!_h || !_h.seats || !_h.seats.length) return '';
+    var GC = _GC(), sc = !!_SC();
     var hasMe = !!(GC && typeof GC.hasHero === 'function' && GC.hasHero(_h.key));
-    if (!last && (mine || !hasMe)) return '';   // 고를 것이 없으면(내 차트만, 또는 아직 내 차트도 방금 상대도 없음) 줄을 비운다
-    var b = '<button type="button" class="oc-chip oc-me" data-oc="me" aria-pressed="' + (mine ? 'true' : 'false') + '"' +
-      (hasMe ? '' : ' aria-disabled="true" title="내 차례가 오면 내 차트가 나와요"') + ' aria-label="내 차트 보기' + (hasMe ? '' : ', 내 차례가 오면 나와요') + '">👤 내 차트</button>';
-    if (last) {
-      var on = !!(_view && _view.kind === 'last' && _view.rec && _view.rec.name === last.name);
-      b += '<button type="button" class="oc-chip oc-last" data-oc="last" aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="방금 행동한 ' + _esc(last.pos) + '의 프리플랍 결정 차트 보기">방금: ' + _esc(last.pos) + '</button>';
-    }
-    return '<div class="oc-persp" role="group" aria-label="누구 입장 차트를 볼지">' + b + '</div>';
+    var active = (typeof activeName === 'string' && activeName) || _seatPin || (_view && _view.rec ? _view.rec.name : null) || 'Hero';
+    var lastName = _h.last ? _h.last.name : null;
+    var b = _h.seats.map(function(st) {
+      var on = st.name === active, fold = !!foldStreet(st.name);
+      if (st.hero) {
+        var dis = !hasMe && !sc;
+        return '<button type="button" class="oc-chip oc-seat oc-me" data-oc="me" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+          (dis ? ' aria-disabled="true" title="내 차례가 오면 내 차트가 나와요"' : '') + ' aria-label="내 차트 보기(' + st.pos + ')' + (dis ? ', 내 차례가 오면 나와요' : '') + '">' +
+          _esc(st.pos) + '<small>나</small></button>';
+      }
+      var isLast = st.name === lastName;
+      return '<button type="button" class="oc-chip oc-seat' + (isLast ? ' oc-last' : '') + (fold ? ' is-fold' : '') + '" data-oc="@' + _esc(st.pos) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+        ' aria-label="' + _esc(st.pos) + ' 차트 보기' + (isLast ? ', 방금 행동' : '') + (fold ? ', 폴드함' : '') + '">' + _esc(st.pos) + (isLast ? '<small>방금</small>' : '') + '</button>';
+    }).join('');
+    return '<div class="oc-persp oc-seats" role="group" aria-label="누구 입장 차트를 볼지(좌석을 고르세요)">' + b + '</div>';
+  }
+  function _nameAtPos(pos) {
+    if (!_h || !_h.seats) return null;
+    for (var i = 0; i < _h.seats.length; i++) if (_h.seats[i].pos === pos) return _h.seats[i].name;
+    return null;
   }
   // 지금 상대 차트 상황(GtoChart.seatView 인자). 순수(기록과 _view로만)
   function sitFor(v) {
@@ -317,11 +382,17 @@ var OppChart = (function() {
     }
     op.key = _h.id + ':' + v.kind + ':' + v.rec.seq + ':' + chartRec.seq + ':' + String(v.run || '') + ':' + (op.hand ? 'h' : '') + ':' + (op.hl || '');
     return { pos: sit.pos, facing: sit.facing, opener: sit.opener, limpers: sit.limpers, street: 'preflop', label: '👀 ' + pos + ' 자리 차트', opp: op,
-      open: !_h.heroActed };
+      open: !_h.heroActed, raiser: _raiserOf(chartRec.pre, chartRec.name) };
+  }
+  // (n4-merge) 그 결정 순간 마지막으로 레이즈한 자리(3벳, 4벳한 자리). GtoChart 분석 보기가 상대 범위 표를 고를 때 쓴다(G2 _anaCtxOf와 같은 규칙). 없으면 null
+  function _raiserOf(pre, name) {
+    var lr = pre && pre.lastRaiser, P = (pre && pre.players) || {};
+    return (lr && lr !== name && P[lr] && POS6.indexOf(P[lr].pos) >= 0) ? P[lr].pos : null;
   }
   function _paint() {
     var GC = _GC();
     if (!GC || typeof GC.seatView !== 'function') return false;
+    if (_seatPin) return false;   // (n4 G3) 좌석 시트가 그린다
     _paints++;
     if (!_view || !_following()) {
       if (_view && !_following()) _view = null;
@@ -341,15 +412,16 @@ var OppChart = (function() {
   // ── GtoChart 알림 ──
   function _onChart(kind, data) {
     if (kind === 'hero') {   // 내 차례: 내 차트(관점 칩 줄만 맞춘다, 곧 GtoChart가 그린다)
-      _view = null; _pin = false;
+      _view = null; _pin = false; _seatPin = null;
       var GC = _GC();
       if (GC && typeof GC.setPersp === 'function') GC.setPersp(_h && _keyOf(data) === _h.key ? perspHTML() : '');
       return;
     }
-    if (kind === 'hide') { _view = null; _repaintPill(); return; }
+    if (kind === 'hide') { _view = null; _seatPin = null; _repaintPill(); return; }
     if (kind === 'refresh') {
       var P = _P(), w = (P && typeof P.waiting === 'function') ? P.waiting() : null;
-      if (!_enabled()) { _view = null; _repaintPill(); return; }   // 칩을 끄면 알약 글도 원래대로('행동 보기' 대신 '눌러서 다음')
+      if (!_enabled()) { _release(); _view = null; _repaintPill(); return; }   // 칩을 끄면 알약 글도 원래대로('행동 보기' 대신 '눌러서 다음')
+      if (_seatPin) return;   // (n4 G3) 좌석 시트가 다시 그린다
       if (w && !w.auto && _following() && !_view) _showWait(w);
       else _later();
       return;
@@ -361,7 +433,8 @@ var OppChart = (function() {
     var GC = _GC();
     if (!_h || !GC) return false;
     if (v === 'me') {
-      if (!GC.hasHero(_h.key)) return false;
+      if (!GC.hasHero(_h.key)) { var SC0 = _SC(); return SC0 ? !!SC0.open('Hero') : false; }   // (n4 G3) 내 차트가 아직 없으면 좌석 시트(지금 상황 참고)
+      _release();
       _view = null;
       var P = _P();
       _pin = !!(P && typeof P.waiting === 'function' && P.waiting());
@@ -369,9 +442,14 @@ var OppChart = (function() {
       _repaintPill();
       return true;
     }
+    if (typeof v === 'string' && v.charAt(0) === '@') {   // (n4 G3) 좌석 칩: 그 사람의 좌석 시트
+      var nm = _nameAtPos(v.slice(1)), SC = _SC();
+      return (nm && SC) ? !!SC.open(nm) : false;
+    }
     if (v === 'last') {
       var last = _h.last, pf = last ? lastPreflop(last.name) : null;
       if (!pf) return false;
+      _release();
       _pin = false;
       _view = { kind: 'last', rec: last, pf: pf };
       _paint();
@@ -379,6 +457,101 @@ var OppChart = (function() {
     }
     return false;
   }
+
+  // ── (n4 G3) 좌석 시트 재료 ──
+  // 좌석 시트가 차트 시트를 쓰기 시작(name) 또는 끝(null). 핀 동안 따라가기, 문, 알약 글을 멈춘다
+  function pinSeat(name) {
+    if (!_h) return false;
+    _seatPin = name || null;
+    _view = name ? { kind: 'seat', name: name } : null;
+    return true;
+  }
+  function _release() {
+    if (!_seatPin) return false;
+    _seatPin = null;
+    if (_view && _view.kind === 'seat') _view = null;
+    var SC = _SC();
+    if (SC && typeof SC._released === 'function') { try { SC._released(); } catch (e) { /* noop */ } }
+    return true;
+  }
+  function curState() { return _h ? _h.cur : null; }
+  function onShown(fn) { if (typeof fn === 'function' && _shownFns.indexOf(fn) < 0) _shownFns.push(fn); return _shownFns.length; }
+  // 프리플랍 범위(블록 1, 2 재료): 그 사람의 마지막 공개된 프리플랍 행동의 이 앱 차트 칸 라벨. 혼합 칸은 그 액션 비율이 0보다 크면 넣는다.
+  //   체크(림퍼 뒤 BB) = 레이즈만 하는 칸이 아닌 칸 전부. 림프와 차트에 칸이 없는 행동은 랜덤 손(random, 라벨 참고). 폴드는 fold 참
+  function pfOf(name) {
+    var r = lastShownPreflop(name);
+    if (!r) return null;
+    var GC = _GC(), sit = r.sit, model = _model(sit), act = r.act;
+    var out = { rec: r, pos: r.pos, sit: sit, act: act, model: model, labels: null, kinds: 0, random: true, fold: act === 'fold', word: actWord(model, act), text: '' };
+    if (act === 'fold') { out.random = false; out.text = model ? resultText(r, model, null) : ''; return out; }
+    var limp = act === 'call' && sit && sit.facing === false && !(sit.limpers && r.pos === 'BB');
+    if (model && GC && !limp) {
+      var hl = _hlOf(act), labs = [];
+      for (var i = 0; i < 13; i++) for (var j = 0; j < 13; j++) {
+        var cell = model.cells[i][j];
+        if (!cell || cell.action === 'none') continue;
+        var a = GC.primaryAction(cell), mx = GC.mixOf(cell);
+        var inR = act === 'check' ? (a !== 'raise' || !!(mx && mx.raise < 1)) : (a === hl || !!(mx && mx[hl] > 0));
+        if (inR) labs.push(cell.label);
+      }
+      if (labs.length) { out.labels = labs; out.kinds = labs.length; out.random = false; }
+    }
+    out.text = model ? postText(r, model) : '';
+    return out;
+  }
+  // GtoChart.seatView 인자(좌석 시트). st = 지금 화면에 보이는 상태, w = Pacer.waiting(). 공개된 기록만 쓴다
+  //   seatKind: 'wait'(그 좌석 차례), 'last'(이번 핸드 마지막 프리플랍 결정), 'ahead'(아직 차례 전, 지금 기준 참고), 'post'(포스트플랍 범위), 'hero'(내 차트)
+  function seatSit(name, st, w) {
+    if (!_h || !st || !st.players || !st.players[name]) return null;
+    var pos = st.players[name].pos, hero = name === 'Hero';
+    var street = st.street === 'showdown' ? 'river' : st.street, sk = STREET_KOR[street] || street, s, model, sit;
+    if (street === 'preflop') {
+      if (!hero && w && w.seat === name) {
+        var wr = recOf(w.state);
+        if (wr && wr.sit && wr.name === name) { s = sitFor({ kind: 'wait', rec: wr }); if (s) { s.seatKind = 'wait'; return s; } }
+      }
+      var lp = hero ? null : lastShownPreflop(name);
+      if (lp) {
+        s = sitFor({ kind: 'last', rec: lp, pf: lp });
+        if (s) {
+          s.opp.head = pos + ' 마지막 결정: ' + sitText(lp.sit) + '(' + pos + ' 자리 차트)';
+          s.opp.key += ':seat';
+          s.seatKind = 'last';
+          return s;
+        }
+      }
+      sit = seatSituation(st, name, hero ? null : _shownActs(name));
+      model = _model(sit);
+      if (!sit || !model) return null;
+      if (hero) return { pos: sit.pos, facing: sit.facing, opener: sit.opener, limpers: sit.limpers, street: 'preflop', label: '내 차트(' + pos + ', 지금 상황)', seatKind: 'hero', raiser: _raiserOf(st, name) };
+      // 아직 오픈이 없을 때 BB는 오픈할 일이 없다(모두 폴드면 팟을 가져가고, 림프만 있으면 체크나 레이즈)
+      var bbNone = pos === 'BB' && sit.facing === false && !sit.limpers;
+      var headT = bbNone ? '아직 오픈이 없어요' : sitText(sit);
+      var op = { head: pos + ' 차례가 오면: ' + headT + '(지금 기준)', post: '', res: '', hl: null, hand: null,
+        note: bbNone ? '참고(아직 차례 전). 앞에서 오픈하면 그 오픈에 대응하는 차트로 바뀌어요' : '참고(아직 차례 전). 앞 사람이 레이즈하면 상황이 바뀌어요', legend: [], short: pos + ' 차례가 오면: ' + headT,
+        key: _h.id + ':ahead:' + name + ':' + [sit.facing, sit.opener, sit.limpers].join(',') };
+      return { pos: sit.pos, facing: sit.facing, opener: sit.opener, limpers: sit.limpers, street: 'preflop', label: '👀 ' + pos + ' 자리 차트', opp: op, open: true, seatKind: 'ahead', raiser: _raiserOf(st, name) };
+    }
+    var pf = lastShownPreflop(name);
+    if (!pf) return null;
+    if (hero) {
+      // 내 프리플랍 상황은 GtoChart가 엔진 판정(Gto.preflopHint)으로 기억한 것이 있으면 그것(내 차트 칩과 같은 차트)
+      var hc = null, GCh = _GC();
+      try { hc = (GCh && typeof GCh.hasHero === 'function' && GCh.hasHero(_h.key) && typeof GCh._state === 'function') ? GCh._state().cache : null; } catch (e) { hc = null; }
+      var hs = (hc && hc.pos === pos) ? hc : pf.sit;
+      return { pos: hs.pos, facing: hs.facing, opener: hs.opener, limpers: hs.limpers || 0, street: street, label: '내 차트(' + pos + ')',
+        cards: (st.heroCards && st.heroCards.length >= 2) ? st.heroCards : null, seatKind: 'hero' };
+    }
+    s = sitFor({ kind: 'post', rec: { name: name, pos: pos, street: street, seq: 'p' + street }, pf: pf });
+    if (!s) return null;
+    var fs = foldStreet(name);
+    s.opp.head = pos + ' 범위(' + sk + '): 프리플랍 행동의 범위';
+    if (fs && fs !== 'preflop') s.opp.post = (STREET_KOR[fs] || fs) + '에 폴드했어요. 아래는 폴드 전까지의 범위예요';
+    s.opp.key += ':seat:' + (fs || '');
+    s.seatKind = 'post';
+    return s;
+  }
+  function showSeat(name, st, w) { var s = seatSit(name, st, w); if (s) pinSeat(name); return s; }
 
   // ── 연결(로드 때 리스너만) ──
   if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
@@ -390,10 +563,13 @@ var OppChart = (function() {
   var api = { NOTE: NOTE, seatSituation: seatSituation, normAction: normAction, sitText: sitText, actWord: actWord, resultText: resultText, postText: postText,
     handInfo: handInfo, track: track, shown: shown, onWait: onWait, onChip: onChip, take: take, label: label, perspHTML: perspHTML, sitFor: sitFor,
     recOf: recOf, lastPreflop: lastPreflop,
+    // n4 G3 좌석 시트
+    pinSeat: pinSeat, showSeat: showSeat, seatSit: seatSit, pfOf: pfOf, curState: curState, onShown: onShown, lastShownPreflop: lastShownPreflop, lastShown: lastShown,
+    foldStreet: foldStreet, nameAtPos: _nameAtPos, pinned: function() { return _seatPin; }, _release: _release,
     _onChart: _onChart, _paint: _paint,
     _setEnv: function(o) { if (!o) { _env = { sync: null, visible: null }; return _env; } Object.keys(o).forEach(function(k) { _env[k] = o[k]; }); return _env; },
-    _state: function() { return { view: _view ? { kind: _view.kind, seat: _view.rec && _view.rec.name, pos: _view.rec && _view.rec.pos } : null, pin: _pin, hand: _h ? { id: _h.id, key: _h.key, recs: _h.recs.length, last: _h.last ? _h.last.pos : null, omni: _h.omni } : null, paints: _paints }; },
-    _reset: function() { _h = null; _view = null; _pin = false; _paintQ = false; _paints = 0; } };
+    _state: function() { return { view: _view ? { kind: _view.kind, seat: (_view.rec && _view.rec.name) || _view.name, pos: _view.rec && _view.rec.pos } : null, pin: _pin, seatPin: _seatPin, hand: _h ? { id: _h.id, key: _h.key, recs: _h.recs.length, last: _h.last ? _h.last.pos : null, omni: _h.omni } : null, paints: _paints }; },
+    _reset: function() { _h = null; _view = null; _pin = false; _seatPin = null; _paintQ = false; _paints = 0; } };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();

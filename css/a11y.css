@@ -80,3 +80,8 @@ html.reduce-motion .thinking-bubble { animation: none !important; }
 .a11y-prev-cards .card:hover { transform: none; }
 .a11y-prev-cells { display: flex; gap: 6px; justify-content: center; margin-bottom: 8px; }
 .a11y-prev-cells .gto-cell { width: 3rem; font-size: .8rem; border-radius: var(--r-sm); }
+/* (n4-G2) 색약 모드의 📈 분석 보기: 칸 가운데는 승률 숫자(chart.css ::before), R/C/F 글자는 오른쪽 아래 구석 9px(혼합 칸은 가장 큰 비율 하나) */
+html.cb .gto-big .gv-analysis > .gto-cell[data-eq]::after {
+  position: absolute; right: 1px; bottom: 1px; font-size: 9px; line-height: 1; opacity: 1; color: var(--ga-fg, var(--text));
+}
+html.cb .gto-big .gv-analysis > .gto-mix[data-eq]::after { content: attr(data-cb1); }

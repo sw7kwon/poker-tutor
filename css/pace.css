@@ -1,11 +1,15 @@
 /* css/pace.css (n2 G2 PACE, 설계 docs/NEXT2_DESIGN.md 4.4절): 상대 액션 순차 공개, 액션 로그 줄 #hand-log(ui/pacer.js HandLogUI), 공개 중 액션바 .revealing.
    데스크톱: .table-area 왼쪽 위 300px 패널(최근 4줄, 누르면 최대 60vh). 띵킹 피드가 보이면 그 아래(.has-feed).
    폰: 도크 상단부 첫 줄(36px, 속도 토글은 44px로 위아래 4px씩 겹침), 펼치면 하단 시트 #hand-log-sheet(액션바 위, z-index 36).
-   (n3) 탭 진행: 다음 좌석 맥박 테두리와 알약 #pace-pill(z-index 34, 차트 시트 35와 기록 시트 36 아래). */
+   (n3) 탭 진행: 다음 좌석 맥박 테두리. (n4) 진행 버튼은 하단 #next-bar(css/next-bar.css). */
 
-/* 공개 중 액션바: 흐리게, 버튼과 슬라이더는 눌리지 않고 바 전체 탭 = 빨리 감기(Pacer가 받는다) */
-.action-bar.revealing { opacity: .55; cursor: pointer; }
-.action-bar.revealing > * { pointer-events: none; }
+/* (n4 G1, 결정 59) 공개 중 액션바는 하단 주 진행 바 #next-bar에 자리를 내주고 숨는다(css/next-bar.css #screen-game.nb-on).
+   .revealing 클래스는 호환을 위해 Pacer가 그대로 켜고 끄지만 모양 규칙은 없다(예전 흐린 액션바 투명도 .55 규칙 삭제).
+   연타 보호(결정 66): 다음 바로 넘긴 걸음이 내 차례에 닿으면 Pacer.armGuard가 450ms(⏭은 600ms) 동안 .guard를 켠다. 그동안 버튼을 흐려 삼키는 중임을 보인다 */
+.action-bar.guard .action-btn, .action-bar.guard .raise-presets button, .action-bar.guard .raise-step, .action-bar.guard .gto-preset-btn {
+  opacity: .55; transition: opacity .15s;
+}
+html.reduce-motion .action-bar.guard .action-btn { transition: none; }
 
 /* ── 액션 로그 패널(데스크톱 기본) ── */
 .hand-log {
@@ -88,15 +92,18 @@ html.m-mobile .gto-sheet .hl-mirror .hl-speed {
 .hl-mirror .act-fold { color: var(--text-dim); }
 .hl-mirror .act-allin { color: var(--red-bright); }
 
-/* ── 폰: 펼침 하단 시트(손잡이 44px, 액션바 위, bottom은 HandLogUI가 액션바 높이로 맞춘다) ── */
+/* ── 폰: 펼침 하단 시트(머리줄 48px, 보이는 하단 바 위, bottom은 HandLogUI가 바 높이로 맞춘다) ── */
 .hl-sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 36; height: 50dvh; max-height: 50vh;
   display: flex; flex-direction: column; box-sizing: border-box;
   background: var(--hud-bg); border-top: 1px solid var(--gold); border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: var(--shadow-sheet-chart);
 }
+/* (n4 G1, 결정 61) 머리줄 48px(.sheet-head 공통, css/next-bar.css): 손잡이(그립 + 제목) + 오른쪽 '✕ 닫기' 72x48 */
+.hl-sheet .hl-sheet-head { flex: 0 0 48px; padding: 0 4px 0 0; }
 .hl-sheet-handle {
-  flex: 0 0 44px; height: 44px; width: 100%; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
-  background: transparent; border: none; color: var(--gold); font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer;
+  flex: 1 1 auto; min-width: 0; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
+  background: transparent; border: none; color: var(--gold); font: inherit; font-size: .95rem; font-weight: 700; cursor: pointer;
+  touch-action: none; -webkit-tap-highlight-color: transparent;
 }
 .hl-sheet-grip { width: 36px; height: 4px; border-radius: var(--r-2, 2px); background: var(--text-dim); flex: 0 0 auto; }
 .hl-sheet-title { flex: 1; text-align: left; }
@@ -104,7 +111,7 @@ html.m-mobile .gto-sheet .hl-mirror .hl-speed {
 .hl-sheet .hl-row { font-size: max(12px, .85rem); line-height: 1.7; }
 html:not(.m-mobile) .hl-sheet { display: none !important; }
 
-/* ── (n3) 탭 진행: 다음에 움직일 좌석 맥박 테두리, 액션바 위 알약 #pace-pill(ui/pacer.js) ──
+/* ── (n3) 탭 진행: 다음에 움직일 좌석 맥박 테두리(ui/pacer.js) ──
    좌석 class는 Table.render가 다시 쓰므로 #screen-game[data-pace-next]로도 잡는다(.pace-next는 다시 그리기 전까지의 보강).
    행동한 좌석(.active-turn, 파란 고리)과 구별되게 금색 점선 바깥 테두리. 모션 줄이기면 멈춘 테두리 */
 @keyframes pace-pulse { 0%, 100% { outline-color: var(--gold); outline-offset: 2px; } 50% { outline-color: var(--gold-a40, rgba(212,175,55,.4)); outline-offset: 5px; } }
@@ -118,18 +125,4 @@ html.reduce-motion #screen-game .poker-table .seat.pace-next, html.reduce-motion
   html:not(.motion-full) #screen-game .poker-table .seat.pace-next, html:not(.motion-full) #screen-game[data-pace-next] .seat { animation: none !important; }
 }
 
-/* 알약: 보이는 액션바 바로 위 오른쪽(bottom, right는 Pacer가 맞춘다). 왼쪽 큰 버튼 = 다음 1걸음, 오른쪽 ⏭ = 끝까지. 둘 다 44px */
-.pace-pill {
-  position: fixed; right: 16px; bottom: 8px; z-index: 34; display: flex; align-items: stretch; gap: 0; max-width: calc(100vw - 32px);
-  background: var(--hud-bg); border: 2px solid var(--gold); border-radius: var(--r-pill, 999px); box-shadow: 0 4px 14px rgba(0,0,0,.55); overflow: hidden;
-}
-.pace-pill button {
-  min-height: 44px; min-width: 44px; margin: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: .9rem; cursor: pointer;
-  white-space: nowrap; touch-action: manipulation;
-}
-.pace-pill .pace-go { padding: 0 12px 0 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.pace-pill .pace-go b { color: var(--gold); }
-.pace-pill .pace-left { color: var(--text-dim); font-weight: 600; font-size: .82rem; }
-.pace-pill .pace-skip { padding: 0 14px 0 12px; border-left: 1px solid var(--hud-border); color: var(--gold); font-weight: 700; flex: 0 0 auto; }
-.pace-pill .pace-go:focus-visible, .pace-pill .pace-skip:focus-visible { outline: 3px solid var(--blue); outline-offset: -3px; }
-.pace-pill.pace-auto { border-style: dashed; }
+/* (n4 G1) 예전 알약 #pace-pill 규칙은 지웠다(하단 #next-bar가 맡는다, css/next-bar.css) */

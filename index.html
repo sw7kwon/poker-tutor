@@ -34,6 +34,8 @@
 <link rel="stylesheet" href="css/chips.css">
 <link rel="stylesheet" href="css/pace.css">
 <link rel="stylesheet" href="css/omni.css">
+<link rel="stylesheet" href="css/next-bar.css">
+<link rel="stylesheet" href="css/svg-charts.css">
 <link rel="stylesheet" href="css/a11y.css">
 </head>
 <body>
@@ -216,11 +218,17 @@
     </div>
     <button class="action-btn raise-btn" id="btn-raise" onclick="App.heroAction('raise')">레이즈</button>
   </div>
+  <!-- (n4-P0) 주 진행 버튼 바(상대 차례와 스트리트 전환 대기의 하단 슬롯, ui/next-bar.js NextBar가 켠다, G1) -->
+  <div id="next-bar" class="next-bar" role="group" aria-label="진행" style="display:none">
+    <button type="button" id="nb-main" class="nb-main"><span class="nb-ic" aria-hidden="true">▶</span><span class="nb-text" aria-live="polite"></span><span class="nb-left"></span></button>
+    <button type="button" id="nb-skip" class="nb-skip" aria-label="내 차례나 핸드 끝까지 빠르게">⏭</button>
+  </div>
   <!-- GTO 미러 해설 / 핸드 총평 패널 -->
   <div id="gto-commentary" class="gto-commentary-panel" style="display:none"></div>
   <!-- 핸드 종료 액션 버튼 -->
   <div id="result-actions-bar" class="result-actions-bar" style="display:none">
     <button class="action-btn" id="btn-next-round" onclick="App.nextRound()">▶ 다음 핸드</button>
+    <button class="action-btn" id="btn-result-more" onclick="if (typeof MobileUI !== 'undefined' && MobileUI.openMore) MobileUI.openMore()" style="display:none" aria-haspopup="dialog">⋯ 더 보기</button>
     <button class="action-btn" id="btn-rebuy" onclick="App.rebuyNow()" style="display:none">💰 리바이 100bb</button>
     <button class="action-btn" id="btn-practice-same" onclick="App.practiceSame()">🔁 같은 핸드 다시</button>
     <button class="action-btn" id="btn-replay" onclick="OmniUI.openLast()" style="display:none">⏪ 리플레이</button>
@@ -228,6 +236,8 @@
     <button class="action-btn" id="btn-history" onclick="App.showHistory()">📜 히스토리</button>
     <button class="action-btn fold-btn" id="btn-session-end" onclick="App.showSessionSummary()">세션 종료</button>
   </div>
+  <!-- (n4-P0) 결과바 더 보기 시트(폰, 리바이부터 세션 종료까지 6줄을 MobileUI가 옮긴다, G1) -->
+  <div id="result-more-sheet" class="result-more-sheet" role="dialog" aria-label="더 보기" style="display:none"></div>
 </div>
 
 <!-- 세션 요약 -->
@@ -235,6 +245,8 @@
   <div style="max-width:480px;margin:auto;padding:1.5rem;display:flex;flex-direction:column;min-height:100%">
     <h2 style="text-align:center;color:#e6edf3;margin-bottom:0.5rem">📊 세션 요약</h2>
     <div id="summary-stats" style="text-align:center;color:#8b949e;font-size:0.9rem;margin-bottom:1.2rem"></div>
+    <!-- (n4-P0) 세션 스택 선(SvgCharts.stackLine, P2) -->
+    <div id="session-chart"></div>
     <div id="summary-hands" style="flex:1"></div>
     <button class="menu-btn" style="margin-top:1.5rem" onclick="App.showMenu()">↩ 메뉴로</button>
   </div>
@@ -277,6 +289,8 @@
 
 <!-- 데이터 -->
 <script src="data/equity-preflop.js"></script>
+<!-- (n4-P0) 핸드별 승률 표(tools/range-equity.js 생성, G2) -->
+<script src="data/range-equity.js"></script>
 <!-- 엔진 -->
 <script src="engine/deck.js"></script>
 <script src="engine/hand-eval.js"></script>
@@ -298,8 +312,14 @@
 <!-- WP8 띵킹 프로세스 (villain.js·postflop-guide.js 의존) -->
 <script src="engine/thinking.js"></script>
 <script src="engine/win-chance.js"></script>
+<!-- (n4-P0) 위험도(G2), 포스트플랍 범위 통계(G3, ai/villain.js와 engine/postflop-guide.js 뒤) -->
+<script src="engine/range-risk.js"></script>
+<script src="engine/range-stats.js"></script>
 <!-- UI -->
 <script src="ui/cards.js"></script>
+<!-- (n4-P0) SVG 그래프(G3), 하단 시트 끌기 도우미(완성) -->
+<script src="ui/svg-charts.js"></script>
+<script src="ui/sheet-gesture.js"></script>
 <script src="ui/table.js"></script>
 <script src="ui/chips.js"></script>
 <script src="ui/hud.js"></script>
@@ -333,6 +353,9 @@
 <script src="ui/pacer.js"></script>
 <script src="ui/omni-ui.js"></script>
 <script src="ui/opp-chart.js"></script>
+<!-- (n4-P0) 주 진행 버튼 바(G1), 좌석 시트(G3) -->
+<script src="ui/next-bar.js"></script>
+<script src="ui/seat-chart.js"></script>
 <script src="ui/mobile-ui.js"></script>
 <script src="ui/touch.js"></script>
 <!-- 포커 여정 (M1-P0 선등록, 순서는 test.html 신규 모듈 블록과 동일) -->

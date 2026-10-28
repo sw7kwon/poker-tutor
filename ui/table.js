@@ -452,7 +452,8 @@ var Table = (function() {
           return (r.width > 0.5 && r.height > 0.5) ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null;
         };
         var bar = null;
-        ['action-bar', 'result-actions-bar'].forEach(function(id) {
+        // (n4 G1) 하단 바 후보는 공통 상수(NextBar.BARS: 액션바, 다음 바, 결과바). 다음 바가 빠지면 토스트가 다음 바 글을 덮었다(412x915, 360 실측)
+        ((typeof NextBar !== 'undefined' && NextBar && Array.isArray(NextBar.BARS)) ? NextBar.BARS : ['action-bar', 'result-actions-bar']).forEach(function(id) {
           var b = document.getElementById(id);
           if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
         });

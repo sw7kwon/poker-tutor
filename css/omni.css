@@ -15,14 +15,16 @@
 .omni-modal { justify-content: center; align-items: center; }
 .omni-modal .omni-backdrop { background: var(--overlay-modal); pointer-events: auto; }
 .omni-modal .omni-box { width: min(560px, calc(100vw - 32px)); max-height: 80vh; border-radius: var(--r-lg); }
+/* (n4 G3, 설계 1.4절) 머리줄 48px = 손잡이(누르거나 아래로 끌면 닫기) + 오른쪽 '✕ 닫기'(.sheet-close 72x48, css/next-bar.css) */
+.omni-headrow { flex: 0 0 48px; display: flex; align-items: center; padding: 0 4px 0 0; border-bottom: 1px solid var(--hud-border); }
 .omni-handle {
-  flex: 0 0 44px; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box; width: 100%;
-  background: transparent; border: none; border-bottom: 1px solid var(--hud-border); color: var(--purple-text); font-size: .9rem; font-weight: 700; cursor: pointer; text-align: left;
+  flex: 1 1 auto; min-width: 0; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; box-sizing: border-box;
+  background: transparent; border: none; color: var(--purple-text); font-size: .95rem; font-weight: 700; cursor: pointer; text-align: left; touch-action: none;
 }
+.omni-close { color: var(--purple-text); }
 .omni-grip { width: 36px; height: 4px; border-radius: var(--r-2); background: var(--text-dim); flex: 0 0 auto; }
 .omni-modal .omni-grip { display: none; }
 .omni-handle-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-soft); font-weight: 600; }
-.omni-x { flex: 0 0 auto; color: var(--text-dim); font-size: 1rem; }
 .omni-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; }
 .omni-footwrap { flex: 0 0 auto; }
 .omni-foot { display: flex; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--hud-border); }
@@ -33,6 +35,9 @@
 }
 .omni-btn-live { flex: 1 1 auto; background: var(--green-deep); border-color: var(--green-border); color: var(--white); }
 .omni-btn-close { flex: 0 0 auto; margin-left: auto; }
+.omni-foot .omni-btn { min-height: 48px; }   /* (n4 G3) 발판 버튼 48px(기록 리플레이의 ↩ 기록으로, 닫기, 라이브의 ▶ 라이브로) */
+.omni-eq-line { margin-top: 2px; font-variant-numeric: tabular-nums; }
+.omni-post .sc-blocks { margin-top: 6px; }
 .omni-btn:focus-visible, .omni-tab:focus-visible, .omni-persp:focus-visible, .omni-fr:focus-visible, .omni-go:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 
 /* ── 머리: 관점 칩 줄(가로 스크롤, 칩 44px) ── */

@@ -9,6 +9,11 @@
 //   openTab(key)는 공개 계약(G4 차트 시트, 극장, CoachUI.lineTap이 부른다).
 // (n2 G2 PACE, 설계 docs/NEXT2_DESIGN.md 4.4절 3번) 상단부 맨 앞에 액션 로그 줄 #hand-log(36px, ui/pacer.js HandLogUI가 만든다).
 //   예산 132px: 판정 띠 44 + 리마인더 44 + 로그 36 = 124(띵킹 패널은 켠 사람만, 넘치면 상단부 안쪽 스크롤). _mount가 먼저 HandLogUI.ensure()를 부른다.
+// (n4 G1 NAV, 설계 docs/NEXT4_DESIGN.md 1.3절, 1.4절, 결정 59, 61) 결과바 정리: 폰에서는 [▶ 다음 핸드][⋯ 더 보기] 한 줄(64px)이고,
+//   나머지 6개(💰 리바이, 🔁 같은 핸드 다시, ⏪ 리플레이, ⚡ 1문제, 📜 히스토리, 세션 종료)는 더 보기 시트 #result-more-sheet(z 37, 결과바 위)로 DOM 이동한다.
+//   id와 onclick, 인라인 display는 그대로라 App._syncRebuyBtn, _syncReplayBtn과 연습의 히스토리, 세션 종료 숨김이 그대로 동작한다(숨은 버튼은 줄도 숨는다).
+//   데스크톱 폭으로 돌아가면 _unmount가 원위치로 되돌린다. openMore(), closeMore(), placeMore()(바닥 = 보이는 바 위, NextBar가 바가 바뀔 때 부른다),
+//   moreOpen(), MORE(옮기는 버튼 id). 시트 머리줄 48px(✕ 닫기 72x48), 시트 밖 누름, 아래로 끌기(SheetGesture)로 닫는다.
 var MobileUI = (function() {
   var MQ = '(max-width: 600px), (orientation: portrait) and (max-width: 760px)';   // css/mobile.css와 같은 문자열
   var TOP = ['hand-log', 'coach-line', 'coach-reminder', 'thinking-panel'];           // 항상 보이는 상단부(R7, n2 액션 로그 줄 맨 앞)
@@ -24,6 +29,8 @@ var MobileUI = (function() {
   var _forced = null;     // openTab으로 연 탭 키(내용이 비어 보여도 숨기지 않음)
   var _savedTop = null;   // _reveal 직전 게임 화면 스크롤 위치 — 접으면 되돌림
   var _revealSeq = 0;     // _reveal 연속 호출 토큰(마지막 것만 실행)
+  var MORE = ['btn-rebuy', 'btn-practice-same', 'btn-replay', 'btn-quick-drill', 'btn-history', 'btn-session-end'];   // 더 보기 시트로 옮기는 결과바 버튼(이 순서, 세션 종료 맨 아래)
+  var _moreOpen = false, _moreBound = false, _more = null;   // _more = { sheet, head, body, close }
 
   function _el(id) { return document.getElementById(id); }
 
@@ -70,6 +77,7 @@ var MobileUI = (function() {
     _moved = [];
     TOP.forEach(function(id) { _move(id, top); });
     BODY.forEach(function(id) { _move(id, body); });
+    _mountMore();
     // selectVillains와 같은 동기화: 코칭 패널은 도크 탭이 대신 여닫으므로 항상 표시 상태로 둠
     var ov = _el('equity-overlay'), tg = _el('equity-toggle'), ch = _el('gto-chart');
     if (ov) ov.style.display = 'flex';
@@ -89,6 +97,9 @@ var MobileUI = (function() {
   }
 
   function _unmount() {
+    closeMore();
+    var mb = _el('btn-result-more');
+    if (mb) mb.style.display = 'none';
     for (var i = _moved.length - 1; i >= 0; i--) {
       var m = _moved[i];
       if (m.next && m.next.parentNode === m.parent) m.parent.insertBefore(m.el, m.next);
@@ -160,7 +171,8 @@ var MobileUI = (function() {
       if (!body || !tabs) return;
       // ── 읽기 ──
       var bar = null;
-      ['action-bar', 'result-actions-bar'].forEach(function(id) {
+      var ids = (typeof NextBar !== 'undefined' && NextBar && Array.isArray(NextBar.BARS)) ? NextBar.BARS : ['action-bar', 'result-actions-bar'];   // (n4-P0) 바 후보 공통 상수
+      ids.forEach(function(id) {
         var b = _el(id);
         if (b && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
       });
@@ -171,6 +183,9 @@ var MobileUI = (function() {
       // 내 카드(히어로 카드)는 화면 안에 남겨 둠, 읽으면서 내 패를 확인할 수 있게
       var hc = document.querySelector('#screen-game .seat.hero .seat-cards');
       if (hc && hc.offsetHeight > 0) room = Math.min(room, hc.getBoundingClientRect().top - scTop - 4);
+      // (n4 G1, 설계 1.3절 3번) 핸드 끝(결과바)에는 보드도 화면 안에 남긴다(승자와 보드를 보며 총평을 읽게)
+      var bc = bar && bar.id === 'result-actions-bar' ? document.getElementById('board-cards') : null;
+      if (bc && bc.offsetHeight > 0) room = Math.min(room, bc.getBoundingClientRect().top - scTop - 4);
       var d = Math.min(over, room);
       var cur = sc.scrollTop;
       // ── 쓰기 ──
@@ -219,6 +234,105 @@ var MobileUI = (function() {
     _dock.classList.toggle('m-collapsed', _collapsed);
   }
 
+  // ── (n4 G1) 결과바 더 보기 시트 ──
+  // 시트 뼈대(index.html의 빈 #result-more-sheet)에 머리줄과 본문을 만들고 MORE 버튼을 본문으로 옮긴다(_moved에 기록, _unmount가 되돌린다)
+  function _mk(tag, cls, attrs, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (attrs) Object.keys(attrs).forEach(function(k) { e.setAttribute(k, attrs[k]); });
+    if (html) e.innerHTML = html;
+    return e;
+  }
+  function _mountMore() {
+    var sh = _el('result-more-sheet'), mb = _el('btn-result-more');
+    if (!sh || !mb) return false;
+    if (!_more || _more.sheet !== sh) {
+      var head = _mk('div', 'sheet-head result-more-head');
+      head.appendChild(_mk('span', 'sheet-grip', { 'aria-hidden': 'true' }));
+      head.appendChild(_mk('span', 'sheet-title', null, '더 보기'));
+      var close = _mk('button', 'sheet-close', { type: 'button', 'aria-label': '더 보기 닫기' }, '<span aria-hidden="true">✕</span><span class="sheet-close-t">닫기</span>');
+      head.appendChild(close);
+      var body = _mk('div', 'result-more-body', { role: 'group', 'aria-label': '결과 화면 다른 메뉴' });
+      sh.innerHTML = '';
+      sh.appendChild(head);
+      sh.appendChild(body);
+      _more = { sheet: sh, head: head, body: body, close: close };
+      close.addEventListener('click', function(e) { if (e && e.stopPropagation) e.stopPropagation(); closeMore(); });
+      body.addEventListener('click', function(e) {
+        var t = e && e.target;
+        if (t && t.closest && t.closest('.action-btn')) _raf(closeMore);   // 줄을 누르면 그 일(버튼 onclick)을 하고 시트는 닫는다
+      });
+      if (typeof SheetGesture !== 'undefined' && SheetGesture && typeof SheetGesture.bind === 'function') {
+        // (n4g1 리뷰) 손가락 누름은 SheetGesture가 머리줄 touchend 기본 동작을 막아 '✕ 닫기'의 click이 오지 않는다(412x915 실측: ✕를 눌러도 안 닫힘).
+        //   머리줄 누름(✕ 포함) = 닫기로 받는다(설계 1.4절 1번: 손잡이 누름도 닫기). 키보드 Enter는 ✕의 click이 그대로 닫는다
+        SheetGesture.bind(sh, head, { onClose: closeMore, onTap: closeMore });
+      }
+    }
+    MORE.forEach(function(id) { _move(id, _more.body); });
+    mb.style.display = '';
+    mb.setAttribute('aria-expanded', 'false');
+    if (!_moreBound && typeof document.addEventListener === 'function') {
+      _moreBound = true;
+      // 시트 밖 누름은 닫는다(그 누름의 일은 그대로, 예: ▶ 다음 핸드)
+      document.addEventListener('click', function(e) {
+        if (!_moreOpen) return;
+        var t = e && e.target;
+        if (t && t.closest && (t.closest('#result-more-sheet') || t.closest('#btn-result-more'))) return;
+        closeMore();
+      }, true);
+    }
+    return true;
+  }
+  // 보이는 더 보기 줄 수(숨은 버튼은 줄도 숨는다)
+  function _moreCount() {
+    var n = 0;
+    MORE.forEach(function(id) { var b = _el(id); if (b && b.style.display !== 'none' && _more && b.parentNode === _more.body) n++; });
+    return n;
+  }
+  function openMore() {
+    if (!_active) return false;
+    var sh = _el('result-more-sheet');
+    if (!sh || !_more || _more.sheet !== sh) return false;
+    if (_moreOpen) { closeMore(); return false; }   // 더 보기를 다시 누르면 닫기
+    _moreOpen = true;
+    sh.style.display = '';
+    var mb = _el('btn-result-more');
+    if (mb) mb.setAttribute('aria-expanded', 'true');
+    placeMore();
+    _raf(function() { var c = _more && _more.close; if (c && _moreOpen && typeof c.focus === 'function') { try { c.focus({ preventScroll: true }); } catch (e) { /* noop */ } } });
+    return true;
+  }
+  function closeMore() {
+    var sh = _el('result-more-sheet');
+    var was = _moreOpen;
+    _moreOpen = false;
+    if (sh) { sh.style.display = 'none'; sh.style.transform = ''; }
+    var mb = _el('btn-result-more');
+    if (mb) mb.setAttribute('aria-expanded', 'false');
+    if (was && mb && typeof mb.focus === 'function' && document.activeElement && document.activeElement !== document.body && sh && sh.contains && sh.contains(document.activeElement)) {
+      try { mb.focus({ preventScroll: true }); } catch (e) { /* noop */ }
+    }
+    return was;
+  }
+  // 시트 바닥 = 보이는 하단 바(NextBar.BARS 중) 위 끝. 강제 레이아웃은 시트가 열려 있을 때만
+  function placeMore() {
+    if (!_moreOpen || typeof window === 'undefined') return false;
+    var sh = _el('result-more-sheet');
+    if (!sh) return false;
+    var bar = null, ids = (typeof NextBar !== 'undefined' && NextBar && Array.isArray(NextBar.BARS)) ? NextBar.BARS : ['action-bar', 'result-actions-bar'];
+    ids.forEach(function(id) { var b = _el(id); if (b && b.style.display !== 'none' && b.offsetHeight > 0) bar = b; });
+    var ih = window.innerHeight || 0, top = bar && bar.getBoundingClientRect ? bar.getBoundingClientRect().top : ih;
+    sh.style.bottom = Math.max(0, Math.round(ih - top)) + 'px';
+    sh.style.maxHeight = Math.max(160, Math.round(top - 8)) + 'px';
+    return true;
+  }
+  // 결과바의 더 보기 버튼: 시트에 보일 줄이 없으면(모두 숨김) 숨긴다
+  function _syncMore() {
+    var mb = _el('btn-result-more');
+    if (!mb || !_active) return;
+    mb.style.display = _moreCount() > 0 ? '' : 'none';
+  }
+
   // ── app.js 훅 (모바일이 아니면 전부 no-op) ──
   // 다른 모듈이 도크 탭을 직접 연다(M4 계약 T2, 극장이 세로 폰에서 '💭 띵킹' 탭을 자동 선택).
   // key = 'coach'|'chart'|'think'|'review'. 연 탭은 내용 판정(띵킹 꺼짐 등)과 무관하게 보이고, onNewHand나 openTab(null)이 푼다.
@@ -234,6 +348,7 @@ var MobileUI = (function() {
 
   function onNewHand() {
     if (!_active) return;
+    closeMore();
     _forced = null;
     _tab = 'coach'; _collapsed = true; _savedTop = null;
     _refresh();
@@ -262,8 +377,19 @@ var MobileUI = (function() {
 
   function onAfterDecision() { if (_active) _refresh(); }
 
-  function onHandEnd() {
+  // (n4 G1) 연습 재생은 '🔁 같은 핸드 다시'가 주 행동(▶ 다음 핸드 = 연습 종료)이라 결과바에 둔다. 연습이 아니면 더 보기 시트로 되돌린다
+  function _placePractice(on) {
+    var b = _el('btn-practice-same'), rb = _el('result-actions-bar'), mb = _el('btn-result-more');
+    if (!b || !rb || !mb || !_more) return false;
+    if (on && b.parentNode !== rb) rb.insertBefore(b, mb);
+    else if (!on && b.parentNode !== _more.body) _more.body.insertBefore(b, _el('btn-replay') && _el('btn-replay').parentNode === _more.body ? _el('btn-replay') : _more.body.firstChild);
+    if (b.classList) b.classList.toggle('rb-practice', !!on);
+    return true;
+  }
+  function onHandEnd(ctx) {
     if (!_active) return;
+    _placePractice(!!(ctx && ctx.practice));
+    _syncMore();
     _refresh();
     if (_hidden(_el('gto-commentary'))) return;
     _open('review');
@@ -278,6 +404,8 @@ var MobileUI = (function() {
     init: init, isMobile: function() { return _active; },
     onNewHand: onNewHand, onHeroTurn: onHeroTurn, onAfterDecision: onAfterDecision, onHandEnd: onHandEnd,
     openTab: openTab, autoOpen: autoOpen, TOP: TOP.slice(),
-    _state: function() { return { active: _active, tab: _tab, collapsed: _collapsed, forced: _forced }; }
+    openMore: openMore, closeMore: closeMore, placeMore: placeMore, moreOpen: function() { return _moreOpen; }, moreCount: _moreCount, MORE: MORE.slice(),
+    _state: function() { return { active: _active, tab: _tab, collapsed: _collapsed, forced: _forced }; },
+    _apply: apply   // (n4 G1) 테스트: 폰 도크 붙이기와 떼기(결과바 더 보기 DOM 이동과 복원)
   };
 })();

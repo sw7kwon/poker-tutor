@@ -28,6 +28,13 @@
 //   sit.persp = 관점 칩 줄 HTML(👤 내 차트, 방금: CO), 호스트 맨 위 .gto-persp에 넣는다(격자 HTML 캐시와 따로, setPersp는 그 상자만 고친다). sit.open = 자동으로 접힌 시트를 편다.
 //   on(fn) 알림(fn(kind, data): 'hero' 히어로 결정 update 직전, 'hide', 'refresh', 'chip' 관점 칩 누름), visible() 지금 사용자가 차트를 보고 있나,
 //   wanted() 차트를 볼 설정인가, hasHero() 이번 손 히어로 차트가 있나. 상대 차트 HTML은 전체 문자열 캐시(같은 상황 다시 오면 문자열 조립 없음).
+// n4-G2(설계 docs/NEXT4_DESIGN.md 3.5절, 핸드별 승률과 위험도): 보기 칩 넷째 '📈 분석'(A11y chartView 'analysis'). 승률 표(data/range-equity.js RangeEquity)와
+//   위험도(engine/range-risk.js RangeRisk)가 있으면 격자 칸에 data-eq(승률 정수)와 ga-trap(아깝게 밖 함정 칸)을 넣고(격자 HTML 캐시 키 = 모델 키 + 표 키),
+//   분석 보기에서는 css가 칸 글자를 승률 숫자로 바꾼다(다른 보기처럼 클래스만 바뀌어 완전 분석, 상대 차트도 그대로 따라온다). 격자 아래 .ga-panel(요약 줄,
+//   레인지 곡선 .ga-curve(SvgCharts.rangeCurve, typeof 가드), 공통 한 줄)은 분석 보기에서만 보이고, 분석 보기가 아니면 빈 자리만 두었다가 칩을 누를 때 채운다(_fillAnalysis).
+//   읽기 줄 꼬리 .ga-tail('승률 54%, 핵심 콜'), 칸 말풍선은 분석 보기에서 RangeRisk.cell 문장. 표가 스텁이거나 그 상황 표가 없으면 칩은 점선(이유 글),
+//   저장값이 'analysis'여도 격자는 전체 보기로 그리고 칩만 눌린 채 이유를 통계 줄에 적는다(저장값은 그대로). 상대 범위 문구와 라벨(엔진 계산, 참고)은 늘 같이 보인다.
+//   ana 인자 없이 부르는 viewChips(model), viewChipsHTML(model, v), effView(model, saved)는 예전처럼 칩 3개(학습실)다.
 // 규약: 로드 시 DOM 접근 없음(window.addEventListener만). 문구는 해요체, 가운뎃점과 긴줄표 없음.
 var GtoChart = (function() {
   var RANKS = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
@@ -384,17 +391,20 @@ var GtoChart = (function() {
 
   // ── HTML 조각 ──
   var _gridHtml = {};
-  function gridHTML(model) {
-    var k = model.key || null;
+  var _heroGrid = {}, _heroGridN = 0;   // (n4-G2) 내 칸을 끼운 격자 문자열(격자 키 + 내 칸 + 반짝임)
+  // ga(n4-G2) = RangeRisk.analyze 결과(표 키 ga.key): 칸에 data-eq(승률)와 ga-trap(함정 칸) 클래스. 캐시 키는 모델 키 + 표 키
+  function gridHTML(model, ga) {
+    var k = model.key ? (ga ? model.key + '|ga|' + ga.key : model.key) : null;
     if (k && _gridHtml[k]) return _gridHtml[k];
     var parts = [];
     for (var r = 0; r < 13; r++) {
       for (var c = 0; c < 13; c++) {
-        var cell = model.cells[r][c], mx = mixOf(cell);
-        var cls = 'gto-cell gto-' + cell.action + (mx ? ' gto-mix' : '') + (cell.alt ? ' gto-alt' : '');
+        var cell = model.cells[r][c], mx = mixOf(cell), go = ga ? ga.cells[r * 13 + c] : null;
+        var eqA = (go && go.eq != null && go.group !== 'none') ? ' data-eq="' + go.eq + '"' : '';
+        var cls = 'gto-cell gto-' + cell.action + (mx ? ' gto-mix' : '') + (cell.alt ? ' gto-alt' : '') + (eqA && go.trap ? ' ga-trap' : '');
         // (n3-B) data-pr, data-pc: 레이즈만, 콜만 보기에서 칸 안에 그 액션 비율을 적는다(css ::after)
         var extra = mx ? ' style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" data-cb="' + mixText(mx) + '" data-cb1="' + mixTop(mx) + '" data-pr="' + Math.round(mx.raise * 100) + '" data-pc="' + Math.round(mx.call * 100) + '"' : '';
-        parts.push('<div class="' + cls + '" data-r="' + r + '" data-c="' + c + '"' + extra + '>' + cell.label + '</div>');
+        parts.push('<div class="' + cls + '" data-r="' + r + '" data-c="' + c + '"' + extra + eqA + '>' + cell.label + '</div>');
       }
     }
     var html = parts.join('');
@@ -423,7 +433,8 @@ var GtoChart = (function() {
   // 칩 줄 .gv-bar는 격자(data-gvt) 바로 위, 통계 줄 .gv-stat은 격자 바로 아래에 있고, 칩을 누르면 같은 상자 안의 data-gvt 요소(격자, 범례) 클래스(gv-all, gv-raise, gv-call)와
   // 칩 aria-pressed, 통계 줄 글만 바꾼다(격자 HTML은 다시 만들지 않는다). 통계 글은 보기마다 미리 data-st-*에 넣어 두어 모델 없이 DOM만으로 바꾼다.
   // 해당하지 않는 칸은 css가 흐린다(혼합 칸은 그 액션 비율이 0보다 크면 해당 칸, data-cb의 R, C 글자로 가린다). 내 칸(금테)과 영역 윤곽은 늘 또렷하다.
-  var VIEWS = ['all', 'raise', 'call'];
+  var VIEWS = ['all', 'raise', 'call', 'analysis'];
+  var ANA_WHY = { stub: '승률 표를 아직 만들지 않았어요', none: '이 상황은 승률 표가 없어요' };
   var NO_CALL = {
     rfi: '오픈 상황엔 콜(림프) 칸이 없어요. 이 앱 차트는 레이즈 아니면 폴드예요',
     sb: 'SB는 3벳 아니면 폴드로 단순하게 가요(이 앱 차트 기준)',
@@ -460,27 +471,46 @@ var GtoChart = (function() {
     if (model.facing === true && model.pos === 'SB') return NO_CALL.sb;
     return NO_CALL.other;
   }
-  // 칩 3개: [{ v, label, disabled, why }]. 자료 없는 모델은 빈 배열
-  function viewChips(model) {
+  // 칩 3개(+ ana가 있으면 넷째 📈 분석): [{ v, label, disabled, why }]. 자료 없는 모델은 빈 배열
+  //   ana(n4-G2) = _anaOf 결과 | null(분석 칩을 점선으로) | undefined(분석 칩 없음, 예전 호출)
+  function viewChips(model, ana) {
     if (!model || !model.cells) return [];
     var t = tally(model);
     if (t.none >= t.total) return [];
     var why = noCallWhy(model);
-    return [
+    var out = [
       { v: 'all', label: '전체', disabled: false, why: null },
       { v: 'raise', label: viewWord(model, 'raise') + '만', disabled: viewCount(model).raise.n === 0, why: viewCount(model).raise.n ? null : '이 상황엔 레이즈 칸이 없어요(이 앱 차트 기준)' },
       { v: 'call', label: viewWord(model, 'call') + '만', disabled: !!why, why: why }
     ];
+    if (ana !== undefined) out.push({ v: 'analysis', label: '📈 분석', disabled: !(ana && ana.ok), why: (ana && ana.ok) ? null : ((ana && ana.why) || ANA_WHY.stub) });
+    return out;
+  }
+  // (n4-G2) 분석 보기 재료: 표 키, 상대 범위 문구, 라벨, 필요 승률. ctx = { raiser?(3벳, 4벳한 자리), coldOpener?, need?({ need, ref } | null, 없으면 표준 크기) }
+  //   → { ok: true, key, vs, ref, note, ga(RangeRisk.analyze), need, needRef } | { ok: false, why } | null(모델 없음)
+  function _anaOf(model, ctx) {
+    ctx = ctx || {};
+    if (!model || !model.cells) return null;
+    var RE = (typeof RangeEquity !== 'undefined' && RangeEquity) ? RangeEquity : null, RR = (typeof RangeRisk !== 'undefined' && RangeRisk) ? RangeRisk : null;
+    if (!RE || !RR || RE.STUB || RR.STUB || typeof RE.tableFor !== 'function' || typeof RR.analyze !== 'function') return { ok: false, why: ANA_WHY.stub };
+    var t = null, ga = null, nd = null;
+    try {
+      t = RE.tableFor({ pos: model.pos, facing: model.facing, opener: model.opener, limpers: model.limpers || 0, key: model.key }, { raiser: ctx.raiser || null, opener: ctx.coldOpener || null });
+      ga = (t && RE.TABLES && RE.TABLES[t.key]) ? RR.analyze(model, t.key) : null;
+      nd = ctx.need !== undefined ? ctx.need : RR.need({ pos: model.pos, facing: model.facing, opener: model.opener, limpers: model.limpers || 0, raiser: ctx.raiser || null }, null);
+    } catch (e) { ga = null; }
+    if (!t || !ga) return { ok: false, why: ANA_WHY.none };
+    return { ok: true, key: t.key, vs: t.vs, ref: t.ref, note: t.note || '', ga: ga, need: nd ? nd.need : null, needRef: nd ? nd.ref : null, allIn: !!(nd && nd.allIn) };
   }
   function _savedView() {
     var v = _settings().chartView;
     return VIEWS.indexOf(v) >= 0 ? v : 'all';
   }
-  // 지금 보일 보기: 저장값이 그 상황에 없는 액션(콜 없는 상황의 '콜만')이면 그 상황만 '전체'(저장값은 그대로)
-  function effView(model, saved) {
+  // 지금 보일 보기: 저장값이 그 상황에 없는 액션(콜 없는 상황의 '콜만', 표 없는 '분석')이면 그 상황만 '전체'(저장값은 그대로)
+  function effView(model, saved, ana) {
     var v = VIEWS.indexOf(saved) >= 0 ? saved : 'all';
     if (v === 'all') return v;
-    var ch = viewChips(model);
+    var ch = viewChips(model, ana);
     for (var i = 0; i < ch.length; i++) if (ch[i].v === v) return ch[i].disabled ? 'all' : v;
     return 'all';
   }
@@ -492,40 +522,52 @@ var GtoChart = (function() {
     var tag = _isStd(model) ? '표준 차트 기준(참고)' : '이 앱 차트 기준';
     return viewWord(model, v) + ' 칸 ' + k.n + '종' + (k.mixed ? '(혼합 ' + k.mixed + '종 포함)' : '') + ', 콤보 ' + (k.mixed ? '약 ' : '') + k.combos + '개(전체의 ' + k.pct + '%), ' + tag;
   }
-  // 칩 줄 HTML(순수). v = 지금 보일 보기(effView 결과)
-  function viewChipsHTML(model, v) {
-    var ch = viewChips(model);
+  // 칩 줄 HTML(순수). v = 지금 보일 보기(effView 결과). ana(n4-G2)가 있으면 넷째 칩. 저장값이 분석인데 칩이 점선이면 칩만 눌린 채(이유는 통계 줄)
+  function viewChipsHTML(model, v, ana) {
+    var ch = viewChips(model, ana);
     if (!ch.length) return '';
-    var sw = { all: '', raise: swatch('raise'), call: swatch('call') };
-    var st = ' data-st-raise="' + _esc(viewStat(model, 'raise')) + '" data-st-call="' + _esc(viewStat(model, 'call')) + '"';
+    var sw = { all: '', raise: swatch('raise'), call: swatch('call'), analysis: '' };
+    var aChip = ch[3] || null, anaHeld = !!(aChip && aChip.disabled && _savedView() === 'analysis');
+    var st = ' data-st-raise="' + _esc(viewStat(model, 'raise')) + '" data-st-call="' + _esc(viewStat(model, 'call')) + '"' +
+      (aChip ? ' data-st-analysis="' + _esc(aChip.disabled ? aChip.why : _anaDef(ana)) + '"' : '');
     var btns = ch.map(function(c) {
-      return '<button type="button" class="gv-chip" data-gv="' + c.v + '" aria-pressed="' + (c.v === v ? 'true' : 'false') + '"' +
+      var on = anaHeld ? c.v === 'analysis' : c.v === v;
+      return '<button type="button" class="gv-chip' + (c.v === 'analysis' ? ' gv-chip-ana' : '') + '" data-gv="' + c.v + '" aria-pressed="' + (on ? 'true' : 'false') + '"' +
         (c.disabled ? ' aria-disabled="true" data-why="' + _esc(c.why) + '"' : '') + '>' + sw[c.v] + _esc(c.label) + '</button>';
     }).join('');
     return '<div class="gv-bar"' + st + (ch[2].disabled ? ' data-nocall="1"' : '') + '><div class="gv-chips" role="group" aria-label="차트 보기, 액션별로 따로 보기">' + btns + '</div></div>';
   }
   // 통계 줄 HTML(순수): 격자 바로 아래(칩을 눌러도 격자가 위아래로 움직이지 않게). 칩 줄과 같은 상자 안에 둔다. 칩이 없는 모델은 ''
-  function viewStatHTML(model, v) {
+  function viewStatHTML(model, v, ana) {
     if (!viewChips(model).length) return '';
-    return '<div class="gv-stat" aria-live="polite">' + _esc(viewStat(model, v)) + '</div>';
+    var held = ana !== undefined && !(ana && ana.ok) && v === 'all' && _savedView() === 'analysis';
+    var t = held ? ((ana && ana.why) || ANA_WHY.stub) : v === 'analysis' ? _anaDef(ana) : viewStat(model, v);
+    return '<div class="gv-stat" aria-live="polite">' + _esc(t) + '</div>';
   }
+  // (n4-G2) 분석 보기 통계 줄 = 칸 숫자의 뜻(격자 바로 아래, 설계 3.1절 3번): '칸 숫자 = CO 오픈 범위 상대로 쇼다운까지 갔을 때 승률(%)'
+  function _anaDef(ana) { if (!ana || !ana.ok) return ''; var p = _vsSplit(ana.vs); return '칸 숫자 = ' + p[0] + '로 쇼다운까지 갔을 때 승률(%)' + (p[1] ? ' ' + p[1] : ''); }
   // 칩 줄 하나에 보기를 반영(DOM, 클래스와 글만). 같은 상자(칩 줄의 부모) 안 data-gvt 요소의 gv-* 클래스를 바꾼다
+  //   (n4-G2) 분석: 칩이 없는 줄(학습실)은 전체, 점선이면 격자는 전체이고 칩만 눌린 채 통계 줄에 이유
   function _applyBar(bar, saved) {
     if (!bar || !bar.getAttribute) return;
     var v = VIEWS.indexOf(saved) >= 0 ? saved : 'all';
     if (v === 'call' && bar.getAttribute('data-nocall') === '1') v = 'all';
     var chips = bar.querySelectorAll ? bar.querySelectorAll('.gv-chip') : [];
+    var pressed = v, has = v === 'all', held = false;
     for (var i = 0; i < chips.length; i++) {
-      if (chips[i].getAttribute('data-gv') === v && chips[i].getAttribute('aria-disabled') === 'true') v = 'all';
+      if (chips[i].getAttribute('data-gv') !== v) continue;
+      has = true;
+      if (chips[i].getAttribute('aria-disabled') === 'true') { if (v === 'analysis') held = true; else pressed = 'all'; v = 'all'; }
     }
-    for (var j = 0; j < chips.length; j++) chips[j].setAttribute('aria-pressed', chips[j].getAttribute('data-gv') === v ? 'true' : 'false');
+    if (!has) { v = 'all'; pressed = 'all'; }
+    for (var j = 0; j < chips.length; j++) chips[j].setAttribute('aria-pressed', chips[j].getAttribute('data-gv') === pressed ? 'true' : 'false');
     var box = bar.parentNode, tg = (box && box.querySelectorAll) ? box.querySelectorAll('[data-gvt]') : [];
     var stat = (box && box.querySelector) ? box.querySelector('.gv-stat') : null;
-    if (stat) stat.textContent = v === 'all' ? '' : (bar.getAttribute('data-st-' + v) || '');
+    if (stat) stat.textContent = held ? (bar.getAttribute('data-st-analysis') || ANA_WHY.stub) : v === 'all' ? '' : (bar.getAttribute('data-st-' + v) || '');
     for (var k = 0; k < tg.length; k++) {
       var cl = tg[k].classList;
       if (!cl) continue;
-      if (!cl.contains('gv-' + v)) { cl.remove('gv-all'); cl.remove('gv-raise'); cl.remove('gv-call'); cl.add('gv-' + v); }
+      if (!cl.contains('gv-' + v)) { cl.remove('gv-all'); cl.remove('gv-raise'); cl.remove('gv-call'); cl.remove('gv-analysis'); cl.add('gv-' + v); }
     }
   }
   // 문서(또는 root) 안의 모든 칩 줄에 저장된 보기를 반영
@@ -534,6 +576,8 @@ var GtoChart = (function() {
     if (!r || !r.querySelectorAll) return 0;
     var sv = saved || _savedView(), bars = r.querySelectorAll('.gv-bar');
     for (var i = 0; i < bars.length; i++) _applyBar(bars[i], sv);
+    // (n4 검증) 분석 패널(요약 줄, 곡선 SVG, 화면 낭독 표)은 다음 프레임에 채운다(칩 누름 동기 블록 밖, 6.5절). rAF가 없으면(node 러너) 바로
+    if (sv === 'analysis' && !_fillLater(r)) _fillAnalysis(r);
     return bars.length;
   }
   var _tipTimer = null;
@@ -565,7 +609,7 @@ var GtoChart = (function() {
     var v = btn.getAttribute('data-gv');
     if (VIEWS.indexOf(v) < 0) return true;
     try { if (typeof A11y !== 'undefined' && A11y && typeof A11y.save === 'function') A11y.save({ chartView: v }); } catch (e) {}
-    if (!syncViews(null, v) && bar) _applyBar(bar, v);
+    if (!syncViews(null, v) && bar) { _applyBar(bar, v); if (v === 'analysis' && !_fillLater(bar.parentNode)) _fillAnalysis(bar.parentNode); }
     return true;
   }
 
@@ -631,12 +675,16 @@ var GtoChart = (function() {
     var ro = readout(model, heroCards, null, { hidden: o.hidden, viewPos: o.viewPos, heroPos: heroPos });
     if (o.seatLabel) { ro.ctx = String(o.seatLabel); ro.preview = true; }
     var post = o.street && o.street !== 'preflop';
+    // (n4-G2) 분석 보기 재료(표가 없으면 ok 거짓, 칩은 점선)와 지금 보일 보기, 읽기 줄 꼬리
+    var ana = empty ? undefined : _anaOf(model, o.ana || {});
+    var vw = effView(model, o.view || _savedView(), ana);
+    var tail = _tailHTML(model, ana, (!o.hidden && ro.cell) ? ro.cell : null, vw);
     var head = '<div class="gto-chart-head">' +
       (post ? '<div class="gto-head-post">📌 지금은 ' + _esc(streetKor(o.street)) + ', 프리플랍 차트는 참고예요</div>' : '') +
       '<div class="gto-head-ctx' + (ro.preview ? ' is-preview' : '') + '">' + _esc(ro.ctx) + '</div>' +
       // (n3b-review) 다른 자리 입장 차트는 이름 줄 아래에 그 자리 상황을 적는다(이름만으로는 무슨 상황 차트인지 모른다)
       (o.seatLabel ? '<div class="gto-head-hand gto-head-sit"><span>상황: ' + _esc(seatContextText(model)) + '</span></div>' : '') +
-      (ro.handHTML ? '<div class="gto-head-hand">' + (ro.action && !ro.hidden ? swatch(ro.action) : '') + '<span>' + ro.handHTML + '</span></div>' : '') +
+      (ro.handHTML ? '<div class="gto-head-hand">' + (ro.action && !ro.hidden ? swatch(ro.action) : '') + '<span>' + ro.handHTML + tail + '</span></div>' : '') +
       (post || o.viewPos || o.seatLabel ? '' : _bluffHTML(model)) +
       (post ? '<div class="gto-guide">' + (o.guide ? _esc(o.guide) : '') + '</div>' : '') +
       '</div>';
@@ -650,10 +698,13 @@ var GtoChart = (function() {
       // '나머지' 분류(suited-other, offsuit-other)는 칸이 너무 많아 강조하면 오히려 내 손이 묻힌다
       if (kin && /-other$/.test(String(kin))) kin = null;
     }
-    var grid = gridHTML(model);
+    var grid = gridHTML(model, (ana && ana.ok) ? ana.ga : null);
     var rg = hc ? regionOf(model, hc.r, hc.c) : null;   // n2-G3: 내 손이 속한 범위 영역(폴드, 자료 없음은 null)
     var edges = rg ? rg.edges : null;
-    if (hc) {
+    // (n4-G2) 내 칸을 끼운 격자도 캐시(격자 키 + 내 칸 + 반짝임): 분석 표 숫자(data-eq)로 격자 문자열이 길어져 정규식 바꾸기가 결정마다 돌던 비용을 없앤다
+    var hgk = (hc && model.key) ? model.key + ((ana && ana.ok) ? '|ga|' + ana.key : '') + '#' + hc.r + ',' + hc.c + '#' + (o.flash === false ? 0 : 1) : null;
+    if (hgk && Object.prototype.hasOwnProperty.call(_heroGrid, hgk)) grid = _heroGrid[hgk];
+    else if (hc) {
       // 내 손 칸(금테, 반짝임)과 같은 분류 칸(옅은 강조), 영역 경계 칸(rg + 변 클래스)은 캐시된 격자 문자열에 클래스만 끼운다
       grid = grid.replace(/<div class="gto-cell ([^"]*)" data-r="(\d+)" data-c="(\d+)"/g, function(all, cls, r, c) {
         r = +r; c = +c;
@@ -669,16 +720,20 @@ var GtoChart = (function() {
         if (add) return '<div class="gto-cell ' + cls + add + '" data-r="' + r + '" data-c="' + c + '"';
         return all;
       });
+      if (hgk) {
+        if (++_heroGridN > 300) { _heroGrid = {}; _heroGridN = 1; }
+        _heroGrid[hgk] = grid;
+      }
     }
     // 내 칸이 보이면 격자에 has-hero와 내 칸 좌표(css가 금색 줄과 칸 안내선을 그린다), 범례에 안내 1줄
     // (n3-B) 보기: 칩 줄 + 격자와 범례의 gv-raise, gv-call 클래스(전체 보기는 클래스 없음, 칩을 누르면 _applyBar가 클래스만 바꾼다). o.view가 있으면 그 보기(테스트)
-    var vw = effView(model, o.view || _savedView());
     var gvc = vw === 'all' ? '' : ' gv-' + vw;
-    var gridAttr = (hc ? ' has-hero' + gvc + '" style="--hr:' + hc.r + ';--hc:' + hc.c + '"' : gvc + '"') + ' data-gvt="1"';
+    var gridAttr = (hc ? ' has-hero' + gvc + '" style="--hr:' + hc.r + ';--hc:' + hc.c + '"' : gvc + '"') + ' data-gvt="1"' + _gaAttrs(ana);
     var heroNote = hc ? '<span class="gto-lg-note gto-lg-hero">금색 선 = 내 손의 줄과 칸' +
       (rg ? ', ' + (rg.action === 'call' ? '진한 윤곽' : '흰 윤곽') + ' = 내 손이 속한 ' + (rg.action === 'call' ? callWord(model) : '레이즈') + ' 영역(' + rg.size + '칸)' : '') + '</span>' : '';
-    return head + viewChipsHTML(model, vw) +
-      '<div class="gto-chart-grid' + gridAttr + ' role="img" aria-label="' + _esc((o.seatLabel ? seatContextText(model) : contextText(model)) + ' 레인지 차트 13x13') + '">' + grid + '</div>' + viewStatHTML(model, vw) +
+    return head + viewChipsHTML(model, vw, ana) +
+      '<div class="gto-chart-grid' + gridAttr + ' role="img" aria-label="' + _esc((o.seatLabel ? seatContextText(model) : contextText(model)) + ' 레인지 차트 13x13') + '">' + grid + '</div>' + viewStatHTML(model, vw, ana) +
+      _anaPanelHTML(model, ana, hc, vw) + _extraHTML(o) +
       '<div class="gto-chart-legend' + gvc + '" data-gvt="1">' + legendHTML(model) + heroNote + '</div>' +
       stripHTML(model, heroPos, o.viewPos || null) +
       footHTML();
@@ -727,7 +782,8 @@ var GtoChart = (function() {
     if (empty) return head + empty + stripHTML(model, model.pos, null) + footHTML();
     var ae = op.hl ? actionEdges(model, op.hl) : null;
     var hc = (hand && hand.r != null && hand.c != null) ? hand : null;
-    var grid = gridHTML(model);
+    var ana = _anaOf(model, o.ana || {});   // (n4-G2) 그 자리가 마주한 상대 범위 기준 승률
+    var grid = gridHTML(model, (ana && ana.ok) ? ana.ga : null);
     if ((ae && ae.size) || hc) {
       grid = grid.replace(/<div class="gto-cell ([^"]*)" data-r="(\d+)" data-c="(\d+)"/g, function(all, cls, r, c) {
         var add = '', e = ae ? ae.edges[r + ',' + c] : null;
@@ -736,15 +792,155 @@ var GtoChart = (function() {
         return add ? '<div class="gto-cell ' + cls + add + '" data-r="' + r + '" data-c="' + c + '"' : all;
       });
     }
-    var vw = effView(model, o.view || _savedView());
+    var vw = effView(model, o.view || _savedView(), ana);
     var gvc = vw === 'all' ? '' : ' gv-' + vw;
     var notes = (op.legend || []).map(function(t) { return '<span class="gto-lg-note gto-lg-opp">' + _esc(t) + '</span>'; }).join('');
-    return head + viewChipsHTML(model, vw) +
-      '<div class="gto-chart-grid' + gvc + '" data-gvt="1" role="img" aria-label="' + _esc(seatContextText(model) + ' 레인지 차트 13x13, ' + (op.head || '')) + '">' + grid + '</div>' +
-      viewStatHTML(model, vw) +
+    return head + viewChipsHTML(model, vw, ana) +
+      '<div class="gto-chart-grid' + gvc + '" data-gvt="1"' + _gaAttrs(ana) + ' role="img" aria-label="' + _esc(seatContextText(model) + ' 레인지 차트 13x13, ' + (op.head || '')) + '">' + grid + '</div>' +
+      viewStatHTML(model, vw, ana) + _anaPanelHTML(model, ana, null, vw) + _extraHTML(o) +
       '<div class="gto-chart-legend' + gvc + '" data-gvt="1">' + legendHTML(model) + notes + '</div>' +
       stripHTML(model, model.pos, null) + footHTML();
   }
+  // ── (n4-G2) 분석 보기 조각 ──
+  // 격자 속성: 말풍선이 같은 표와 필요 승률로 문장을 만들 수 있게(표 키, 필요 승률, 그 출처, 상대 범위 문구, 라벨)
+  function _gaAttrs(ana) {
+    if (!ana || !ana.ok) return '';
+    return ' data-ga-k="' + _esc(ana.key) + '" data-ga-n="' + (ana.need != null ? ana.need : '') + '" data-ga-nr="' + _esc(ana.needRef || '') + '"' +
+      ' data-ga-vs="' + _esc(ana.vs) + '" data-ga-ref="' + _esc(ana.ref) + '"' + (ana.allIn ? ' data-ga-ai="1"' : '');
+  }
+  // 폴드 칸 등급 표시: '밖' 한 글자는 초보가 뜻을 모르니 '범위 밖'으로(RangeRisk.LEVEL_NAME은 그대로, 화면 글만)
+  function _foldLevel(nm) { return nm === '밖' ? '범위 밖' : nm; }
+  // 상대 범위 문구를 '본문'과 '괄호 덧말'로 나눈다: 'CO 오픈 범위 상대(CO 기준)' → ['CO 오픈 범위 상대', '(CO 기준)']
+  function _vsSplit(vs) { var m = /^(.*?)\s*(\([^()]*\))?$/.exec(String(vs || '')); return [m ? m[1] : String(vs || ''), (m && m[2]) || '']; }
+  // 읽기 줄 꼬리(분석 보기에서만 css가 보인다): ', 승률 54%, 핵심 콜'. 내 칸이 없거나(가림) 표가 없으면 ''
+  function _tailHTML(model, ana, hc, vw) {
+    if (!ana || !ana.ok || !hc || typeof RangeRisk === 'undefined' || !RangeRisk) return '';
+    var x = null;
+    try { x = RangeRisk.cell(model, hc.r, hc.c, ana.key, { need: ana.need, needRef: ana.needRef, vs: ana.vs, allIn: ana.allIn }); } catch (e) { x = null; }
+    if (!x || x.eq == null || x.level == null) return '';
+    var nm = x.action === 'fold' ? _foldLevel(x.levelName) : x.levelName + ' ' + RangeRisk.actionWord(model, x.action);
+    return '<span class="ga-tail' + (vw === 'analysis' ? ' gv-analysis' : '') + '" data-gvt="1">, 승률 ' + x.eq + '%, ' + _esc(nm) + '</span>';
+  }
+  // 분석 패널 재료 등록부(분석 보기가 나중에 켜질 때 _fillAnalysis가 채운다). 64개를 넘으면 비운다
+  //   패널(요약 줄 + 곡선)은 분석 보기일 때만 만든다: 첫 요약은 표마다 살아 있는 상대 콤보를 세어 PC 수 ms(폰 x4)라 결정 경로에서 뺀다
+  var _gaRegs = {}, _gaRegN = 0, _gaSeq = 0;
+  function _gaReg(model, ana, hc) {
+    if (!model.key && !model._gaId) model._gaId = 'm' + (++_gaSeq);
+    var id = (model.key || model._gaId) + '|' + ana.key + '|' + (hc ? hc.r + ',' + hc.c : '') + '|' + (ana.need != null ? Math.round(ana.need * 1000) : '') + '|' + (ana.needRef || '') + (ana.allIn ? '|ai' : '');
+    if (!Object.prototype.hasOwnProperty.call(_gaRegs, id)) {
+      // 등록부를 비우면 캐시된 상대 차트 본문의 data-ga-id가 고아가 되어 패널이 영영 비므로 그 캐시도 같이 비운다
+      if (++_gaRegN > 64) { _gaRegs = {}; _gaRegN = 1; _htmlCache = {}; _htmlCacheN = 0; }
+      _gaRegs[id] = { model: model, key: ana.key, hc: hc || null, need: ana.need, needRef: ana.needRef, allIn: !!ana.allIn, vs: ana.vs, ref: ana.ref, note: ana.note || '', inner: null };
+    }
+    return id;
+  }
+  // (n4 검증) 폭은 처음과 화면 크기가 바뀔 때만 읽는다: 칩 누름으로 막 바뀐 DOM 뒤 window.innerWidth 읽기가 스타일과 레이아웃을 강제했다
+  //   (412x915, CPU 4배 실측: 📈 분석 첫 누름 동기 시간 중 13ms)
+  var _nw = null;
+  function _narrow() {
+    try {
+      if (typeof window === 'undefined') return false;
+      if (_nw == null) {
+        _nw = window.innerWidth || 999;
+        if (typeof window.addEventListener === 'function') window.addEventListener('resize', function() { _nw = null; });
+      }
+      return _nw <= 360;
+    } catch (e) { return false; }
+  }
+  var CURVE_CAP = '점 색은 차트 액션이에요. 폴드 점이 범위 안 점보다 위에 있는 곳이 "승률은 되지만 접는 손"이에요';
+  // 레인지 곡선 SVG(SvgCharts.rangeCurve, ui/svg-charts.js, typeof 가드). need는 0~100(곡선 y와 같은 단위). 없으면 ''
+  function _curveHTML(g) {
+    if (!g || typeof SvgCharts === 'undefined' || !SvgCharts || typeof SvgCharts.rangeCurve !== 'function' || typeof RangeRisk === 'undefined' || !RangeRisk) return '';
+    var svg = '';
+    try { svg = SvgCharts.rangeCurve(RangeRisk.points(g.model, g.key, g.hc), { need: g.need != null ? Math.round(g.need * 1000) / 10 : null, compact: _narrow(), note: CURVE_CAP }) || ''; } catch (e) { svg = ''; }
+    return svg ? svg + (svg.indexOf('승률은 되지만 접는 손') < 0 ? '<div class="ga-curve-cap">' + _esc(CURVE_CAP) + '</div>' : '') : '';
+  }
+  // 패널 안쪽(요약 줄 + 라벨, 상대 범위 설명, 필요 승률, 함정 줄, 팟 오즈 줄, 곡선, 공통 한 줄, 3.5절 3번, 3.6절 7번). 등록부에 캐시
+  function _panelInner(id) {
+    var g = _gaRegs[id];
+    if (!g || typeof RangeRisk === 'undefined' || !RangeRisk) return '';
+    if (g.inner != null) return g.inner;
+    var sm = null;
+    try { sm = RangeRisk.summary(g.model, g.key, { need: g.need, vs: g.vs, allIn: g.allIn }); } catch (e) { sm = null; }
+    if (!sm || !sm.lines || !sm.lines.length) return '';
+    var lb = g.ref === 'engine' ? '<span class="ga-lb is-exact">엔진 계산</span>' : '<span class="ga-lb is-approx">참고</span>';
+    var body = '<div class="ga-sum">' + _esc(sm.lines[0]) + ' ' + lb + '</div>';
+    if (g.note) body += '<div class="ga-note">' + _esc(g.note) + '</div>';
+    if (g.need != null) body += '<div class="ga-sub">' + _esc('지금 콜만 보면 필요 승률 ' + Math.round(g.need * 100) + '%(' + (g.needRef === 'engine' ? '엔진 계산' : '참고, 표준 크기 기준') + ')') + '</div>';
+    for (var i = 1; i < sm.lines.length - 1; i++) body += '<div class="ga-sub">' + _esc(sm.lines[i]) + '</div>';
+    g.inner = body + '<div class="ga-curve">' + _curveHTML(g) + '</div>' + '<div class="ga-common">' + _esc(sm.lines[sm.lines.length - 1]) + '</div>';
+    return g.inner;
+  }
+  // 분석 보기로 바뀐 상자(문서 또는 root) 안의 빈 패널을 채운다. 채운 수
+  function _fillAnalysis(root) {
+    var r = root || _doc();
+    if (!r || !r.querySelectorAll) return 0;
+    var els = r.querySelectorAll('.ga-panel[data-ga-id]'), n = 0;
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].innerHTML) continue;
+      var h = _panelInner(els[i].getAttribute('data-ga-id'));
+      if (h) { els[i].innerHTML = h; n++; }
+    }
+    return n;
+  }
+  // 분석 패널 자리(격자 아래, 분석 보기에서만 보인다). 분석 보기가 아니면 빈 자리(data-ga-id)만 두고 칩을 누를 때 채운다
+  function _anaPanelHTML(model, ana, hc, vw) {
+    if (!ana || !ana.ok || typeof RangeRisk === 'undefined' || !RangeRisk) return '';
+    var id = _gaReg(model, ana, hc), on = vw === 'analysis', g = _gaRegs[id];
+    // 분석 보기여도 처음 만드는 패널은 다음 프레임에 채운다(결정 동기 블록 밖, 6.5절). rAF가 없으면(node 러너) 바로
+    var inner = !on ? '' : (g && g.inner != null) ? g.inner : (_fillLater() ? '' : _panelInner(id));
+    return '<div class="ga-panel' + (on ? ' gv-analysis' : '') + '" data-gvt="1" data-ga-id="' + _esc(id) + '">' + inner + '</div>';
+  }
+  var _fillPending = false;
+  // root를 주면(문서 밖 상자, 학습실이나 테스트 가짜 상자) 다음 프레임에 그 상자도 채운다
+  var _fillRoots = [];
+  function _fillLater(root) {
+    var raf = (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') ? window.requestAnimationFrame : null;
+    if (!raf) return false;
+    if (root && root !== _doc() && _fillRoots.indexOf(root) < 0) _fillRoots.push(root);
+    if (!_fillPending) {
+      _fillPending = true;
+      raf(function() {
+        _fillPending = false;
+        var rs = _fillRoots; _fillRoots = [];
+        try { _fillAnalysis(null); } catch (e) {}
+        rs.forEach(function(r) { try { _fillAnalysis(r); } catch (e) {} });
+      });
+    }
+    return true;
+  }
+  // 분석 보기 칸 말풍선(RangeRisk.cell 문장). g = 격자 속성에서 읽은 { key, need, needRef, vs, ref }. 자료 없으면 null(보통 말풍선)
+  function _anaBubbleHTML(model, r, c, g) {
+    if (!g || !g.key || typeof RangeRisk === 'undefined' || !RangeRisk) return null;
+    var x = null;
+    try { x = RangeRisk.cell(model, r, c, g.key, { need: g.need, needRef: g.needRef, vs: g.vs, allIn: g.allIn }); } catch (e) { x = null; }
+    if (!x || x.eq == null || x.level == null) return null;
+    var aw = RangeRisk.actionWord(model, x.action);
+    var title = x.label + ': ' + x.vs + ' 상대 승률 ' + x.eq + '%';
+    var bot = x.rank ? Math.max(1, Math.round((x.of - x.rank + 1) / x.of * 100)) : null;
+    var where = x.rank === 1 ? '승률 1등' : x.pct >= 50 ? '승률 상위 ' + x.top + '%' : '승률 하위 ' + bot + '%';
+    var l2 = (x.action === 'fold' ? '폴드 칸, ' + _foldLevel(x.levelName) : aw + ' 칸 가운데 ' + where + ', ' + x.levelName + ' ' + aw) + '(이 앱 차트 기준)';
+    var lines = x.text.slice();
+    if (x.needText) lines.push(x.needText);
+    var cell = model.cells[r][c], mx = mixOf(cell);
+    var sw = mx ? '<span class="gto-sw gto-mix" style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" aria-hidden="true"></span>' : swatch(cell.action);
+    var tag = (g.ref === 'engine' ? '승률 엔진 계산' : '승률 참고') + ', 액션 이 앱 차트 기준, 콤보 ' + cellWeight(r, c) + '개';
+    return '<div class="gto-bubble ga-bubble" role="dialog" aria-label="' + _esc(title) + '">' +
+      '<button type="button" class="gto-bubble-close" aria-label="설명 닫기">✕</button>' +
+      '<div class="gto-bubble-top">' + sw + '<b>' + _esc(title) + '</b></div>' +
+      '<div class="gto-bubble-act ga-bub-lv">' + _esc(l2) + '</div>' +
+      lines.map(function(w) { return '<div class="gto-bubble-why">' + _esc(w) + '</div>'; }).join('') +
+      '<div class="gto-bubble-tag">' + _esc(tag) + '</div></div>';
+  }
+  function _gaFromGrid(grid) {
+    if (!grid || !grid.getAttribute || !grid.classList || !grid.classList.contains('gv-analysis')) return null;
+    var k = grid.getAttribute('data-ga-k');
+    if (!k) return null;
+    var n = parseFloat(grid.getAttribute('data-ga-n'));
+    return { key: k, need: isFinite(n) ? n : null, needRef: grid.getAttribute('data-ga-nr') || null, vs: grid.getAttribute('data-ga-vs') || '', ref: grid.getAttribute('data-ga-ref') || '', allIn: grid.getAttribute('data-ga-ai') === '1' };
+  }
+  // (n4-P0, 설계 4.4절 4번) 좌석 시트 블록 자리: seatView의 sit.extra(G3가 만든 HTML, 이미 이스케이프된 것)를 격자 아래 요약 줄 뒤에 그대로 둔다. 없으면 ''
+  function _extraHTML(o) { return (o && typeof o.extra === 'string' && o.extra) ? '<div class="gto-seat-extra">' + o.extra + '</div>' : ''; }
   // 표준 티어 차트(키 'std|')의 3벳 블러프 후보 한 줄(설계 원문 4절 5번, 참고): GtoStd.bluffHints. 입문 차트와 오픈 차트는 빈 문자열
   function _bluffHTML(model) {
     if (!model || !/^std\|/.test(String(model.key || '')) || typeof GtoStd === 'undefined' || !GtoStd || typeof GtoStd.bluffHints !== 'function') return '';
@@ -853,6 +1049,10 @@ var GtoChart = (function() {
     } catch (e) { return ''; }
   }
 
+  // ── (n4-P0) 하단 바 후보: NextBar.BARS(액션바, 다음 바, 결과바, ui/next-bar.js 공통 상수). 없으면 예전 2개 ──
+  function _barIds() {
+    return (typeof NextBar !== 'undefined' && NextBar && Array.isArray(NextBar.BARS)) ? NextBar.BARS : ['action-bar', 'result-actions-bar'];
+  }
   // ── 폰 하단 시트(이 모듈이 만든다) ──
   // 요소는 createElement로 만들어 참조를 쥔다(querySelector 없는 node 러너에서도 같은 경로가 돈다)
   function _ensureSheet() {
@@ -879,12 +1079,17 @@ var GtoChart = (function() {
     var body = mk('div', 'gto-sheet-body');
     // (n2b) 시트가 도크 위 액션 로그 줄과 ⏩ 속도 버튼을 덮으므로 손잡이 아래에 같은 줄(HandLogUI가 채우고 누름도 받는다, css/pace.css)
     var log = mk('div', 'hl-mirror gto-sheet-log', { role: 'group', 'aria-label': '이번 핸드 액션 기록과 속도' });
+    // (n4-P0, 설계 1.4절 1번) 머리줄 오른쪽 끝 닫기 버튼(72x48, 글자와 아이콘, css/next-bar.css .sheet-close). 차트 시트는 접기(peek) 토글
+    var close = mk('button', 'sheet-close gto-sheet-close', { type: 'button', 'aria-label': '차트 닫기' });
+    close.innerHTML = CLOSE_HTML.close;
+    close.addEventListener('click', function(e) { if (e && e.stopPropagation) e.stopPropagation(); _setPeek(!_peek, false); });
     root.appendChild(handle);
+    root.appendChild(close);
     root.appendChild(log);
     root.appendChild(body);
     var parent = (d.getElementById && d.getElementById('screen-game')) || d.body;
     if (parent && parent.appendChild) parent.appendChild(root);
-    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow, log: log, title: title };
+    _sheet = { root: root, handle: handle, body: body, ctx: ctx, arrow: arrow, log: log, title: title, close: close };
     if (typeof HandLogUI !== 'undefined' && HandLogUI && typeof HandLogUI.render === 'function') { try { HandLogUI.render(); } catch (e) { /* 줄 사본은 다음 그리기에 */ } }
     _bindHandle(handle, root);
     _watchBars(d);
@@ -898,13 +1103,23 @@ var GtoChart = (function() {
     if (_obsBound || typeof window === 'undefined') return;
     _obsBound = true;
     try {
-      var bars = ['action-bar', 'result-actions-bar'].map(function(id) { return d.getElementById ? d.getElementById(id) : null; }).filter(Boolean);
+      var bars = _barIds().map(function(id) { return d.getElementById ? d.getElementById(id) : null; }).filter(Boolean);
       if (typeof ResizeObserver !== 'undefined') { var ro = new ResizeObserver(_replace); bars.forEach(function(b) { ro.observe(b); }); }
       if (typeof MutationObserver !== 'undefined') { var mo = new MutationObserver(_replace); bars.forEach(function(b) { mo.observe(b, { attributes: true, attributeFilter: ['style'] }); }); }
     } catch (e) {}
   }
-  // 손잡이: 탭이면 접기/펼치기, 아래로 60px 이상 끌면 접기, 접힌 상태에서 위로 끌면 펼치기
+  // 손잡이: 탭이면 접기/펼치기, 아래로 끌면 접기, 접힌 상태에서 위로 끌면 펼치기
+  //   (n4-P0) 공용 도우미 SheetGesture(ui/sheet-gesture.js, 72px 또는 0.5px/ms, 머리줄 48px)를 쓴다. 없으면(예전 로드 순서) 아래 예전 판정(60px, 40px)
   function _bindHandle(handle, root) {
+    if (typeof SheetGesture !== 'undefined' && SheetGesture && typeof SheetGesture.bind === 'function') {
+      SheetGesture.bind(root, handle, {
+        isPeek: function() { return _peek; }, peekPx: SHEET_HEAD_PX,
+        onTap: function() { _setPeek(!_peek, false); },
+        onClose: function() { _setPeek(true, false); },   // 손으로 접고 펼친 것은 사용자 뜻(자동 펼침 대상 아님)
+        onOpen: function() { _setPeek(false, false); }
+      });
+      return;
+    }
     var y0 = null, dy = 0, moved = false;
     function onDown(e) {
       y0 = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
@@ -917,7 +1132,7 @@ var GtoChart = (function() {
       dy = y - y0;
       if (Math.abs(dy) > 6) moved = true;
       if (!_peek && dy > 0) root.style.transform = 'translateY(' + dy + 'px)';
-      else if (_peek && dy < 0) root.style.transform = 'translateY(calc(100% - 44px + ' + dy + 'px))';
+      else if (_peek && dy < 0) root.style.transform = 'translateY(calc(100% - ' + SHEET_HEAD_PX + 'px + ' + dy + 'px))';
       if (moved && e.cancelable && e.preventDefault) e.preventDefault();
     }
     function onUp() {
@@ -944,6 +1159,11 @@ var GtoChart = (function() {
       handle.addEventListener('click', function() { if (!moved) _setPeek(!_peek, false); });
     }
   }
+  var SHEET_HEAD_PX = 48;   // (n4-P0) 시트 머리줄 높이(css/chart.css .gto-sheet-handle, .gto-sheet.peek와 같은 값)
+  var CLOSE_HTML = {   // (n4-P0) 닫기 버튼 글: 펼침이면 '✕ 닫기'(접기), 접힘이면 '▴ 열기'(펼치기)
+    close: '<span aria-hidden="true">✕</span><span class="sheet-close-t">닫기</span>',
+    open: '<span aria-hidden="true">▴</span><span class="sheet-close-t">열기</span>'
+  };
   // 접기 상태 바꾸기. auto = 결정 뒤 자동 접기(다음 결정에 다시 펼친다). 손으로 바꾼 것은 auto 거짓
   function _setPeek(on, auto) {
     _peek = !!on;
@@ -958,6 +1178,11 @@ var GtoChart = (function() {
       _sheet.handle.setAttribute('aria-label', _peek ? '차트 펼치기' : '차트 접기');
     }
     if (_sheet.arrow) _sheet.arrow.textContent = _peek ? '▴' : '▾';
+    if (_sheet.close) {
+      _sheet.close.setAttribute('aria-label', _peek ? '차트 펼치기' : '차트 닫기');
+      var ct = _peek ? CLOSE_HTML.open : CLOSE_HTML.close;
+      if (_sheet.close.innerHTML !== ct) _sheet.close.innerHTML = ct;
+    }
     // 접힌 시트는 안 보인 것이고 펼치면 보인 것(힌트 판정). 시트가 떠 있을 때만
     if (_sheetOn() && _isPhone()) _shown = !_peek;
     // (n3-C) 탭 대기 중이면 알약 자리(접힌 손잡이 위)와 글(차트가 보이면 '행동 보기', '다음 차트')을 다시 맞춘다
@@ -997,7 +1222,7 @@ var GtoChart = (function() {
   function _placeSheet() {
     if (!_sheet || !_sheet.root || typeof window === 'undefined') return;
     var d = _doc(), bar = null;
-    ['action-bar', 'result-actions-bar'].forEach(function(id) {
+    _barIds().forEach(function(id) {
       var b = d && d.getElementById ? d.getElementById(id) : null;
       if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b;
     });
@@ -1049,10 +1274,12 @@ var GtoChart = (function() {
       s.cards = (sit.cards && sit.cards.length >= 2) ? sit.cards : null;
       s.street = SEAT_STREETS.indexOf(sit.street) >= 0 ? sit.street : 'preflop';
       s.opp = (sit.opp && typeof sit.opp === 'object') ? sit.opp : null;
+      s.extra = typeof sit.extra === 'string' ? sit.extra : '';   // (n4-P0, 설계 4.4절 4번) 격자 아래 요약 줄 뒤에 그리는 HTML(G3 좌석 시트 블록)
+      s.raiser = POS6.indexOf(sit.raiser) >= 0 ? sit.raiser : null;   // (n4-G2) 그 자리가 맞은 3벳, 4벳의 자리(분석 보기 상대 범위, 없으면 대표 자리)
     }
     var pp = (sit && typeof sit.persp === 'string') ? sit.persp : (o2 && typeof o2.persp === 'string') ? o2.persp : null;
-    var before = _seat ? modelKey(_seat.pos, _seat.facing, _seat.opener, _seat.limpers) + '#' + _seat.label + '#' + _seat.street + '#' + (_seat.opp ? _seat.opp.key : '') : '';
-    var after = s ? modelKey(s.pos, s.facing, s.opener, s.limpers) + '#' + s.label + '#' + s.street + '#' + (s.opp ? s.opp.key : '') : '';
+    var before = _seat ? modelKey(_seat.pos, _seat.facing, _seat.opener, _seat.limpers) + '#' + _seat.label + '#' + _seat.street + '#' + (_seat.opp ? _seat.opp.key : '') + '#' + (_seat.extra || '') + '#' + (_seat.raiser || '') : '';
+    var after = s ? modelKey(s.pos, s.facing, s.opener, s.limpers) + '#' + s.label + '#' + s.street + '#' + (s.opp ? s.opp.key : '') + '#' + (s.extra || '') + '#' + (s.raiser || '') : '';
     if (before === after && !!_seat === !!s) { if (pp != null) setPersp(pp); return false; }
     if (pp != null) _persp = pp;   // 곧 다시 그리므로 저장만
     if (s && sit.open && _autoPeek) { _peek = false; _autoPeek = false; }
@@ -1083,7 +1310,9 @@ var GtoChart = (function() {
     return false;
   }
   // 칸 말풍선: 손 분류와 이유(RangeNotes.explain, 없으면 액션만)
-  function bubbleHTML(model, r, c) {
+  //   (n4-G2) ga(분석 보기의 표 키와 필요 승률)가 있으면 RangeRisk 문장 말풍선
+  function bubbleHTML(model, r, c, ga) {
+    if (ga) { var ah = _anaBubbleHTML(model, r, c, ga); if (ah) return ah; }
     var cell = model.cells[r][c], mx = mixOf(cell);
     var ctx = { pos: model.pos, facing: model.facing, opener: model.opener, action: cell.action, limpers: model.limpers || 0, w: mx ? { raise: mx.raise, call: mx.call, fold: mx.fold } : null, std: /^std\|/.test(String(model.key || '')) };
     var ex = null;
@@ -1101,7 +1330,7 @@ var GtoChart = (function() {
     var combos = cellWeight(r, c);
     var sw = mx ? '<span class="gto-sw gto-mix" style="--wr:' + mx.wr + '%;--wc:' + mx.wc + '%" aria-hidden="true"></span>' : swatch(cell.action);
     return '<div class="gto-bubble" role="dialog" aria-label="' + _esc(title) + '">' +
-      '<button type="button" class="gto-bubble-close" aria-label="닫기">✕</button>' +
+      '<button type="button" class="gto-bubble-close" aria-label="설명 닫기">✕</button>' +
       '<div class="gto-bubble-top">' + sw + '<b>' + _esc(title) + '</b></div>' +
       why.map(function(w, i) { return '<div class="' + (i === why.length - 1 && why.length > 1 ? 'gto-bubble-act' : 'gto-bubble-why') + '">' + _esc(w) + '</div>'; }).join('') +
       '<div class="gto-bubble-tag">' + _esc(tagText) + ', 콤보 ' + combos + '개</div></div>';
@@ -1119,7 +1348,7 @@ var GtoChart = (function() {
     var model = _shownModel();
     if (!model || !_host) return;
     var wrap = _doc().createElement('div');
-    wrap.innerHTML = bubbleHTML(model, r, c);
+    wrap.innerHTML = bubbleHTML(model, r, c, _gaFromGrid(cellEl.parentNode));
     var b = wrap.firstChild;
     _host.appendChild(b);
     _bubbleAt = { r: r, c: c };
@@ -1135,6 +1364,8 @@ var GtoChart = (function() {
       var y = (r < 7) ? top + ch + 6 : top - bh - 6;
       if (y < 0) y = top + ch + 6;
       b.style.left = x + 'px'; b.style.top = y + 'px';
+      // (n4-G2) 분석 보기 말풍선은 줄이 많아 폰 시트 아래(액션바 뒤)로 잘릴 수 있다: 본문 안에서 말풍선이 다 보이게 스크롤(누름 처리라 결정 경로 밖)
+      if (b.scrollIntoView) b.scrollIntoView({ block: 'nearest' });
     } catch (e) {}
   }
   function _shownModel() {
@@ -1172,12 +1403,17 @@ var GtoChart = (function() {
     var hidden = !seat && guideHidden && street === 'preflop';
     var guide = (!seat && street !== 'preflop') ? _guideLine(state, guideHidden) : '';
     var op = (seat && !vp && seat.opp) ? seat.opp : null;   // (n3-C) 상대 차례 차트
-    var key = [model.key || '', vp || '', street, hidden ? 1 : 0, _handKey, guide, phone ? 'p' : 'd', _revealed ? 1 : 0, seat ? 's:' + seat.pos + ':' + seat.label + (op ? ':' + op.key : '') : ''].join('#');
+    var xtra = (seat && !vp && seat.extra) ? seat.extra : '';   // (n4-P0) 좌석 시트 블록(G3)
+    var key = [model.key || '', vp || '', street, hidden ? 1 : 0, _handKey, guide, phone ? 'p' : 'd', _revealed ? 1 : 0, seat ? 's:' + seat.pos + ':' + seat.label + (op ? ':' + op.key : '') + ':' + (seat.raiser || '') : '', xtra].join('#');
     if (key !== _lastKey || host !== _host) {
       var body = null, ck = op ? key + '#v' + _savedView() : null;
       if (ck && Object.prototype.hasOwnProperty.call(_htmlCache, ck)) body = _htmlCache[ck];
       if (body == null) {
-        body = _renderHTML(model, seat ? seat.cards : state.heroCards, { hidden: hidden, street: street, guide: guide, viewPos: vp, heroPos: base.pos, seatLabel: (seat && !vp) ? seat.label : null, opp: op });
+        // (n4-G2) 분석 재료: 내 차트는 프리플랍 결정 때 기억한 값, 다른 자리(좌석, 미리보기)는 표준 크기(참고)
+        var anaCtx = vp ? {} : seat ? { raiser: seat.raiser || null } : ((_cache && _cache.ana) || {});
+        // 포스트플랍에 보는 프리플랍 차트는 참고라 "지금 콜만 보면 필요 승률"(지난 프리플랍 팟 오즈)을 보이지 않는다(지금 결정으로 오해)
+        if (street !== 'preflop') anaCtx = { raiser: anaCtx.raiser || null, need: null };
+        body = _renderHTML(model, seat ? seat.cards : state.heroCards, { hidden: hidden, street: street, guide: guide, viewPos: vp, heroPos: base.pos, seatLabel: (seat && !vp) ? seat.label : null, opp: op, extra: xtra, ana: anaCtx });
         if (ck) {
           if (++_htmlCacheN > 48) { _htmlCache = {}; _htmlCacheN = 1; }
           _htmlCache[ck] = body;
@@ -1187,6 +1423,8 @@ var GtoChart = (function() {
       _lastBody = body;
       _lastKey = key; _host = host; _writes++; _bubbleAt = null;
       _bind(host);
+      // (n4-G2) 캐시에서 꺼낸 상대 차트 본문은 빈 분석 패널을 가질 수 있다: 분석 보기면 다음 프레임에 채운다
+      if (_savedView() === 'analysis' && body.indexOf('data-ga-id=') >= 0) _fillLater();
       // 새 손이나 새 스트리트면 본문 스크롤을 맨 위로(읽기 줄이 먼저 보이게). 같은 손 안의 공개, 미리보기는 자리를 지킨다
       var sk = _handKey + '#' + street + '#' + (vp || '') + (seat ? '#s' + seat.pos : '');   // 다른 자리로 바뀌면 읽기 줄이 먼저 보이게
       if (sk !== _scrollKey) {
@@ -1222,6 +1460,19 @@ var GtoChart = (function() {
     }
   }
 
+  // (n4-G2) 프리플랍 결정 순간의 분석 재료: 3벳, 4벳한 자리(state.lastRaiser의 자리)와 실제 팟 오즈(RangeRisk.need, 엔진 계산).
+  //   포스트플랍에도 같은 값을 쓴다(지난 프리플랍 결정 기준 차트라서). 콜할 돈이 없으면 need null(필요 승률 줄 없음)
+  function _anaCtxOf(state, heroPos, h, lim) {
+    var out = { raiser: null, need: null };
+    try {
+      var lr = state.lastRaiser, P = state.players || {};
+      out.raiser = (lr && lr !== 'Hero' && P[lr] && P[lr].pos) || null;
+      if (typeof RangeRisk !== 'undefined' && RangeRisk && typeof RangeRisk.need === 'function') {
+        out.need = RangeRisk.need({ pos: heroPos, facing: h.facing, opener: h.opener || null, limpers: lim || 0, name: 'Hero', raiser: out.raiser }, state);
+      }
+    } catch (e) { out.need = null; }
+    return out;
+  }
   // update(state, heroPos, opts). opts 불리언 = gtoMode(예전 호출). 객체 = { gtoMode, gtoRound, view, boss, el }
   function update(state, heroPos, opts) {
     if (typeof opts !== 'object' || opts === null) opts = { gtoMode: !!opts };
@@ -1241,7 +1492,8 @@ var GtoChart = (function() {
         if (h) {
           var lim = (h.facing === false && h.limpers > 0) ? h.limpers : 0;
           _cache = { pos: heroPos, facing: h.facing, opener: h.opener || null, limpers: lim,
-            model: want ? (_stdModel(state, heroPos) || cachedModel(heroPos, h.facing, h.opener || null, lim)) : null };
+            model: want ? (_stdModel(state, heroPos) || cachedModel(heroPos, h.facing, h.opener || null, lim)) : null,
+            ana: _anaCtxOf(state, heroPos, h, lim) };
         }
       }
     }
@@ -1321,7 +1573,7 @@ var GtoChart = (function() {
     try {
       if (_sheetOn() && _isPhone() && typeof window !== 'undefined') {
         var bar = null;
-        ['action-bar', 'result-actions-bar'].forEach(function(id) { var b = d.getElementById ? d.getElementById(id) : null; if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b; });
+        _barIds().forEach(function(id) { var b = d.getElementById ? d.getElementById(id) : null; if (b && b.style && b.style.display !== 'none' && b.offsetHeight > 0) bar = b; });
         var ih = window.innerHeight || 0, bottom = (bar && bar.getBoundingClientRect) ? Math.max(0, Math.round(ih - bar.getBoundingClientRect().top)) : 0;
         t.className += ' low';
         t.style.top = 'auto';
@@ -1349,8 +1601,8 @@ var GtoChart = (function() {
   // 로드 뒤 유휴 시간에 자주 쓰는 모델(오픈, vs 오픈)을 미리 만든다(약 60ms)
   function preheat() {
     POS6.forEach(function(p) {
-      cachedModel(p, false, null, 0);
-      cachedModel(p, true, null, 0);
+      _anaOf(cachedModel(p, false, null, 0), {});   // (n4-G2) 분석 재료도 같이(표마다 첫 분석은 PC 1~2ms)
+      _anaOf(cachedModel(p, true, null, 0), {});
     });
     cachedModel('BB', true, 'BTN', 0);
     cachedModel('BB', true, 'CO', 0);
@@ -1374,7 +1626,10 @@ var GtoChart = (function() {
       var t0 = Date.now();
       while (at < jobs.length) {
         var jb = jobs[at++];
-        try { cachedModel(jb[0], jb[1], jb[2], jb[3]); } catch (e) {}
+        try {
+          var pm = cachedModel(jb[0], jb[1], jb[2], jb[3]), pa = _anaOf(pm, {});   // (n4-G2) 분석 재료(위험도 분석, 표의 살아 있는 콤보 수)도 미리
+          if (pa && pa.ok && typeof RangeRisk !== 'undefined' && RangeRisk.liveCombos) RangeRisk.liveCombos(pa.key, 0, 0);
+        } catch (e) {}
         var left = (dl && typeof dl.timeRemaining === 'function') ? dl.timeRemaining() : 8 - (Date.now() - t0);
         if (left < 4) break;
       }
@@ -1406,6 +1661,9 @@ var GtoChart = (function() {
     // n3-B 보기 칩(학습실, 완전 분석도 쓴다)
     VIEWS: VIEWS.slice(), NO_CALL: NO_CALL, viewChips: viewChips, viewCount: viewCount, viewStat: viewStat, viewWord: viewWord, effView: effView,
     viewChipsHTML: viewChipsHTML, viewStatHTML: viewStatHTML, onViewChip: onViewChip, syncViews: syncViews, noCallWhy: noCallWhy,
+    // n4-G2 분석 보기(📈 분석): 재료, 곡선 채우기, 이유 글
+    anaOf: _anaOf, fillAnalysis: _fillAnalysis, _panelInner: _panelInner, ANA_WHY: ANA_WHY, _anaPanelHTML: _anaPanelHTML, _anaBubbleHTML: _anaBubbleHTML, _gaFromGrid: _gaFromGrid,
+    _barIds: _barIds, SHEET_HEAD_PX: SHEET_HEAD_PX,   // (n4-P0) 하단 바 후보(NextBar.BARS)와 시트 머리줄 높이
     // n3-B 임의 자리와 상황(히어로 좌석에 묶이지 않는 입구): 순수 normSituation, situationModel, chartHTML, 화면 seatView(sit | null)
     normSituation: normSituation, situationModel: situationModel, chartHTML: chartHTML, seatView: seatView,
     // n3-C 상대 차례 차트(OppChart): 알림, 관점 칩 줄, 보임 판정, 액션 칸 윤곽, 카드 글자
@@ -1415,7 +1673,7 @@ var GtoChart = (function() {
     _setPeek: function(on) { _setPeek(on, false); },   // 손잡이 탭과 같다(테스트용)
     _sheet: function() { return _sheet; },
     _state: function() { return { shown: _shown, peek: _peek, autoPeek: _autoPeek, revealed: _revealed, viewPos: _viewPos, seat: _seat ? { pos: _seat.pos, facing: _seat.facing, opener: _seat.opener, limpers: _seat.limpers, label: _seat.label } : null, writes: _writes, lastKey: _lastKey, persp: _persp, opp: !!(_seat && _seat.opp), cache: _cache ? { pos: _cache.pos, facing: _cache.facing, opener: _cache.opener, limpers: _cache.limpers } : null }; },
-    _reset: function() { _cache = null; _last = null; _lastKey = null; _host = null; _viewPos = null; _seat = null; _revealed = false; _handKey = null; _shown = false; _peek = false; _autoPeek = false; _bubbleAt = null; _writes = 0; _scrollKey = null; _persp = ''; _lastBody = ''; _htmlCache = {}; _htmlCacheN = 0; if (_sheet && _sheet.root && _sheet.root.style) _sheet.root.style.display = 'none'; }
+    _reset: function() { _cache = null; _last = null; _lastKey = null; _host = null; _viewPos = null; _seat = null; _revealed = false; _handKey = null; _shown = false; _peek = false; _autoPeek = false; _bubbleAt = null; _writes = 0; _scrollKey = null; _persp = ''; _lastBody = ''; _htmlCache = {}; _htmlCacheN = 0; _gaRegs = {}; _gaRegN = 0; if (_sheet && _sheet.root && _sheet.root.style) _sheet.root.style.display = 'none'; }
   };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
